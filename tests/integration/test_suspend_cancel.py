@@ -55,15 +55,13 @@ class TestSuspendResume:
         initiator = _client("coordinator")
         try:
             initiator.initialize()
-            _start_session(initiator, session_id)
+            session = _start_session(initiator, session_id)
 
-            suspend_ack = initiator.suspend_session(session_id, reason="maintenance")
-            assert suspend_ack.ok
+            # Exercise the session-level helpers (delegate to the client RPCs).
+            assert session.suspend(reason="maintenance").ok
+            assert session.resume(reason="back online").ok
 
-            resume_ack = initiator.resume_session(session_id, reason="back online")
-            assert resume_ack.ok
-
-            initiator.cancel_session(session_id, reason="test cleanup")
+            session.cancel(reason="test cleanup")
         finally:
             initiator.close()
 

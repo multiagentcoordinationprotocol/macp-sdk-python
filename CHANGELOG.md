@@ -14,6 +14,11 @@ runtime built with the suspend/cancel/supersede surface (>= 0.4.0).
   session to the non-terminal ``SESSION_STATE_SUSPENDED`` state (messages
   sent meanwhile are rejected with a non-OPEN error); resuming returns it to
   ``OPEN``.
+- **``BaseSession.suspend()`` / ``resume()``** — session-level convenience
+  helpers next to ``cancel()``, inherited by every mode helper
+  (``DecisionSession``, ``ProposalSession``, ``TaskSession``,
+  ``HandoffSession``, ``QuorumSession``). Delegate to the client RPCs with
+  the session's auth. Parity with ``macp-sdk-typescript``.
 - **``SessionLifecycle`` predicates** ``is_cancelled`` / ``is_suspended`` /
   ``is_resumed`` for the new ``CANCELLED`` / ``SUSPENDED`` / ``RESUMED``
   lifecycle events from ``WatchSessions``.
