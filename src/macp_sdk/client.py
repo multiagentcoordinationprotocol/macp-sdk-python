@@ -213,7 +213,7 @@ class MacpClient:
         root_certificates: bytes | None = None,
         default_timeout: float | None = None,
         client_name: str = "macp-sdk-python",
-        client_version: str = "0.3.0",
+        client_version: str = "0.4.0",
     ) -> None:
         if secure is None:
             secure = not allow_insecure
@@ -370,6 +370,13 @@ class MacpClient:
         timeout: float | None = None,
         raise_on_nack: bool = True,
     ) -> envelope_pb2.Ack:
+        """Terminate a session.
+
+        Since runtime 0.4.0 / macp-proto 0.1.3 an accepted cancellation
+        moves the session to ``SESSION_STATE_CANCELLED`` (previously
+        ``EXPIRED``) and surfaces an ``EVENT_TYPE_CANCELLED`` lifecycle
+        event. The returned ``Ack.session_state`` reflects ``CANCELLED``.
+        """
         auth_cfg = self._require_auth(auth)
         request_kwargs: dict[str, object] = {
             "session_id": session_id,
@@ -385,6 +392,66 @@ class MacpClient:
         try:
             response = self.stub.CancelSession(
                 core_pb2.CancelSessionRequest(**request_kwargs),
+                metadata=self._metadata(auth_cfg),
+                timeout=timeout or self.default_timeout,
+            )
+        except grpc.RpcError as rpc_err:
+            raise MacpTransportError(rpc_err.details() or str(rpc_err)) from rpc_err
+        ack = response.ack
+        if raise_on_nack and not ack.ok:
+            raise MacpAckError(self._failure_from_ack(ack))
+        return ack
+
+    def suspend_session(
+        self,
+        session_id: str,
+        *,
+        reason: str = "",
+        auth: AuthConfig | None = None,
+        timeout: float | None = None,
+        raise_on_nack: bool = True,
+    ) -> envelope_pb2.Ack:
+        """Suspend an open session (macp-proto 0.1.3 / runtime 0.4.0).
+
+        Moves the session to the non-terminal ``SESSION_STATE_SUSPENDED``
+        state and emits an ``EVENT_TYPE_SUSPENDED`` lifecycle event. While
+        suspended the runtime rejects messages sent to the session with a
+        non-OPEN error; call :meth:`resume_session` to return it to OPEN.
+        The returned ``Ack.session_state`` reflects ``SUSPENDED``.
+        """
+        auth_cfg = self._require_auth(auth)
+        try:
+            response = self.stub.SuspendSession(
+                core_pb2.SuspendSessionRequest(session_id=session_id, reason=reason),
+                metadata=self._metadata(auth_cfg),
+                timeout=timeout or self.default_timeout,
+            )
+        except grpc.RpcError as rpc_err:
+            raise MacpTransportError(rpc_err.details() or str(rpc_err)) from rpc_err
+        ack = response.ack
+        if raise_on_nack and not ack.ok:
+            raise MacpAckError(self._failure_from_ack(ack))
+        return ack
+
+    def resume_session(
+        self,
+        session_id: str,
+        *,
+        reason: str = "",
+        auth: AuthConfig | None = None,
+        timeout: float | None = None,
+        raise_on_nack: bool = True,
+    ) -> envelope_pb2.Ack:
+        """Resume a suspended session (macp-proto 0.1.3 / runtime 0.4.0).
+
+        Returns a ``SESSION_STATE_SUSPENDED`` session to
+        ``SESSION_STATE_OPEN`` and emits an ``EVENT_TYPE_RESUMED`` lifecycle
+        event. The returned ``Ack.session_state`` reflects ``OPEN``.
+        """
+        auth_cfg = self._require_auth(auth)
+        try:
+            response = self.stub.ResumeSession(
+                core_pb2.ResumeSessionRequest(session_id=session_id, reason=reason),
                 metadata=self._metadata(auth_cfg),
                 timeout=timeout or self.default_timeout,
             )
@@ -452,10 +519,11 @@ class MacpClient:
 
         The runtime emits an initial ``EVENT_TYPE_CREATED`` frame for every
         currently-open session, then live events as sessions transition
-        through ``CREATED``, ``RESOLVED``, and ``EXPIRED``. Each event
-        carries a full ``SessionMetadata`` (including ``context_id`` and
-        ``extension_keys``), so callers can project run state without a
-        follow-up ``get_session``.
+        through ``CREATED``, ``RESOLVED``, ``EXPIRED``, ``CANCELLED``, and
+        the non-terminal ``SUSPENDED`` / ``RESUMED`` pair (the latter three
+        since macp-proto 0.1.3). Each event carries a full
+        ``SessionMetadata`` (including ``context_id`` and ``extension_keys``),
+        so callers can project run state without a follow-up ``get_session``.
         """
         logger.debug("watch_sessions starting")
         auth_cfg = self._require_auth(auth)

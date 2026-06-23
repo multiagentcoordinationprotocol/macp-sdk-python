@@ -25,7 +25,9 @@ Integration and runtime smoke tests require a running MACP runtime — see `CLAU
 
 ## Bumping `macp-proto`
 
-The SDK pins `macp-proto` with a **tight upper bound** (currently `<0.2.0`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
+The SDK pins `macp-proto` with a **tight upper bound** (currently `>=0.1.3,<0.2.0`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
+
+> **0.1.3 note:** the floor is `0.1.3` because the SDK now uses the suspend/cancel/supersede surface (`SuspendSession`/`ResumeSession` RPCs, `SESSION_STATE_SUSPENDED`/`CANCELLED`, the `SUSPENDED`/`RESUMED`/`CANCELLED` lifecycle events, and `CommitmentPayload.supersedes`). 0.1.3's generated gRPC stubs also require **`grpcio>=1.81.1`**, so the `grpcio` floor moved in lockstep — bump both together.
 
 To move the pin:
 

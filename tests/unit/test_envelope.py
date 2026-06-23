@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from macp_sdk.envelope import (
     build_commitment_payload,
+    build_commitment_ref,
     build_envelope,
     build_progress_payload,
     build_root,
@@ -55,6 +56,22 @@ class TestBuildCommitmentPayload:
         )
         assert payload.action == "deploy"
         assert payload.commitment_id  # auto-generated
+
+    def test_supersedes_absent_by_default(self):
+        payload = build_commitment_payload(action="deploy", authority_scope="release", reason="r")
+        assert not payload.HasField("supersedes")
+
+    def test_supersedes_threads_commitment_ref(self):
+        ref = build_commitment_ref(session_id="s-prev", commitment_hash="abc123")
+        payload = build_commitment_payload(
+            action="deploy",
+            authority_scope="release",
+            reason="revising the prior call",
+            supersedes=ref,
+        )
+        assert payload.HasField("supersedes")
+        assert payload.supersedes.session_id == "s-prev"
+        assert payload.supersedes.commitment_hash == "abc123"
 
 
 class TestBuildEnvelope:

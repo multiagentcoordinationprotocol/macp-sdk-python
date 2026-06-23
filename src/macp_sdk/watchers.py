@@ -29,10 +29,13 @@ class PolicyChange:
 class SessionLifecycle:
     """A single session lifecycle event from ``WatchSessions``.
 
-    Runtime event types (per ``SessionLifecycleEvent.EventType``): ``CREATED``
-    on SessionStart acceptance (also emitted for pre-existing sessions at
-    subscribe time), ``RESOLVED`` on mode-determined terminal outcome,
-    ``EXPIRED`` on TTL expiry or explicit ``CancelSession``.
+    Runtime event types (per ``SessionLifecycleEvent.EventType``, since
+    macp-proto 0.1.3): ``CREATED`` on SessionStart acceptance (also emitted
+    for pre-existing sessions at subscribe time), ``RESOLVED`` on
+    mode-determined terminal outcome, ``EXPIRED`` on TTL/policy expiry,
+    ``CANCELLED`` on an accepted ``CancelSession`` (previously surfaced as
+    ``EXPIRED``), and the non-terminal pair ``SUSPENDED`` / ``RESUMED`` from
+    ``SuspendSession`` / ``ResumeSession``.
     """
 
     event_type: str = "UNSPECIFIED"
@@ -49,12 +52,31 @@ class SessionLifecycle:
 
     @property
     def is_expired(self) -> bool:
+        """``True`` only for TTL/policy expiry; explicit cancellation now
+        surfaces as ``CANCELLED`` — see ``is_cancelled``."""
         return self.event_type == "EXPIRED"
 
     @property
+    def is_cancelled(self) -> bool:
+        """``True`` for an accepted ``CancelSession`` (terminal)."""
+        return self.event_type == "CANCELLED"
+
+    @property
+    def is_suspended(self) -> bool:
+        """``True`` after ``SuspendSession`` — non-terminal; the session can
+        still ``RESUMED``."""
+        return self.event_type == "SUSPENDED"
+
+    @property
+    def is_resumed(self) -> bool:
+        """``True`` after ``ResumeSession`` returns a suspended session to OPEN."""
+        return self.event_type == "RESUMED"
+
+    @property
     def is_terminal(self) -> bool:
-        """``True`` for RESOLVED or EXPIRED — the session won't emit more events."""
-        return self.event_type in ("RESOLVED", "EXPIRED")
+        """``True`` for RESOLVED, EXPIRED, or CANCELLED — the session won't
+        emit more events. ``SUSPENDED`` / ``RESUMED`` are non-terminal."""
+        return self.event_type in ("RESOLVED", "EXPIRED", "CANCELLED")
 
 
 class ModeRegistryWatcher:
@@ -151,10 +173,11 @@ class SessionLifecycleWatcher:
 
     Wraps ``MacpClient.watch_sessions()`` and normalises each response into
     a ``SessionLifecycle`` record carrying the event type as a short
-    string (``CREATED`` / ``RESOLVED`` / ``EXPIRED``) and the full
-    ``SessionMetadata``. The runtime emits an initial CREATED event for
-    every already-open session at subscribe time, then live events
-    thereafter — see ``runtime/src/server.rs::watch_sessions``.
+    string (``CREATED`` / ``RESOLVED`` / ``EXPIRED`` / ``CANCELLED`` /
+    ``SUSPENDED`` / ``RESUMED``) and the full ``SessionMetadata``. The
+    runtime emits an initial CREATED event for every already-open session at
+    subscribe time, then live events thereafter — see
+    ``runtime/src/server.rs::watch_sessions``.
     """
 
     def __init__(self, client: MacpClient, *, auth: AuthConfig | None = None) -> None:

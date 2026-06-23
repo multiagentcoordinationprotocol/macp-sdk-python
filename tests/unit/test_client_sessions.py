@@ -99,6 +99,63 @@ class TestWatchSessions:
             list(client.watch_sessions())
 
 
+class TestSuspendResumeSession:
+    def test_suspend_sends_request_and_returns_ack(self):
+        client, stub = _client_with_stub()
+        ack = core_pb2.SuspendSessionResponse().ack
+        ack.ok = True
+        stub.SuspendSession.return_value = core_pb2.SuspendSessionResponse(ack=ack)
+
+        out = client.suspend_session("s1", reason="maintenance")
+
+        req = stub.SuspendSession.call_args.args[0]
+        assert isinstance(req, core_pb2.SuspendSessionRequest)
+        assert req.session_id == "s1"
+        assert req.reason == "maintenance"
+        assert out.ok
+
+    def test_resume_sends_request_and_returns_ack(self):
+        client, stub = _client_with_stub()
+        ack = core_pb2.ResumeSessionResponse().ack
+        ack.ok = True
+        stub.ResumeSession.return_value = core_pb2.ResumeSessionResponse(ack=ack)
+
+        out = client.resume_session("s1", reason="back online")
+
+        req = stub.ResumeSession.call_args.args[0]
+        assert isinstance(req, core_pb2.ResumeSessionRequest)
+        assert req.session_id == "s1"
+        assert req.reason == "back online"
+        assert out.ok
+
+    def test_suspend_nack_raises(self):
+        from macp_sdk.errors import MacpAckError
+
+        client, stub = _client_with_stub()
+        resp = core_pb2.SuspendSessionResponse()
+        resp.ack.ok = False
+        stub.SuspendSession.return_value = resp
+        with pytest.raises(MacpAckError):
+            client.suspend_session("s1", reason="x")
+
+    def test_resume_grpc_error_wrapped(self):
+        import grpc
+
+        class FakeRpcError(grpc.RpcError):
+            def details(self) -> str:
+                return "boom"
+
+        client, stub = _client_with_stub()
+        stub.ResumeSession.side_effect = FakeRpcError()
+        with pytest.raises(MacpTransportError):
+            client.resume_session("s1")
+
+    def test_suspend_requires_auth(self):
+        client = MacpClient(target="localhost:0", allow_insecure=True)
+        with pytest.raises(MacpSdkError, match="requires auth"):
+            client.suspend_session("s1")
+
+
 class TestSessionLifecycleWatcher:
     def test_maps_event_types_to_short_names(self):
         client = MagicMock()
@@ -115,6 +172,25 @@ class TestSessionLifecycleWatcher:
         assert out[1].is_resolved and out[1].is_terminal
         assert out[2].is_expired and out[2].is_terminal
         assert all(ev.observed_at_unix_ms == 42 for ev in out)
+
+    def test_maps_suspend_resume_cancel_event_types(self):
+        """macp-proto 0.1.3 events normalise to short names and predicates."""
+        client = MagicMock()
+        rs = _lifecycle_response(core_pb2.SessionLifecycleEvent.EVENT_TYPE_SUSPENDED, "s1")
+        rr = _lifecycle_response(core_pb2.SessionLifecycleEvent.EVENT_TYPE_RESUMED, "s1")
+        rc = _lifecycle_response(core_pb2.SessionLifecycleEvent.EVENT_TYPE_CANCELLED, "s1")
+        client.watch_sessions.return_value = iter([rs, rr, rc])
+
+        suspended, resumed, cancelled = list(SessionLifecycleWatcher(client).changes())
+
+        assert suspended.event_type == "SUSPENDED"
+        assert suspended.is_suspended and not suspended.is_terminal
+        assert resumed.event_type == "RESUMED"
+        assert resumed.is_resumed and not resumed.is_terminal
+        # CANCELLED is terminal and distinct from EXPIRED (the latent-bug fix).
+        assert cancelled.event_type == "CANCELLED"
+        assert cancelled.is_cancelled and cancelled.is_terminal
+        assert not cancelled.is_expired
 
     def test_watch_invokes_handler_per_event(self):
         client = MagicMock()
