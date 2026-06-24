@@ -27,6 +27,7 @@
       "payload_type": "Commitment",
       "payload": {
         "commitment_id": "c1",
+        "outcome_positive": true,
         "action": "handoff.accepted",
         "authority_scope": "test",
         "reason": "done",
