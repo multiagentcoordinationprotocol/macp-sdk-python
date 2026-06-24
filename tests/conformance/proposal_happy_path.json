@@ -49,6 +49,7 @@
       "payload_type": "Commitment",
       "payload": {
         "commitment_id": "c1",
+        "outcome_positive": true,
         "action": "proposal.accepted",
         "authority_scope": "test",
         "reason": "done",
@@ -64,7 +65,8 @@
   "expected_resolution": {
     "action": "proposal.accepted",
     "mode_version": "1.0.0",
-    "configuration_version": "cfg-1"
+    "configuration_version": "cfg-1",
+    "outcome_positive": true
   },
   "expected_mode_state": {
     "phase": "Committed",

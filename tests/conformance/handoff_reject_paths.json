@@ -54,8 +54,8 @@
         "content_type": "text/plain",
         "context": "late context"
       },
-      "expect": "reject",
-      "expected_error_code": "INVALID_ENVELOPE"
+      "expect": "accept",
+      "_comment": "RFC-MACP-0010 §2.1: late context after accept is permitted as supplementary documentation"
     }
   ],
   "expected_final_state": "Open",

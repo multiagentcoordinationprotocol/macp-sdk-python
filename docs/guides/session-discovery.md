@@ -57,14 +57,24 @@ for event in watcher.changes():
 ```
 
 `event.event_type` is a short string (`"CREATED"`, `"RESOLVED"`,
-`"EXPIRED"`). Convenience predicates:
+`"EXPIRED"`, and — since SDK 0.4.0 / `macp-proto 0.1.3` — `"CANCELLED"`,
+`"SUSPENDED"`, `"RESUMED"`). Convenience predicates:
 
 | Predicate | True for |
 |-----------|---------|
 | `event.is_created` | `CREATED` |
 | `event.is_resolved` | `RESOLVED` (Commitment accepted) |
-| `event.is_expired` | `EXPIRED` (TTL / CancelSession) |
-| `event.is_terminal` | `RESOLVED` or `EXPIRED` |
+| `event.is_expired` | `EXPIRED` (TTL / policy expiry) |
+| `event.is_cancelled` | `CANCELLED` (accepted `CancelSession`) |
+| `event.is_suspended` | `SUSPENDED` (non-terminal; `SuspendSession`) |
+| `event.is_resumed` | `RESUMED` (non-terminal; `ResumeSession`) |
+| `event.is_terminal` | `RESOLVED`, `EXPIRED`, or `CANCELLED` |
+
+> **Cancellation moved (SDK 0.4.0):** an accepted `CancelSession` now
+> surfaces as `CANCELLED`, not `EXPIRED`. `is_terminal` includes `CANCELLED`,
+> so loops that wait `until event.is_terminal` keep working — but switch any
+> code that special-cased `is_expired` to detect cancellation over to
+> `is_cancelled`. `SUSPENDED` / `RESUMED` are non-terminal.
 
 ### Startup snapshot semantics
 

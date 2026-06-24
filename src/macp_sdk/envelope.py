@@ -80,6 +80,17 @@ def _has_outcome_positive_field() -> bool:
     return any(f.name == "outcome_positive" for f in core_pb2.CommitmentPayload.DESCRIPTOR.fields)
 
 
+def _has_supersedes_field() -> bool:
+    """Check if the proto schema supports CommitmentPayload.supersedes (>=0.1.3)."""
+    return any(f.name == "supersedes" for f in core_pb2.CommitmentPayload.DESCRIPTOR.fields)
+
+
+def build_commitment_ref(*, session_id: str, commitment_hash: str) -> core_pb2.CommitmentRef:
+    """Build a ``CommitmentRef`` (macp-proto 0.1.3) pointing at a prior
+    commitment, for use as ``build_commitment_payload(supersedes=...)``."""
+    return core_pb2.CommitmentRef(session_id=session_id, commitment_hash=commitment_hash)
+
+
 def build_commitment_payload(
     *,
     action: str,
@@ -90,7 +101,15 @@ def build_commitment_payload(
     configuration_version: str = DEFAULT_CONFIGURATION_VERSION,
     policy_version: str = DEFAULT_POLICY_VERSION,
     outcome_positive: bool | None = None,
+    supersedes: core_pb2.CommitmentRef | None = None,
 ) -> core_pb2.CommitmentPayload:
+    """Build a ``CommitmentPayload``.
+
+    ``supersedes`` (macp-proto 0.1.3) optionally references a prior
+    commitment this one revises, as a ``CommitmentRef`` of
+    ``(session_id, commitment_hash)``. It is absent by default and unrelated
+    to proposal-mode ``supersedes_proposal_id``.
+    """
     if outcome_positive is None:
         outcome_positive = infer_outcome_positive(action)
     kwargs: dict[str, object] = dict(
@@ -104,6 +123,10 @@ def build_commitment_payload(
     )
     if _has_outcome_positive_field():
         kwargs["outcome_positive"] = outcome_positive
+    if supersedes is not None:
+        if not _has_supersedes_field():
+            raise MacpSessionError("CommitmentPayload.supersedes requires macp-proto >= 0.1.3")
+        kwargs["supersedes"] = supersedes
     return core_pb2.CommitmentPayload(**kwargs)
 
 

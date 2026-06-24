@@ -19,6 +19,7 @@ from .constants import (
 from .decision import DecisionSession
 from .envelope import (
     build_commitment_payload,
+    build_commitment_ref,
     build_envelope,
     build_progress_payload,
     build_root,
@@ -181,6 +182,7 @@ __all__ = [
     "TaskSession",
     "VotingRules",
     "build_commitment_payload",
+    "build_commitment_ref",
     "build_decision_policy",
     "build_envelope",
     "build_handoff_policy",

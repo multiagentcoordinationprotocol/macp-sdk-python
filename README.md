@@ -131,6 +131,7 @@ Business logic — voting rules, AI decision heuristics, policy enforcement — 
 
 - `GetSession` returns metadata only (not mode state/transcript) — hence the local projection pattern; use `StreamSession` + `send_subscribe` for the full transcript
 - `StreamSession` is scoped to one session per stream; use `MacpStream.send_subscribe(session_id)` (RFC-MACP-0006-A1, since SDK 0.2.3 / `macp-proto 0.1.2`) to replay accepted history before live broadcast
-- For cross-session observability, use `MacpClient.list_sessions()` and `SessionLifecycleWatcher` (SDK 0.3.0) to enumerate active sessions and stream `CREATED` / `RESOLVED` / `EXPIRED` lifecycle events
+- For cross-session observability, use `MacpClient.list_sessions()` and `SessionLifecycleWatcher` (SDK 0.3.0) to enumerate active sessions and stream `CREATED` / `RESOLVED` / `EXPIRED` / `CANCELLED` / `SUSPENDED` / `RESUMED` lifecycle events
+- Pause and cancel sessions with `MacpClient.suspend_session()` / `resume_session()` / `cancel_session()` (SDK 0.4.0 / `macp-proto 0.1.3`). A suspended session is non-terminal and rejects messages until resumed; an accepted `cancel_session()` now terminates as `CANCELLED` (previously surfaced as `EXPIRED`)
 - `ListRoots` currently returns an empty list and `WatchRoots` idles — the runtime does not yet populate roots
 - Business policy (majority, quorum, veto) belongs in your orchestrator/policy layer

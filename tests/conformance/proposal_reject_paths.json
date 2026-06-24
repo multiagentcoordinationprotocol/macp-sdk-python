@@ -16,6 +16,7 @@
       "payload_type": "Commitment",
       "payload": {
         "commitment_id": "c1",
+        "outcome_positive": true,
         "action": "proposal.accepted",
         "authority_scope": "test",
         "reason": "done",

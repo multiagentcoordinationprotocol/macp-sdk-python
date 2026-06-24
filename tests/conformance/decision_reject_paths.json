@@ -2,6 +2,7 @@
   "mode": "macp.mode.decision.v1",
   "initiator": "agent://orchestrator",
   "participants": [
+    "agent://orchestrator",
     "agent://a",
     "agent://b"
   ],
@@ -41,6 +42,7 @@
       "payload_type": "Commitment",
       "payload": {
         "commitment_id": "c1",
+        "outcome_positive": true,
         "action": "decision.selected",
         "authority_scope": "test",
         "reason": "done",
@@ -57,7 +59,7 @@
       "payload_type": "decision.Vote",
       "payload": {
         "proposal_id": "p1",
-        "vote": "approve",
+        "vote": "APPROVE",
         "reason": "good"
       },
       "expect": "accept"
@@ -82,7 +84,7 @@
     "votes": {
       "p1": {
         "agent://a": {
-          "vote": "approve"
+          "vote": "APPROVE"
         }
       }
     }

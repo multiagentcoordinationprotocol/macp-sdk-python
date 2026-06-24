@@ -122,6 +122,8 @@ class TestWatchSessions:
 
         event_types = [ev.event_type for ev in seen]
         assert "CREATED" in event_types, f"no CREATED event; saw {event_types!r}"
-        assert "EXPIRED" in event_types or "RESOLVED" in event_types, (
+        # Since macp-proto 0.1.3 an accepted CancelSession surfaces as CANCELLED
+        # (previously EXPIRED); accept any terminal event here.
+        assert {"CANCELLED", "EXPIRED", "RESOLVED"} & set(event_types), (
             f"no terminal event; saw {event_types!r}"
         )

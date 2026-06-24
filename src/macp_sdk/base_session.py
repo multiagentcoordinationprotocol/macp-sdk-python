@@ -163,8 +163,24 @@ class BaseSession(ABC):
         return self.client.get_session(self.session_id, auth=auth or self.auth)
 
     def cancel(self, *, reason: str = "", auth: AuthConfig | None = None) -> envelope_pb2.Ack:
-        """Cancel the session."""
+        """Cancel the session (terminates as ``CANCELLED`` since proto 0.1.3)."""
         return self.client.cancel_session(self.session_id, reason=reason, auth=auth or self.auth)
+
+    def suspend(self, *, reason: str = "", auth: AuthConfig | None = None) -> envelope_pb2.Ack:
+        """Suspend this session (proto 0.1.3+).
+
+        Moves it to the non-terminal ``SUSPENDED`` state; the runtime rejects
+        messages until :meth:`resume`. Delegates to
+        :meth:`MacpClient.suspend_session`.
+        """
+        return self.client.suspend_session(self.session_id, reason=reason, auth=auth or self.auth)
+
+    def resume(self, *, reason: str = "", auth: AuthConfig | None = None) -> envelope_pb2.Ack:
+        """Resume this suspended session (proto 0.1.3+), restoring ``OPEN``.
+
+        Delegates to :meth:`MacpClient.resume_session`.
+        """
+        return self.client.resume_session(self.session_id, reason=reason, auth=auth or self.auth)
 
     def open_stream(self, *, auth: AuthConfig | None = None) -> MacpStream:
         """Open a bidirectional stream for this session."""

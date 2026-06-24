@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.4.0 (2026-06-22)
+
+Adopt ``macp-proto 0.1.3`` — session **suspend / resume**, an explicit
+**cancelled** terminal state, and **superseding commitments**. Requires a
+runtime built with the suspend/cancel/supersede surface (>= 0.4.0).
+
+### Added
+
+- **``MacpClient.suspend_session()`` / ``resume_session()``** — wrap the new
+  ``SuspendSession`` / ``ResumeSession`` RPCs with the same auth/metadata and
+  ``raise_on_nack`` handling as ``cancel_session()``. Suspending moves a
+  session to the non-terminal ``SESSION_STATE_SUSPENDED`` state (messages
+  sent meanwhile are rejected with a non-OPEN error); resuming returns it to
+  ``OPEN``.
+- **``BaseSession.suspend()`` / ``resume()``** — session-level convenience
+  helpers next to ``cancel()``, inherited by every mode helper
+  (``DecisionSession``, ``ProposalSession``, ``TaskSession``,
+  ``HandoffSession``, ``QuorumSession``). Delegate to the client RPCs with
+  the session's auth. Parity with ``macp-sdk-typescript``.
+- **``SessionLifecycle`` predicates** ``is_cancelled`` / ``is_suspended`` /
+  ``is_resumed`` for the new ``CANCELLED`` / ``SUSPENDED`` / ``RESUMED``
+  lifecycle events from ``WatchSessions``.
+- **``build_commitment_ref()``** + a ``supersedes`` parameter on
+  ``build_commitment_payload()`` — author a ``CommitmentPayload`` that
+  revises a prior commitment via a ``CommitmentRef``
+  (``session_id`` + ``commitment_hash``). Unrelated to proposal-mode
+  ``supersedes_proposal_id``.
+
+### Changed
+
+- **Cancellation surfaces as ``CANCELLED``, not ``EXPIRED``** (semantic
+  shift). An accepted ``cancel_session()`` now terminates the session as
+  ``SESSION_STATE_CANCELLED`` and emits an ``EVENT_TYPE_CANCELLED`` event;
+  ``is_expired`` is now TTL/policy-expiry only. ``is_terminal`` includes
+  ``CANCELLED``, so terminal-wait loops are unaffected — but code that
+  special-cased ``is_expired`` to detect cancellation must switch to
+  ``is_cancelled``.
+- **Dependency floors** raised to ``macp-proto>=0.1.3`` and, because 0.1.3's
+  generated gRPC stubs require it, ``grpcio>=1.81.1``.
+
+### Fixed
+
+- **``SessionLifecycle.is_terminal`` now includes ``CANCELLED``** — a
+  consumer looping ``until event.is_terminal`` no longer hangs on a
+  cancelled session.
+
 ## 0.3.0 (2026-04-21)
 
 Session discovery surface: the SDK now wraps the runtime's

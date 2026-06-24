@@ -1,7 +1,11 @@
 {
   "mode": "ext.multi_round.v1",
   "initiator": "agent://coordinator",
-  "participants": ["agent://alice", "agent://bob"],
+  "participants": [
+    "agent://coordinator",
+    "agent://alice",
+    "agent://bob"
+  ],
   "mode_version": "1.0.0",
   "configuration_version": "cfg-1",
   "policy_version": "",
@@ -13,6 +17,7 @@
       "payload_type": "Commitment",
       "payload": {
         "commitment_id": "c1",
+        "outcome_positive": true,
         "action": "multi_round.converged",
         "authority_scope": "test",
         "reason": "done",
@@ -26,14 +31,18 @@
       "sender": "agent://alice",
       "message_type": "Contribute",
       "payload_type": "multi_round.Contribute",
-      "payload": { "value": "option_a" },
+      "payload": {
+        "value": "option_a"
+      },
       "expect": "accept"
     },
     {
       "sender": "agent://bob",
       "message_type": "Contribute",
       "payload_type": "multi_round.Contribute",
-      "payload": { "value": "option_a" },
+      "payload": {
+        "value": "option_a"
+      },
       "expect": "accept"
     },
     {
@@ -42,6 +51,7 @@
       "payload_type": "Commitment",
       "payload": {
         "commitment_id": "c1",
+        "outcome_positive": true,
         "action": "multi_round.converged",
         "authority_scope": "test",
         "reason": "done",

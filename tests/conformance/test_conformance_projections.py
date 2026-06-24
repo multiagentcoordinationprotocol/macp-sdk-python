@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
+from google.protobuf.descriptor import FieldDescriptor
 from macp.modes.decision.v1 import decision_pb2
 from macp.modes.handoff.v1 import handoff_pb2
 from macp.modes.proposal.v1 import proposal_pb2
@@ -68,12 +69,19 @@ def _build_payload(payload_type: str, payload_data: dict) -> bytes:
     cls = PAYLOAD_BUILDERS.get(payload_type)
     if cls is None:
         raise ValueError(f"Unknown payload_type: {payload_type}")
-    # Filter out keys that are not valid proto fields or need special handling
+    fields = cls.DESCRIPTOR.fields_by_name
+    # Build kwargs from the fixture payload, coercing JSON scalars to the proto
+    # field types. Fixtures are JSON, so `bytes` proto fields (e.g.
+    # HandoffContext.context, *_data/output) arrive as plain strings and must be
+    # UTF-8 encoded before construction. Repeated fields are skipped (the
+    # projections under test don't assert on them).
     filtered = {}
     for k, v in payload_data.items():
         if isinstance(v, list):
-            # Proto repeated bytes fields need special handling
             continue
+        field = fields.get(k)
+        if field is not None and field.type == FieldDescriptor.TYPE_BYTES and isinstance(v, str):
+            v = v.encode("utf-8")
         filtered[k] = v
     msg = cls(**filtered)
     return serialize_message(msg)
@@ -118,6 +126,9 @@ def test_projection_replay(name: str, fixture: dict):
     projection = projection_cls()
     session_id = "conformance-session"
 
+    # Replay only accepted messages (rejection is runtime-side). Reject-path
+    # fixtures still replay their accepted prefix, in lockstep with the
+    # TypeScript harness.
     accepted_count = 0
     for msg in fixture["messages"]:
         if msg.get("expect") != "accept":
@@ -126,26 +137,31 @@ def test_projection_replay(name: str, fixture: dict):
         projection.apply_envelope(envelope)
         accepted_count += 1
 
-    # Skip fixtures with only rejected messages (rejection is runtime-side)
-    if accepted_count == 0:
-        pytest.skip(f"No accepted messages in fixture {name} (reject-only fixture)")
-
     # Verify transcript was tracked
     assert len(projection.transcript) == accepted_count
 
-    # Verify commitment state matches expected
+    # Commitment presence is driven by the terminal state: Resolved ⇒ committed.
     expected_final = fixture.get("expected_final_state", "Open")
     if expected_final == "Resolved":
         assert projection.is_committed, f"Expected committed state for {name}"
         assert projection.commitment is not None
-
-        # Verify resolution fields if specified
-        expected_res = fixture.get("expected_resolution")
-        if expected_res:
-            if "action" in expected_res:
-                assert projection.commitment.action == expected_res["action"]
-            if "mode_version" in expected_res:
-                assert projection.commitment.mode_version == expected_res["mode_version"]
     else:
-        # For non-resolved states, verify no commitment
         assert not projection.is_committed, f"Expected non-committed state for {name}"
+
+    # Verify every scalar field of expected_resolution (incl. outcome_positive).
+    expected_res = fixture.get("expected_resolution") or {}
+    if expected_res:
+        assert projection.commitment is not None
+        for key, val in expected_res.items():
+            assert getattr(projection.commitment, key) == val, f"{name}: commitment.{key}"
+
+    # Verify mode-state phase and recorded votes when the fixture specifies them.
+    expected_mode_state = fixture.get("expected_mode_state") or {}
+    if "phase" in expected_mode_state:
+        assert projection.phase == expected_mode_state["phase"], f"{name}: phase"
+    if "votes" in expected_mode_state:
+        for proposal_id, by_sender in expected_mode_state["votes"].items():
+            for sender, record in by_sender.items():
+                assert projection.votes[proposal_id][sender].vote == record["vote"], (
+                    f"{name}: vote {proposal_id}/{sender}"
+                )

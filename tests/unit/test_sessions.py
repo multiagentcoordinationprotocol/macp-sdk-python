@@ -235,3 +235,50 @@ class TestQuorumSession:
         s.abstain("r1", sender="carol", auth=_auth("carol"))
         env = _sent_envelope(mock_client)
         assert env.message_type == "Abstain"
+
+
+class TestSessionLifecycleHelpers:
+    """``cancel`` / ``suspend`` / ``resume`` delegate to the client RPCs.
+
+    Defined on ``BaseSession`` so every mode helper inherits them — parity
+    with macp-sdk-typescript's session-level ``suspend()`` / ``resume()``.
+    """
+
+    SID = "00000000-0000-4000-8000-000000000001"
+
+    @pytest.mark.parametrize(
+        "factory",
+        [DecisionSession, ProposalSession, TaskSession, HandoffSession, QuorumSession],
+    )
+    def test_suspend_delegates_to_client(self, mock_client, factory):
+        session_auth = _auth("alice")
+        s = factory(mock_client, session_id=self.SID, auth=session_auth)
+        s.suspend(reason="maintenance")
+        mock_client.suspend_session.assert_called_once_with(
+            self.SID, reason="maintenance", auth=session_auth
+        )
+
+    @pytest.mark.parametrize(
+        "factory",
+        [DecisionSession, ProposalSession, TaskSession, HandoffSession, QuorumSession],
+    )
+    def test_resume_delegates_to_client(self, mock_client, factory):
+        session_auth = _auth("alice")
+        s = factory(mock_client, session_id=self.SID, auth=session_auth)
+        s.resume(reason="back online")
+        mock_client.resume_session.assert_called_once_with(
+            self.SID, reason="back online", auth=session_auth
+        )
+
+    def test_call_auth_overrides_session_auth(self, mock_client):
+        s = DecisionSession(mock_client, session_id=self.SID, auth=_auth("alice"))
+        override = _auth("bob")
+        s.suspend(auth=override)
+        mock_client.suspend_session.assert_called_once_with(self.SID, reason="", auth=override)
+
+    def test_no_session_auth_passes_none(self, mock_client):
+        # With no session auth, the helper passes auth=None and the client
+        # falls back to its own configured auth.
+        s = DecisionSession(mock_client, session_id=self.SID)
+        s.resume()
+        mock_client.resume_session.assert_called_once_with(self.SID, reason="", auth=None)

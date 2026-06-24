@@ -1,4 +1,4 @@
-.PHONY: help setup lint fmt typecheck test test-integration test-conformance test-all coverage build sync-fixtures dev-link-protos
+.PHONY: help setup lint fmt typecheck test test-integration test-conformance test-all coverage build sync-fixtures verify-fixtures dev-link-protos
 
 SPEC_CONFORMANCE_DIR := ../multiagentcoordinationprotocol/schemas/conformance
 
@@ -52,6 +52,30 @@ sync-fixtures:  ## Copy conformance fixtures from the spec repo into tests/confo
 		echo "  Copied $$(basename $$f)"; \
 	done
 	@echo "Done. Run 'git diff tests/conformance/' to review changes."
+
+verify-fixtures:  ## Fail if local fixtures drifted from canonical (CI drift gate).
+	@if [ ! -d "$(SPEC_CONFORMANCE_DIR)" ]; then \
+		echo "  verify-fixtures: spec repo not found at $(SPEC_CONFORMANCE_DIR)"; \
+		exit 1; \
+	fi
+	@drift=0; \
+	for f in $(SPEC_CONFORMANCE_DIR)/*.json; do \
+		b=$$(basename "$$f"); \
+		if ! diff -q "$$f" "tests/conformance/$$b" >/dev/null 2>&1; then \
+			echo "  DRIFT: tests/conformance/$$b differs from (or is missing vs) canonical"; drift=1; \
+		fi; \
+	done; \
+	for f in tests/conformance/*.json; do \
+		b=$$(basename "$$f"); \
+		if [ ! -f "$(SPEC_CONFORMANCE_DIR)/$$b" ]; then \
+			echo "  EXTRA: tests/conformance/$$b has no canonical source"; drift=1; \
+		fi; \
+	done; \
+	if [ $$drift -ne 0 ]; then \
+		echo "Conformance fixtures drifted from canonical. Run 'make sync-fixtures' and commit."; \
+		exit 1; \
+	fi; \
+	echo "All conformance fixtures match the canonical source."
 
 ## Install local proto package for development (test proto changes before publishing)
 dev-link-protos:  ## Install ../multiagentcoordinationprotocol/packages/proto-python in editable mode.
