@@ -2,11 +2,11 @@
 
 This page covers the SDK's security surface — TLS defaults, the `expected_sender` guardrail, and SDK-level retry behaviour for rate limits. The runtime is the source of truth for authentication, authorization, isolation, replay protection, rate limiting, and audit logging.
 
-- [Runtime API § Authentication](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#authentication)
-- [Runtime API § Rate Limiting](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#rate-limiting)
-- [Runtime Deployment § Authentication](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/deployment.md#authentication)
-- [Runtime Policy § Commitment authority](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md#commitment-authority)
-- Per-mode authorization rules: [Runtime Modes](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md)
+- [Runtime API § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#authentication)
+- [Runtime API § Rate Limiting](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#rate-limiting)
+- [Runtime Deployment § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#authentication)
+- [Runtime Policy § Commitment authority](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#commitment-authority)
+- Per-mode authorization rules: [Runtime Modes](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md)
 
 For the SDK-side `AuthConfig` API and identity-mismatch guardrail, see [Authentication](auth.md).
 
@@ -32,7 +32,7 @@ client = MacpClient(
 
 Passing `secure=False` without `allow_insecure=True` raises `MacpSdkError` so plaintext can never ship accidentally.
 
-For server-side TLS configuration (`MACP_TLS_CERT_PATH`, `MACP_TLS_KEY_PATH`), see [Runtime Deployment](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/deployment.md).
+For server-side TLS configuration (`MACP_TLS_CERT_PATH`, `MACP_TLS_KEY_PATH`), see [Runtime Deployment](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md).
 
 ## Sender identity guardrail
 
@@ -64,11 +64,11 @@ policy = RetryPolicy(
 retry_send(client, envelope, policy=policy, auth=auth)
 ```
 
-Limit defaults and environment variables: [Runtime API § Rate Limiting](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#rate-limiting).
+Limit defaults and environment variables: [Runtime API § Rate Limiting](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#rate-limiting).
 
 ## SDK-side production checklist
 
-Runtime-side hardening (TLS keys, audit logging, token storage, rate-limit tuning) is covered in [Runtime Deployment § Production checklist](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/deployment.md#production-checklist). The items below are SDK-specific:
+Runtime-side hardening (TLS keys, audit logging, token storage, rate-limit tuning) is covered in [Runtime Deployment § Production checklist](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#production-checklist). The items below are SDK-specific:
 
 - [ ] Use TLS (default since SDK 0.2.0) — never pass `allow_insecure=True` in prod
 - [ ] Set `expected_sender` on every `AuthConfig.for_bearer` call so sender spoofing fails fast (`MacpIdentityMismatchError`)

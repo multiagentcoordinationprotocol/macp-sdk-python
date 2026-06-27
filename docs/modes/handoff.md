@@ -6,7 +6,7 @@
 
 Transfer scoped responsibility or authority from one agent (current owner) to another (target participant).
 
-> **Runtime semantics:** the serial-offer constraint and late-context handling are defined in [Runtime Modes § Handoff Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#handoff-mode). This page covers the SDK API.
+> **Runtime semantics:** the serial-offer constraint and late-context handling are defined in [Runtime Modes § Handoff Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#handoff-mode). This page covers the SDK API.
 
 ## When to use
 
@@ -48,7 +48,7 @@ Commitment → RESOLVED
 
 ## Authorization & termination
 
-Per-message authorization (only the target can `Accept`/`Decline`) and commitment-readiness rules are defined in [Runtime Modes § Handoff Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#handoff-mode).
+Per-message authorization (only the target can `Accept`/`Decline`) and commitment-readiness rules are defined in [Runtime Modes § Handoff Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#handoff-mode).
 
 ## Session helper
 

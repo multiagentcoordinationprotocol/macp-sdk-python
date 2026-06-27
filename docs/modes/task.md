@@ -6,7 +6,7 @@
 
 Bounded task delegation from a requester to an assignee. The requester defines work; the assignee accepts, executes, and reports results.
 
-> **Runtime semantics:** assignment lifecycle, the `allow_reassignment_on_reject` policy rule, and terminal-report rules are defined in [Runtime Modes § Task Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#task-mode). This page covers the SDK API.
+> **Runtime semantics:** assignment lifecycle, the `allow_reassignment_on_reject` policy rule, and terminal-report rules are defined in [Runtime Modes § Task Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#task-mode). This page covers the SDK API.
 
 ## When to use
 
@@ -56,7 +56,7 @@ Commitment → RESOLVED
 
 ## Authorization & termination
 
-Per-message authorization and commitment-readiness rules are defined in [Runtime Modes § Task Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#task-mode). The runtime validates "active assignee" against the authenticated sender, not a payload field — spoofed assignees fail at transport.
+Per-message authorization and commitment-readiness rules are defined in [Runtime Modes § Task Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#task-mode). The runtime validates "active assignee" against the authenticated sender, not a payload field — spoofed assignees fail at transport.
 
 ## Session helper
 

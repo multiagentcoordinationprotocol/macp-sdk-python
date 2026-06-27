@@ -1,6 +1,6 @@
 site_name: MACP Python SDK
 site_description: Python SDK for the Multi-Agent Coordination Protocol
-repo_url: https://github.com/multiagentcoordinationprotocol/python-sdk
+repo_url: https://github.com/multiagentcoordinationprotocol/macp-sdk-python
 
 theme:
   name: material

@@ -1,6 +1,6 @@
 # Streaming
 
-The SDK supports several streaming patterns for real-time coordination. For the runtime side — `StreamSession` semantics, replay (`subscribe_session_id` / `after_sequence`), backpressure, and the watcher RPC contracts — see [Runtime SDK Guide § Streaming](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/sdk-guide.md#streaming) and [Runtime API § Streaming Watches](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#streaming-watches).
+The SDK supports several streaming patterns for real-time coordination. For the runtime side — `StreamSession` semantics, replay (`subscribe_session_id` / `after_sequence`), backpressure, and the watcher RPC contracts — see [Runtime SDK Guide § Streaming](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/sdk-guide.md#streaming) and [Runtime API § Streaming Watches](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#streaming-watches).
 
 ## Bidirectional session streaming (MacpStream)
 

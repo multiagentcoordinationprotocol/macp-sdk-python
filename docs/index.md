@@ -40,8 +40,8 @@ pip install macp-sdk-python
 For development:
 
 ```bash
-git clone https://github.com/multiagentcoordinationprotocol/python-sdk
-cd python-sdk
+git clone https://github.com/multiagentcoordinationprotocol/macp-sdk-python
+cd macp-sdk-python
 make setup   # pip install -e ".[dev,docs]"
 ```
 
@@ -106,7 +106,7 @@ if winner and not session.decision_projection.has_blocking_objection(winner):
 ## Prerequisites
 
 - Python 3.11+
-- A running MACP Rust runtime (see [runtime repo](https://github.com/multiagentcoordinationprotocol/runtime))
+- A running MACP Rust runtime (see [runtime repo](https://github.com/multiagentcoordinationprotocol/macp-runtime))
 
 For local development:
 
@@ -120,11 +120,11 @@ cargo run
 
 This SDK is the gRPC client; the runtime is the source of truth for protocol semantics, RPC contracts, deployment, and auth. Rather than duplicate runtime material, we link to it:
 
-- [Runtime — Getting Started](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/getting-started.md) — build the runtime, static/JWT auth configuration, first session
-- [Runtime — API Reference](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md) — all 22 gRPC RPCs with request/response fields and capability flags
-- [Runtime — Architecture](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/architecture.md) — layer structure, request flow, durability model
-- [Runtime — Modes](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md) — per-mode state machine implementation details
-- [Runtime — Policy](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md) — policy framework, rule schemas, evaluator internals
-- [Runtime — Deployment](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/deployment.md) — production config, storage backends, TLS, crash recovery
-- [Runtime — SDK Developer Guide](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/sdk-guide.md) — envelope construction, streaming, passive subscribe, retries
+- [Runtime — Getting Started](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md) — build the runtime, static/JWT auth configuration, first session
+- [Runtime — API Reference](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md) — all 22 gRPC RPCs with request/response fields and capability flags
+- [Runtime — Architecture](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md) — layer structure, request flow, durability model
+- [Runtime — Modes](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md) — per-mode state machine implementation details
+- [Runtime — Policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md) — policy framework, rule schemas, evaluator internals
+- [Runtime — Deployment](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md) — production config, storage backends, TLS, crash recovery
+- [Runtime — SDK Developer Guide](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/sdk-guide.md) — envelope construction, streaming, passive subscribe, retries
 - [Protocol Specification](https://www.multiagentcoordinationprotocol.io/docs) — two-plane model, session lifecycle, determinism, security, transport bindings

@@ -5,7 +5,7 @@ RPCs. Together they let orchestrators and supervisor agents enumerate active
 sessions and react to `CREATED` / `RESOLVED` / `EXPIRED` lifecycle events
 without polling `GetSession`.
 
-For the underlying RPC contracts (request/response shapes, scoping rules), see [Runtime API § Discovery](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#discovery) and [§ Streaming Watches](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#streaming-watches).
+For the underlying RPC contracts (request/response shapes, scoping rules), see [Runtime API § Discovery](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#discovery) and [§ Streaming Watches](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#streaming-watches).
 
 ## When to use
 

@@ -7,7 +7,7 @@ RFC-MACP-0004 §4 ("`sender` MUST be derived from authenticated identity")
 and the architectural invariants spelled out in
 `ui-console/plans/direct-agent-auth.md`.
 
-For the runtime side of identity binding (token validators, sender derivation, dev-mode fallback), see [Runtime API § Authentication](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#authentication) and [Runtime Deployment § Authentication](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/deployment.md#authentication).
+For the runtime side of identity binding (token validators, sender derivation, dev-mode fallback), see [Runtime API § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#authentication) and [Runtime Deployment § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#authentication).
 
 This guide shows the initiator and non-initiator patterns.
 
