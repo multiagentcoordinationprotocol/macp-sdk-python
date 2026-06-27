@@ -8,7 +8,7 @@ strategies).
 This guide walks through the agent-framework building blocks and shows how to
 wire them together. For the lower-level escape hatch — building envelopes by
 hand — see [Direct Agent Auth](direct-agent-auth.md). For the underlying RPCs
-this framework drives, see the [Runtime SDK Guide](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/sdk-guide.md).
+this framework drives, see the [Runtime SDK Guide](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/sdk-guide.md).
 
 ## Big picture
 

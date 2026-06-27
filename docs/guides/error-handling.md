@@ -1,6 +1,6 @@
 # Error Handling and Retry
 
-The SDK maps runtime error codes to a Python exception hierarchy and provides retry helpers. The canonical list of error codes (with HTTP status mappings and runtime-side meanings) lives in [Runtime API § Message Transport](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#message-transport) and [Runtime SDK Guide § Error handling](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/sdk-guide.md#error-handling). The tables below map them to Python exceptions and retry behaviour.
+The SDK maps runtime error codes to a Python exception hierarchy and provides retry helpers. The canonical list of error codes (with HTTP status mappings and runtime-side meanings) lives in [Runtime API § Message Transport](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#message-transport) and [Runtime SDK Guide § Error handling](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/sdk-guide.md#error-handling). The tables below map them to Python exceptions and retry behaviour.
 
 ## Exception hierarchy
 

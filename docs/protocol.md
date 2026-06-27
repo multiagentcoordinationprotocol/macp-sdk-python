@@ -3,9 +3,9 @@
 This page is a quick orientation for SDK users. It covers only what you need to read SDK code without surprises. The runtime docs are authoritative for protocol semantics — links are inline below.
 
 - Protocol spec: [MACP RFCs](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol)
-- Runtime overview: [Runtime README](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/README.md)
-- RPC reference: [Runtime API](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md)
-- SDK-author guide: [Runtime SDK Guide](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/sdk-guide.md)
+- Runtime overview: [Runtime README](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/README.md)
+- RPC reference: [Runtime API](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md)
+- SDK-author guide: [Runtime SDK Guide](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/sdk-guide.md)
 
 ## Two planes of communication
 
@@ -20,7 +20,7 @@ The core invariant: *binding coordination MUST occur inside explicit, bounded Co
 
 Every message is a canonical `Envelope`. The SDK builds envelopes for you via `build_envelope()` and the session helpers — you rarely construct one by hand.
 
-For the wire-level field list and validation rules, see [Runtime SDK Guide § Building envelopes](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/sdk-guide.md#building-envelopes).
+For the wire-level field list and validation rules, see [Runtime SDK Guide § Building envelopes](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/sdk-guide.md#building-envelopes).
 
 Two SDK-relevant invariants worth knowing:
 
@@ -29,7 +29,7 @@ Two SDK-relevant invariants worth knowing:
 
 ## Session lifecycle
 
-The state machine (`OPEN → RESOLVED | EXPIRED`), monotonic transitions, and terminal-message rules are defined and enforced by the runtime. See [Runtime API § Session Lifecycle](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#session-lifecycle) and [Runtime Architecture § Coordination Kernel](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/architecture.md#layers).
+The state machine (`OPEN → RESOLVED | EXPIRED`), monotonic transitions, and terminal-message rules are defined and enforced by the runtime. See [Runtime API § Session Lifecycle](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#session-lifecycle) and [Runtime Architecture § Coordination Kernel](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md#layers).
 
 The SDK tracks the lifecycle locally via projections — see [Architecture § Why projections exist](architecture.md#why-projections-exist).
 
@@ -66,7 +66,7 @@ session.commit(
 )
 ```
 
-Who is authorised to commit is governed by the runtime's policy engine — see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md#commitment-authority). By default, only the session initiator can commit.
+Who is authorised to commit is governed by the runtime's policy engine — see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md#commitment-authority). By default, only the session initiator can commit.
 
 ## Capabilities and initialization
 
@@ -79,11 +79,11 @@ response = client.initialize()
 # response.supported_modes            → available mode URIs
 ```
 
-Field-level details: [Runtime API § Protocol Handshake](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#protocol-handshake).
+Field-level details: [Runtime API § Protocol Handshake](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#protocol-handshake).
 
 ## Errors
 
-The runtime returns structured errors with RFC-defined codes (`UNAUTHENTICATED`, `FORBIDDEN`, `SESSION_NOT_FOUND`, `SESSION_NOT_OPEN`, `DUPLICATE_MESSAGE`, `INVALID_ENVELOPE`, `MODE_NOT_SUPPORTED`, `PAYLOAD_TOO_LARGE`, `RATE_LIMITED`, `INTERNAL_ERROR`). The full table with HTTP status mappings lives in [Runtime API § Message Transport](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#message-transport) and [Runtime SDK Guide § Error handling](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/sdk-guide.md#error-handling).
+The runtime returns structured errors with RFC-defined codes (`UNAUTHENTICATED`, `FORBIDDEN`, `SESSION_NOT_FOUND`, `SESSION_NOT_OPEN`, `DUPLICATE_MESSAGE`, `INVALID_ENVELOPE`, `MODE_NOT_SUPPORTED`, `PAYLOAD_TOO_LARGE`, `RATE_LIMITED`, `INTERNAL_ERROR`). The full table with HTTP status mappings lives in [Runtime API § Message Transport](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#message-transport) and [Runtime SDK Guide § Error handling](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/sdk-guide.md#error-handling).
 
 The SDK maps them to Python exceptions:
 
@@ -103,7 +103,7 @@ For retry behaviour and which codes are safe to retry, see [Error Handling](guid
 
 ## Discovery
 
-The runtime exposes discovery RPCs the SDK wraps as sync methods (unary) or iterators (server-streaming). See [Runtime API § Discovery](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#discovery) and [§ Streaming Watches](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/API.md#streaming-watches) for the underlying RPCs.
+The runtime exposes discovery RPCs the SDK wraps as sync methods (unary) or iterators (server-streaming). See [Runtime API § Discovery](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#discovery) and [§ Streaming Watches](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#streaming-watches) for the underlying RPCs.
 
 ### Unary
 

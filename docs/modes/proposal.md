@@ -6,7 +6,7 @@
 
 Offer/counteroffer negotiation with peer refinement. Designed for bilateral or multilateral negotiations where parties iteratively refine terms until convergence or terminal rejection.
 
-> **Runtime semantics:** convergence detection, counter-proposal supersession, and terminal-rejection handling are defined in [Runtime Modes § Proposal Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#proposal-mode). This page covers the SDK API.
+> **Runtime semantics:** convergence detection, counter-proposal supersession, and terminal-rejection handling are defined in [Runtime Modes § Proposal Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#proposal-mode). This page covers the SDK API.
 
 ## When to use
 
@@ -49,7 +49,7 @@ Commitment → RESOLVED
 
 ## Authorization & termination
 
-Per-message authorization, the configurable acceptance criterion (`all_parties` / `counterparty` / `initiator`), and counter-proposal round limits are defined in [Runtime Modes § Proposal Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#proposal-mode). Override the criterion via a bound policy — see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md).
+Per-message authorization, the configurable acceptance criterion (`all_parties` / `counterparty` / `initiator`), and counter-proposal round limits are defined in [Runtime Modes § Proposal Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#proposal-mode). Override the criterion via a bound policy — see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md).
 
 ## Session helper
 

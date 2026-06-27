@@ -1,6 +1,6 @@
 # Building Orchestrators
 
-The SDK provides typed action builders and state projections. **Policy logic** — voting rules, decision strategies, AI heuristics — belongs in the **orchestrator layer** above the SDK. (Note: the runtime also exposes a *governance* policy engine that evaluates declarative rules at commitment time — see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md). Use it to enforce hard constraints like quorum thresholds or veto rights; keep dynamic strategy logic in your orchestrator.)
+The SDK provides typed action builders and state projections. **Policy logic** — voting rules, decision strategies, AI heuristics — belongs in the **orchestrator layer** above the SDK. (Note: the runtime also exposes a *governance* policy engine that evaluates declarative rules at commitment time — see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md). Use it to enforce hard constraints like quorum thresholds or veto rights; keep dynamic strategy logic in your orchestrator.)
 
 ## Architecture reminder
 

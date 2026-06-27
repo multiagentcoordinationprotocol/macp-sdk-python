@@ -6,7 +6,7 @@
 
 Structured decision making with proposals, evaluations, objections, votes, and terminal commitment.
 
-> **Runtime semantics:** phase progression, value normalization, and commitment-readiness rules are defined in [Runtime Modes § Decision Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#decision-mode). Per-mode authorization and termination rules live in the protocol spec — see [protocol modes](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/docs/modes.md). This page covers the SDK API.
+> **Runtime semantics:** phase progression, value normalization, and commitment-readiness rules are defined in [Runtime Modes § Decision Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#decision-mode). Per-mode authorization and termination rules live in the protocol spec — see [protocol modes](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/docs/modes.md). This page covers the SDK API.
 
 ## When to use
 
@@ -45,7 +45,7 @@ The phases are advisory — the runtime does not strictly enforce phase ordering
 
 ## Authorization & termination
 
-Per-message authorization (who can send Proposal/Evaluation/Vote/Commitment) and the runtime's commitment-readiness checks are defined in [Runtime Modes § Decision Mode](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#decision-mode). Additional governance rules — vote quorum, confidence thresholds, veto — come from policies bound at SessionStart; see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/policy.md).
+Per-message authorization (who can send Proposal/Evaluation/Vote/Commitment) and the runtime's commitment-readiness checks are defined in [Runtime Modes § Decision Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#decision-mode). Additional governance rules — vote quorum, confidence thresholds, veto — come from policies bound at SessionStart; see [Runtime Policy](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md).
 
 ## Session helper
 

@@ -1,6 +1,6 @@
 # Architecture
 
-This page describes the SDK's internal structure. For the runtime side of the stack (kernel layers, durability, concurrency, request flow), see [Runtime Architecture](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/architecture.md).
+This page describes the SDK's internal structure. For the runtime side of the stack (kernel layers, durability, concurrency, request flow), see [Runtime Architecture](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md).
 
 ## Three-layer model
 
@@ -158,7 +158,7 @@ Projections only see envelopes **sent through this session helper instance**. If
 
 All communication is **client-initiated**. The runtime never calls back into the SDK. If you need runtime-driven behavior, run a Python agent as a separate process that polls or streams from the runtime.
 
-For how the runtime processes each RPC internally, see [Runtime Architecture § Request flow](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/architecture.md#request-flow-send-rpc).
+For how the runtime processes each RPC internally, see [Runtime Architecture § Request flow](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md#request-flow-send-rpc).
 
 ## Data flow for a typical session
 
@@ -175,7 +175,7 @@ Steps 3–5 repeat for as many messages as the session requires. The projection 
 
 ## Extension modes
 
-The runtime supports dynamic extension modes via `RegisterExtMode`, `UnregisterExtMode`, and `PromoteMode` RPCs — semantics, lifecycle, and promotion rules are defined in [Runtime Modes § Dynamic Extension Modes](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md#dynamic-extension-modes). The SDK exposes them through these client methods:
+The runtime supports dynamic extension modes via `RegisterExtMode`, `UnregisterExtMode`, and `PromoteMode` RPCs — semantics, lifecycle, and promotion rules are defined in [Runtime Modes § Dynamic Extension Modes](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#dynamic-extension-modes). The SDK exposes them through these client methods:
 
 ```python
 # Register a custom mode

@@ -3,8 +3,8 @@
 MACP defines formal determinism guarantees that enable session replay, audit verification, and distributed state reconstruction. The SDK relies on those guarantees but does not define them — they are protocol-level. This page focuses on what an SDK user needs to do (version binding, replay testing) and links out for the rest.
 
 - Protocol spec: [Determinism](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/blob/main/docs/determinism.md)
-- Per-mode determinism class: [Runtime Modes](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/modes.md)
-- Replay enforcement: [Runtime Architecture § Durability model](https://github.com/multiagentcoordinationprotocol/runtime/blob/main/docs/architecture.md#durability-model)
+- Per-mode determinism class: [Runtime Modes](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md)
+- Replay enforcement: [Runtime Architecture § Durability model](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md#durability-model)
 
 ## Determinism classes — at a glance
 
