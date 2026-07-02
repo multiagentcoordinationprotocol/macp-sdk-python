@@ -32,7 +32,9 @@ class TestBuildDecisionPolicy:
         desc = build_decision_policy("pol-1", "A test policy")
         assert desc.policy_id == "pol-1"
         assert desc.mode == "macp.mode.decision.v1"
-        assert desc.schema_version == 1
+        # RFC-MACP-0012 schema_version 2 (adds decline-over-approval + the
+        # critical objection action). Only Decision is bumped.
+        assert desc.schema_version == 2
         rules = json.loads(desc.rules)
         # Voting — matches Runtime VotingRules defaults
         assert rules["voting"]["algorithm"] == "none"
@@ -43,6 +45,7 @@ class TestBuildDecisionPolicy:
         # Objection handling — matches Runtime defaults
         assert rules["objection_handling"]["critical_severity_vetoes"] is False
         assert rules["objection_handling"]["veto_threshold"] == 1
+        assert rules["objection_handling"]["critical_objection_action"] == "deny"
         # Evaluation — matches Runtime defaults
         assert rules["evaluation"]["minimum_confidence"] == 0.0
         assert rules["evaluation"]["required_before_voting"] is False
@@ -50,6 +53,8 @@ class TestBuildDecisionPolicy:
         assert rules["commitment"]["authority"] == "initiator_only"
         assert rules["commitment"]["designated_roles"] == []
         assert rules["commitment"]["require_vote_quorum"] is False
+        # schema_version 2: decline-over-approval, default off (backward compatible)
+        assert rules["commitment"]["allow_decline_over_approval"] is False
 
     def test_custom_voting(self):
         desc = build_decision_policy(
@@ -91,6 +96,19 @@ class TestBuildDecisionPolicy:
         rules = json.loads(desc.rules)
         assert rules["evaluation"]["minimum_confidence"] == 0.8
         assert rules["evaluation"]["required_before_voting"] is True
+
+    def test_schema_version_2_fields(self):
+        """RFC-MACP-0012 schema_version 2: negative committed outcomes."""
+        desc = build_decision_policy(
+            "pol-neg",
+            "decline over approval",
+            objection_handling=ObjectionHandlingRules(critical_objection_action="finalize_decline"),
+            commitment=CommitmentRules(allow_decline_over_approval=True),
+        )
+        assert desc.schema_version == 2
+        rules = json.loads(desc.rules)
+        assert rules["commitment"]["allow_decline_over_approval"] is True
+        assert rules["objection_handling"]["critical_objection_action"] == "finalize_decline"
 
     def test_custom_commitment_with_roles(self):
         desc = build_decision_policy(
@@ -270,6 +288,20 @@ class TestCommitmentRulesShared:
         assert rules["commitment"]["authority"] == authority
         assert rules["commitment"]["designated_roles"] == roles
         assert rules["commitment"]["require_vote_quorum"] is False
+        # The schema_version 2 decline switch is Decision-only and must NOT leak
+        # into the still version-1 quorum/proposal/task/handoff commitment rules.
+        assert "allow_decline_over_approval" not in rules["commitment"]
+
+    def test_non_decision_modes_stay_schema_version_1(self):
+        for build in (
+            build_quorum_policy,
+            build_proposal_policy,
+            build_task_policy,
+            build_handoff_policy,
+        ):
+            desc = build("sv1", "version-1 mode")
+            assert desc.schema_version == 1, desc.mode
+            assert "allow_decline_over_approval" not in json.loads(desc.rules)["commitment"]
 
     def test_quorum_with_commitment(self):
         desc = build_quorum_policy(

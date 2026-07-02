@@ -22,9 +22,20 @@ class CommitmentRules:
     authority: str = "initiator_only"
     designated_roles: list[str] = field(default_factory=list)
     require_vote_quorum: bool = False
+    # RFC-MACP-0012 schema_version 2, Decision mode only: when True, a
+    # reject-majority resolves the session with a committed *negative* outcome
+    # (``outcome_positive = false``) instead of denying commitment. Emitted only
+    # by ``build_decision_policy`` (see ``_commitment_dict`` note) so version-1
+    # quorum/proposal/task/handoff schemas are unaffected. Default False keeps
+    # version-1 behaviour for existing callers.
+    allow_decline_over_approval: bool = False
 
 
 def _commitment_dict(c: CommitmentRules) -> dict[str, object]:
+    # Shared by all five mode builders — intentionally excludes the Decision-only
+    # ``allow_decline_over_approval`` field so it does not leak into the still
+    # version-1 quorum/proposal/task/handoff commitment schemas. Decision emits
+    # that field itself in ``build_decision_policy``.
     return {
         "authority": c.authority,
         "designated_roles": c.designated_roles,
@@ -52,6 +63,12 @@ class ObjectionHandlingRules:
 
     critical_severity_vetoes: bool = False
     veto_threshold: int = 1
+    # RFC-MACP-0012 schema_version 2: action taken when a critical objection
+    # would block commitment. One of ``"deny"`` (reject the commitment; legacy
+    # default), ``"finalize_decline"`` (resolve the session as a negative
+    # outcome), or ``"hold"`` (leave the session open). Default ``"deny"``
+    # preserves version-1 behaviour.
+    critical_objection_action: str = "deny"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,17 +102,23 @@ def build_decision_policy(
     if v.weights is not None:
         voting_section["weights"] = v.weights
 
+    # Decision-only: extend the shared commitment rules with the schema_version 2
+    # decline-over-approval switch without polluting the other four builders.
+    commitment_section = _commitment_dict(c)
+    commitment_section["allow_decline_over_approval"] = c.allow_decline_over_approval
+
     rules: dict[str, object] = {
         "voting": voting_section,
         "objection_handling": {
             "critical_severity_vetoes": o.critical_severity_vetoes,
             "veto_threshold": o.veto_threshold,
+            "critical_objection_action": o.critical_objection_action,
         },
         "evaluation": {
             "minimum_confidence": e.minimum_confidence,
             "required_before_voting": e.required_before_voting,
         },
-        "commitment": _commitment_dict(c),
+        "commitment": commitment_section,
     }
 
     return policy_pb2.PolicyDescriptor(
@@ -103,7 +126,7 @@ def build_decision_policy(
         mode="macp.mode.decision.v1",
         description=description,
         rules=json.dumps(rules).encode(),
-        schema_version=1,
+        schema_version=2,
     )
 
 
