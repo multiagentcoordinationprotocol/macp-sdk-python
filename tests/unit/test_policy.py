@@ -39,8 +39,9 @@ class TestBuildDecisionPolicy:
         # Voting — matches Runtime VotingRules defaults
         assert rules["voting"]["algorithm"] == "none"
         assert rules["voting"]["threshold"] == 0.5
-        assert rules["voting"]["quorum"]["type"] == "count"
-        assert rules["voting"]["quorum"]["value"] == 0
+        # Optional voting fields are omitted when unset (byte-parity with the
+        # typescript-sdk builder and the canonical example descriptors).
+        assert "quorum" not in rules["voting"]
         assert "weights" not in rules["voting"]
         # Objection handling — matches Runtime defaults
         assert rules["objection_handling"]["critical_severity_vetoes"] is False
