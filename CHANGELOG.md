@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.1 (2026-07-02)
+
+Patch release: packaging metadata and Decision policy JSON parity fixes. No
+runtime-surface or API changes; drop-in over 0.4.0.
+
+### Fixed
+
+- **Packaging metadata** corrected after the repository rename to
+  ``macp-sdk-python`` (project URLs / references).
+- **Decision policy JSON** now omits an unset ``voting.quorum`` field,
+  restoring byte-parity with ``macp-sdk-typescript``. Decision policy fields
+  aligned to RFC-0012 v2 and the negative-outcome conformance vector synced.
+
 ## 0.4.0 (2026-06-22)
 
 Adopt ``macp-proto 0.1.3`` — session **suspend / resume**, an explicit
