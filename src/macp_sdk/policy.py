@@ -97,8 +97,18 @@ def build_decision_policy(
     voting_section: dict[str, object] = {
         "algorithm": v.algorithm,
         "threshold": v.threshold,
-        "quorum": {"type": v.quorum_type or "count", "value": v.quorum_value or 0},
     }
+    # Emit ``quorum`` only when the caller sets it, mirroring the conditional
+    # ``weights`` emission below. This keeps the Decision ``rules`` JSON
+    # byte-identical to the typescript-sdk builder (which omits an unset quorum)
+    # and to the canonical example descriptors, which drop optional voting fields
+    # they do not set. ``quorum`` is optional with defaults ``type="count"``,
+    # ``value=0`` in decision-rules.schema.json, so omission is schema-equivalent.
+    if v.quorum_type is not None or v.quorum_value is not None:
+        voting_section["quorum"] = {
+            "type": v.quorum_type or "count",
+            "value": v.quorum_value or 0,
+        }
     if v.weights is not None:
         voting_section["weights"] = v.weights
 
