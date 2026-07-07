@@ -74,6 +74,8 @@ The runtime's JWT resolver (active when `MACP_AUTH_ISSUER` is set) verifies sign
 
 Supported algorithms, JWKS configuration (`MACP_AUTH_JWKS_JSON` inline or `MACP_AUTH_JWKS_URL` fetched + cached), and the `macp_scopes` claim layout are documented in the runtime's [JWT mode guide](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/getting-started.md#jwt-mode).
 
+> **HS256 is off by default (runtime v0.5.0).** The default JWT algorithm allowlist is now RS256/ES256. Shared-secret (HS256) deployments must opt in on the runtime with `MACP_AUTH_JWT_ALGS=HS256`. This is a runtime-side setting; the SDK still just forwards the token via `AuthConfig.for_bearer`.
+
 ## Observer identities
 
 Non-participant agents (audit agents, dashboards, read-only observers) authenticate with a normal bearer credential whose runtime-side identity carries `is_observer: true`. On the SDK side, observers open a stream and call [`send_subscribe(session_id, after_sequence=0)`](guides/streaming.md#session-subscription-replay) to replay accepted history and then consume live envelopes — no membership in the session's `participants` list is required.

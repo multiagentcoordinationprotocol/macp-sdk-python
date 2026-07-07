@@ -12,6 +12,7 @@ Requires a running MACP runtime on localhost:50051 started with
 from __future__ import annotations
 
 import os
+import queue
 import time
 
 import pytest
@@ -92,9 +93,18 @@ class TestSessionSubscribeReplay:
             initiator.close()
 
     def test_after_sequence_skips_history_replay(self) -> None:
-        """``after_sequence`` past the end of history must suppress replay:
+        """``after_sequence`` at the current end-of-history suppresses replay:
         a reconnecting observer sees only new envelopes, not the existing
-        SessionStart + prior proposals."""
+        SessionStart + prior proposals.
+
+        Under the runtime v0.5.0 exclusive contract, ``after_sequence`` is the
+        1-based accepted-envelope ordinal and only envelopes *above* it are
+        delivered. Here SessionStart (#1) + p1 (#2) are the history, so
+        resuming at ``after_sequence=2`` replays nothing and delivers only the
+        live p2 (#3). (A number *past* the end would also suppress the live p2,
+        since its ordinal would be ≤ the cursor — that is the corrected
+        behaviour, and why this test resumes at the exact end rather than at a
+        huge value as the pre-0.5.0 inclusive semantics allowed.)"""
         session_id = new_session_id()
         initiator = _client("coordinator")
         try:
@@ -104,18 +114,17 @@ class TestSessionSubscribeReplay:
                 intent="after_sequence smoke",
                 participants=["coordinator", "observer"],
                 ttl_ms=30_000,
-            )
-            session.propose("p1", "option-a", rationale="historical")
+            )  # accepted envelope #1
+            session.propose("p1", "option-a", rationale="historical")  # #2
             time.sleep(0.2)
 
             observer = _client("observer")
             try:
                 stream = observer.open_stream()
                 try:
-                    # A very high sequence is guaranteed to be past the
-                    # end of history, so replay yields nothing and only
-                    # live broadcast can deliver envelopes.
-                    stream.send_subscribe(session_id, after_sequence=10_000_000)
+                    # Resume at the exact end of history (2 accepted envelopes):
+                    # replay yields nothing; only the live p2 (#3) is delivered.
+                    stream.send_subscribe(session_id, after_sequence=2)
 
                     # Publisher emits one new envelope *after* subscribe.
                     session.propose("p2", "option-b", rationale="new")
@@ -123,7 +132,12 @@ class TestSessionSubscribeReplay:
                     seen_types: list[str] = []
                     deadline = time.time() + 5.0
                     while time.time() < deadline:
-                        env = stream.read(timeout=0.5)
+                        # read(timeout) raises queue.Empty on a quiet stream;
+                        # treat that as "nothing yet" and keep polling.
+                        try:
+                            env = stream.read(timeout=0.5)
+                        except queue.Empty:
+                            continue
                         if env is None:
                             break
                         if env.session_id != session_id:
@@ -134,7 +148,10 @@ class TestSessionSubscribeReplay:
                             # replay of SessionStart / p1.
                             tail = time.time() + 0.3
                             while time.time() < tail:
-                                env = stream.read(timeout=0.2)
+                                try:
+                                    env = stream.read(timeout=0.2)
+                                except queue.Empty:
+                                    continue
                                 if env is None or env.session_id != session_id:
                                     continue
                                 seen_types.append(env.message_type)

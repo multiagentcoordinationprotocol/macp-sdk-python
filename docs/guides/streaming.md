@@ -66,6 +66,24 @@ optional `after_sequence`). When the runtime receives a subscribe frame:
    order.
 2. It then switches the stream to live broadcast.
 
+#### The `after_sequence` contract (runtime v0.5.0)
+
+Since runtime v0.5.0 (RFC-MACP-0006 §3.2), `after_sequence` has precise
+semantics:
+
+- It is the **1-based ordinal over accepted envelopes**, interpreted
+  **exclusively**: `0` replays from the start; `N` replays from envelope
+  `N+1` onward, so envelope `N` is **never re-delivered**.
+- Ordinals are contiguous and **stable across log compaction and runtime
+  restart** — they count accepted envelopes, not raw internal log entries.
+- Resuming **below a compacted range** fails the stream with gRPC
+  `FAILED_PRECONDITION`, surfaced as
+  `MacpTransportError(code="FAILED_PRECONDITION")` from `read()`. Recover by
+  restarting from `0` and reconciling against what you already processed.
+
+To resume after a disconnect, track how many envelopes you have consumed and
+pass that count as `after_sequence` on reconnect.
+
 This is how a non-initiator agent that connects *after* the initiator
 has already sent `SessionStart` + the first `Proposal` still receives
 both envelopes. `GrpcTransportAdapter` (in
@@ -83,7 +101,29 @@ for envelope in stream.responses(timeout=5.0):
 
 # Reconnecting observer that already saw envelopes up to sequence 17
 stream = client.open_stream()
-stream.send_subscribe("sess-xyz", after_sequence=17)  # resume from 18 onward
+stream.send_subscribe("sess-xyz", after_sequence=17)  # exclusive: resume from 18 onward
+```
+
+#### Consumer lag and reconnect
+
+A watch/stream consumer that falls too far behind is terminated by the
+runtime with gRPC `RESOURCE_EXHAUSTED` (rather than silently closing). This
+surfaces as `MacpTransportError(code="RESOURCE_EXHAUSTED")`. Treat it as a
+**reconnect** signal, not a retryable send: reopen the stream and re-subscribe
+with your last-seen `after_sequence`. (`WatchSessions` re-sync replays a
+`CREATED` snapshot for already-open sessions **without duplicating** it.)
+
+```python
+from macp_sdk import MacpTransportError
+
+try:
+    for envelope in stream.responses(timeout=10.0):
+        handle(envelope)
+except MacpTransportError as exc:
+    if exc.code in ("RESOURCE_EXHAUSTED", "FAILED_PRECONDITION"):
+        ...  # reconnect: reopen stream and re-subscribe
+    else:
+        raise
 ```
 
 Subscribe-only frames do not carry a sender envelope and leave

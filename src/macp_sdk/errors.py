@@ -69,7 +69,19 @@ class MacpAckError(MacpSdkError):
 
 
 class MacpTransportError(MacpSdkError):
-    """gRPC communication failure."""
+    """gRPC communication failure.
+
+    ``code`` carries the gRPC status code name (e.g. ``"RESOURCE_EXHAUSTED"``,
+    ``"UNAUTHENTICATED"``, ``"FAILED_PRECONDITION"``) when the failure
+    originated from an ``RpcError``, or ``None`` otherwise. It lets callers
+    distinguish a lagging watch/stream consumer (``RESOURCE_EXHAUSTED`` →
+    reconnect) or a missing-auth watch (``UNAUTHENTICATED``) from a generic
+    transport failure without parsing the message string.
+    """
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        self.code = code
+        super().__init__(message)
 
 
 class MacpSessionError(MacpSdkError):

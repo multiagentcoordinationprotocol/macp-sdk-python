@@ -10,30 +10,30 @@
     {
       "sender": "agent://owner",
       "message_type": "HandoffOffer",
-      "payload_type": "handoff.HandoffOffer",
+      "payload_type": "macp.modes.handoff.v1.HandoffOfferPayload",
       "payload": { "handoff_id": "h1", "target_participant": "agent://target", "scope": "support", "reason": "escalate" },
       "expect": "accept"
     },
     {
       "sender": "agent://target",
       "message_type": "HandoffAccept",
-      "payload_type": "handoff.HandoffAccept",
+      "payload_type": "macp.modes.handoff.v1.HandoffAcceptPayload",
       "payload": { "handoff_id": "h1", "accepted_by": "agent://target", "reason": "ready" },
       "expect": "accept"
     },
     {
       "sender": "agent://owner",
       "message_type": "Commitment",
-      "payload_type": "Commitment",
+      "payload_type": "macp.v1.CommitmentPayload",
       "payload": {
         "commitment_id": "c1",
-        "outcome_positive": true,
         "action": "handoff.accepted",
         "authority_scope": "test",
         "reason": "done",
         "mode_version": "1.0.0",
-        "policy_version": "",
-        "configuration_version": "cfg-1"
+        "policy_version": "policy.default",
+        "configuration_version": "cfg-1",
+        "outcome_positive": true
       },
       "expect": "accept"
     }

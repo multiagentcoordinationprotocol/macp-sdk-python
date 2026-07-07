@@ -42,6 +42,8 @@ Commitment → RESOLVED
 - At most **one ApprovalRequest** per session (v1)
 - `required_approvals` must be > 0 and ≤ participant count
 - Each participant casts at most **one ballot** — later ballots override earlier ones
+
+> **`threshold` is the approval bar, not a participation quorum (RFC-MACP-0012 §4.2).** When you override `required_approvals` with a bound policy via `build_quorum_policy(threshold=QuorumThreshold(...))`, the `threshold.value` is an **integer**: an approval *count* for `type="n_of_m"` / `"weighted"`, and an integer *percentage 0-100* for `type="percentage"`. There is no separate participation quorum in schema_version ≤ 2. The SDK range-checks these at build time (a fractional `0.75` or a `percentage` over `100` raises `MacpSessionError`), matching the runtime's schema so a bad descriptor fails immediately instead of at `RegisterPolicy`.
 - Commitment is eligible when:
     - Approvals ≥ `required_approvals` (threshold reached), OR
     - Remaining possible approvals cannot reach threshold (mathematically unreachable)

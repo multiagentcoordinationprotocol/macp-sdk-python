@@ -102,10 +102,17 @@ class BaseSession(ABC):
         context_id: str = "",
         extensions: Mapping[str, bytes] | None = None,
         roots: Iterable[Any] | None = None,
+        max_suspend_ms: int = 0,
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        """Send SessionStart and begin tracking via the projection."""
+        """Send SessionStart and begin tracking via the projection.
+
+        ``max_suspend_ms`` (runtime v0.5.0) binds a per-session maximum
+        suspension cap; ``0`` selects the runtime default (currently 7 days).
+        A suspension outlasting this cap expires the session
+        (``SUSPENDED`` → ``EXPIRED``). Negative values are rejected.
+        """
         validate_participant_count(len(participants))
         payload = build_session_start_payload(
             intent=intent,
@@ -117,6 +124,7 @@ class BaseSession(ABC):
             context_id=context_id,
             extensions=extensions,
             roots=roots,
+            max_suspend_ms=max_suspend_ms,
         )
         envelope = build_envelope(
             mode=self.MODE,
@@ -138,7 +146,16 @@ class BaseSession(ABC):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        """Send Commitment to resolve the session."""
+        """Send Commitment to resolve the session.
+
+        The commitment echoes ``self.policy_version``. Runtime v0.5.0 relaxed
+        the match rule (RFC-MACP-0012, change review A3): an **empty**
+        ``policy_version`` matches whatever policy the session is bound to, so
+        a session started with an empty policy_version no longer has to echo
+        ``policy.default``. A **non-empty** value must still equal the
+        resolved policy id (e.g. ``policy.default``) or the commitment is
+        rejected with ``UNKNOWN_POLICY_VERSION``.
+        """
         payload = build_commitment_payload(
             action=action,
             authority_scope=authority_scope,

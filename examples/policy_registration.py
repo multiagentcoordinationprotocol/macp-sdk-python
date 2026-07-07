@@ -27,6 +27,13 @@ def main() -> None:
         init = client.initialize()
         print("runtime:", init.runtime_info.name)
 
+        # A runtime started with MACP_POLICIES_DIR serves a read-only policy
+        # registry and refuses register/unregister with FAILED_PRECONDITION.
+        # Check the advertised capability before attempting a mutation.
+        if not init.capabilities.policy_registry.register_policy:
+            print("policy registry is read-only (MACP_POLICIES_DIR); skipping register")
+            return
+
         # ── Build a governance policy ────────────────────────────
         # Rule fields match Runtime's src/policy/rules.rs exactly
         policy = build_decision_policy(

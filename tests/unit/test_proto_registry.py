@@ -9,7 +9,8 @@ bytes. These tests exercise:
 - ``encode_known_payload`` / ``decode_known_payload`` round-trip every
   mode's action payload,
 - unknown mode / unknown message type raise ``ValueError``,
-- the multi-round ``__json__`` escape hatch encodes/decodes via JSON,
+- multi-round ``Contribute`` encodes as canonical protobuf and decodes both
+  proto and legacy-JSON bytes (JSON tried first),
 - ``_try_decode_utf8`` handles empty, JSON, and non-JSON payloads.
 """
 
@@ -153,18 +154,35 @@ class TestErrorPaths:
         assert decoded == {"encoding": "json", "json": {"foo": "bar"}}
 
 
-class TestJsonEscapeHatch:
-    def test_multi_round_contribute_uses_json(self, registry: ProtoRegistry):
-        payload = registry.encode_known_payload(
-            MODE_MULTI_ROUND, "Contribute", {"note": "hi", "round": 1}
-        )
-        assert payload == json.dumps({"note": "hi", "round": 1}).encode("utf-8")
+class TestMultiRoundContribute:
+    """Runtime v0.5.0 / macp-proto >= 0.1.4: Contribute is canonical protobuf,
+    with legacy JSON still decoded (tried first, permanently)."""
 
+    def test_encode_produces_proto_bytes(self, registry: ProtoRegistry):
+        from macp.modes.multi_round.v1 import multi_round_pb2
+
+        payload = registry.encode_known_payload(MODE_MULTI_ROUND, "Contribute", {"value": "opt_a"})
+
+        # Round-trips through the proto message (not JSON).
+        msg = multi_round_pb2.ContributePayload()
+        msg.ParseFromString(payload)
+        assert msg.value == "opt_a"
+        assert payload != json.dumps({"value": "opt_a"}).encode("utf-8")
+
+    def test_decode_proto_bytes(self, registry: ProtoRegistry):
+        payload = registry.encode_known_payload(MODE_MULTI_ROUND, "Contribute", {"value": "opt_a"})
         decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", payload)
-        assert decoded == {
-            "encoding": "json",
-            "json": {"note": "hi", "round": 1},
-        }
+        assert decoded == {"value": "opt_a"}
+
+    def test_decode_legacy_json_still_works(self, registry: ProtoRegistry):
+        # Pre-proto histories carry raw JSON bytes; the registry tries JSON
+        # first and preserves the legacy ``{"encoding": "json", ...}`` shape.
+        legacy = json.dumps({"value": "opt_a"}).encode("utf-8")
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
+        assert decoded == {"encoding": "json", "json": {"value": "opt_a"}}
+
+    def test_decode_empty_returns_none(self, registry: ProtoRegistry):
+        assert registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", b"") is None
 
 
 class TestTryDecodeUtf8:

@@ -69,6 +69,9 @@ class InitiatorConfig:
     mode_version: str | None = None
     configuration_version: str | None = None
     policy_version: str | None = None
+    # Runtime v0.5.0 per-session maximum-suspension cap (ms); 0 = runtime
+    # default (currently 7 days). Negative values are rejected at build time.
+    max_suspend_ms: int = 0
     kickoff_message_type: str | None = None
     kickoff_payload: dict[str, Any] = field(default_factory=dict)
 
@@ -113,8 +116,13 @@ class ParticipantActions:
         mode_version: str | None = None,
         configuration_version: str | None = None,
         policy_version: str | None = None,
+        max_suspend_ms: int = 0,
     ) -> Any:
-        """Send a SessionStart envelope to open the session."""
+        """Send a SessionStart envelope to open the session.
+
+        ``max_suspend_ms`` (runtime v0.5.0) binds a per-session maximum
+        suspension cap; ``0`` selects the runtime default.
+        """
         from ..constants import (
             DEFAULT_CONFIGURATION_VERSION,
             DEFAULT_MODE_VERSION,
@@ -135,6 +143,7 @@ class ParticipantActions:
             mode_version=mode_version or DEFAULT_MODE_VERSION,
             configuration_version=configuration_version or DEFAULT_CONFIGURATION_VERSION,
             policy_version=policy_version or DEFAULT_POLICY_VERSION,
+            max_suspend_ms=max_suspend_ms,
         )
         envelope = build_envelope(
             mode=self._mode,
@@ -522,6 +531,7 @@ class Participant:
             mode_version=cfg.mode_version,
             configuration_version=cfg.configuration_version,
             policy_version=cfg.policy_version,
+            max_suspend_ms=cfg.max_suspend_ms,
         )
         logger.info("SessionStart emitted (session=%s)", self._session_id)
 

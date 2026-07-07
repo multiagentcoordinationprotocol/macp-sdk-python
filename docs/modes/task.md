@@ -58,6 +58,36 @@ Commitment → RESOLVED
 
 Per-message authorization and commitment-readiness rules are defined in [Runtime Modes § Task Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#task-mode). The runtime validates "active assignee" against the authenticated sender, not a payload field — spoofed assignees fail at transport.
 
+## External orchestrator (runtime v0.5.0)
+
+Unlike the other modes, Task mode lets the **initiator sit outside
+`participants`**. Since runtime v0.5.0 (RFC-MACP-0009), `SessionStart` no
+longer requires the initiator to be a member: `TaskRequest` is authorized by
+the initiator *role*, not by membership. This lets a standalone orchestrator
+open a task session for a pool of worker agents it delegates to without
+becoming an assignee itself.
+
+Two rules still hold:
+
+- The `participants` pool must contain **at least one eligible assignee other
+  than the initiator** — a task needs someone to do it.
+- Only the initiator (the requester) can commit the terminal outcome.
+
+```python
+# Orchestrator "coordinator" is NOT in participants — it delegates only.
+session = TaskSession(client, auth=AuthConfig.for_dev_agent("coordinator"))
+session.start(
+    intent="summarize the incident",
+    participants=["worker-a", "worker-b"],   # assignees; initiator excluded
+    ttl_ms=60_000,
+)
+```
+
+> This is Task-specific. **Handoff** still requires the initiator in
+> `participants` (RFC-MACP-0010 §2 — intrinsic to the delegated model), and
+> **Decision** likewise keeps its initiator-membership rule (RFC-MACP-0007
+> §2). Do not generalize the external-orchestrator pattern to those modes.
+
 ## Session helper
 
 ```python

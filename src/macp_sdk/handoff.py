@@ -27,6 +27,12 @@ class HandoffRecord:
     context_content_type: str | None
     accepted_by: str | None
     declined_by: str | None
+    # True when the acceptance was an implicit accept synthesized by the
+    # runtime (RFC-MACP-0010 §5.1) rather than an explicit client HandoffAccept.
+    # Runtime v0.5.0 defines but does not yet emit these; the SDK surfaces the
+    # field so histories that contain them replay correctly. Client-submitted
+    # accepts are always ``implicit=False`` (the runtime rejects a forged True).
+    implicit: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +89,12 @@ class HandoffProjection(BaseProjection):
             if handoff is not None:
                 handoff.status = "accepted"
                 handoff.accepted_by = p.accepted_by
+                # macp-proto >= 0.1.6: capture whether this was a runtime
+                # implicit accept (sender = target, message_id
+                # ``implicit-accept:<handoff_id>``). Absent field decodes to
+                # False. If ``handoff`` is None the offer was never observed
+                # (e.g. mid-session subscribe) — we still advance the phase.
+                handoff.implicit = getattr(p, "implicit", False)
             self.phase = "Accepted"
             return
 
@@ -118,6 +130,18 @@ class HandoffProjection(BaseProjection):
     def is_declined(self, handoff_id: str) -> bool:
         handoff = self.handoffs.get(handoff_id)
         return handoff is not None and handoff.status == "declined"
+
+    def is_implicitly_accepted(self, handoff_id: str) -> bool:
+        """True if *handoff_id* was accepted by a runtime implicit accept.
+
+        Distinguishes a timeout-driven implicit accept (RFC-MACP-0010 §5.1)
+        from an explicit client ``HandoffAccept``. Runtime v0.5.0 does not yet
+        emit implicit accepts, so this returns False for all live sessions
+        today; it exists so histories/replays that carry them surface the
+        distinction.
+        """
+        handoff = self.handoffs.get(handoff_id)
+        return handoff is not None and handoff.status == "accepted" and handoff.implicit
 
     def get_handoff(self, handoff_id: str) -> HandoffRecord | None:
         """Return the handoff record for *handoff_id*, or None."""
@@ -203,6 +227,11 @@ class HandoffSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        # Deliberately no ``implicit`` parameter: RFC-MACP-0010 §5.1 reserves
+        # ``implicit=true`` for runtime-synthesized accepts and the runtime
+        # rejects a client-submitted True. Client accepts always leave the
+        # field at its proto3 default (False). See the regression test in
+        # tests/unit/test_handoff.py.
         payload = handoff_pb2.HandoffAcceptPayload(
             handoff_id=handoff_id,
             accepted_by=accepted_by or self._sender_for(sender, auth=auth),

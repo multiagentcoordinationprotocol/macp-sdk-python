@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 from macp.v1 import policy_pb2
 
+from .errors import MacpSessionError
+
 # ── Shared commitment rules (all modes) ─────────────────────────────
 
 
@@ -145,10 +147,19 @@ def build_decision_policy(
 
 @dataclass(frozen=True, slots=True)
 class QuorumThreshold:
-    """Quorum threshold configuration (RFC: ``threshold`` object)."""
+    """Quorum threshold configuration (RFC-MACP-0012 §4.2 ``threshold`` object).
+
+    ``threshold`` is strictly the **approval bar** — the number/percentage of
+    approvals required to commit. There is no separate participation quorum in
+    schema_version <= 2. ``value`` is an **integer** in the canonical
+    ``quorum-rules.schema.json``: an approval count for ``n_of_m`` /
+    ``weighted``, and an integer percentage 0-100 for ``percentage``. A
+    fractional value (e.g. ``0.75``) is rejected by the runtime's schema
+    validation, so this is typed ``int`` and range-checked at build time.
+    """
 
     type: str = "n_of_m"
-    value: float = 0
+    value: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +182,16 @@ def build_quorum_policy(
     t = threshold or QuorumThreshold()
     a = abstention or AbstentionRules()
     c = commitment or CommitmentRules()
+
+    # Match the canonical schema's constraints before the runtime does, so a
+    # bad descriptor fails immediately client-side instead of round-tripping
+    # to an INVALID_POLICY_DEFINITION from RegisterPolicy.
+    if t.value < 0:
+        raise MacpSessionError(f"quorum threshold value must be >= 0, got {t.value}")
+    if t.type == "percentage" and t.value > 100:
+        raise MacpSessionError(
+            f"quorum threshold value must be 0-100 for type 'percentage', got {t.value}"
+        )
 
     rules: dict[str, object] = {
         "threshold": {"type": t.type, "value": t.value},

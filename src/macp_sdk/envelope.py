@@ -4,6 +4,7 @@ import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 
+from macp.modes.multi_round.v1 import multi_round_pb2
 from macp.v1 import core_pb2, envelope_pb2
 
 from .constants import (
@@ -50,6 +51,11 @@ def build_root(uri: str, name: str = "") -> core_pb2.Root:
     return core_pb2.Root(uri=uri, name=name)
 
 
+def _has_max_suspend_ms_field() -> bool:
+    """Check if the proto schema supports SessionStartPayload.max_suspend_ms (>=0.1.5)."""
+    return any(f.name == "max_suspend_ms" for f in core_pb2.SessionStartPayload.DESCRIPTOR.fields)
+
+
 def build_session_start_payload(
     *,
     intent: str,
@@ -61,8 +67,22 @@ def build_session_start_payload(
     context_id: str = "",
     extensions: Mapping[str, bytes] | None = None,
     roots: Iterable[core_pb2.Root] | None = None,
+    max_suspend_ms: int = 0,
 ) -> core_pb2.SessionStartPayload:
-    return core_pb2.SessionStartPayload(
+    """Build a ``SessionStartPayload``.
+
+    ``max_suspend_ms`` (macp-proto >= 0.1.5, runtime v0.5.0) binds a
+    per-session maximum-suspension cap at start. ``0`` (the default) or an
+    absent field selects the runtime default (currently 7 days). The runtime
+    rejects negative values at ``SessionStart``, so they are rejected
+    client-side here with a clear message. proto3 does not serialize a scalar
+    ``0``, so the default keeps byte-compatibility with pre-0.1.5 payloads.
+    """
+    if max_suspend_ms < 0:
+        raise MacpSessionError(
+            f"max_suspend_ms must be >= 0 (0 selects the runtime default), got {max_suspend_ms}"
+        )
+    kwargs: dict[str, object] = dict(
         intent=intent,
         participants=list(participants),
         mode_version=mode_version,
@@ -73,6 +93,9 @@ def build_session_start_payload(
         extensions=dict(extensions) if extensions else {},
         roots=list(roots or []),
     )
+    if max_suspend_ms and _has_max_suspend_ms_field():
+        kwargs["max_suspend_ms"] = max_suspend_ms
+    return core_pb2.SessionStartPayload(**kwargs)
 
 
 def _has_outcome_positive_field() -> bool:
@@ -162,6 +185,17 @@ def build_progress_payload(
         message=message,
         target_message_id=target_message_id,
     )
+
+
+def build_contribute_payload(value: str) -> multi_round_pb2.ContributePayload:
+    """Build a ``ContributePayload`` for the ``ext.multi_round.v1`` mode.
+
+    Runtime v0.5.0 / macp-proto >= 0.1.4 moved Contribute onto the canonical
+    protobuf wire format. The runtime still permanently accepts legacy JSON
+    (``{"value": "..."}``) — see ``ProtoRegistry.decode_known_payload`` — but
+    new clients should emit proto via this builder.
+    """
+    return multi_round_pb2.ContributePayload(value=value)
 
 
 def serialize_message(message: object) -> bytes:

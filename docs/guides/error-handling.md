@@ -46,6 +46,17 @@ except MacpAckError as e:
 | `PAYLOAD_TOO_LARGE` | Exceeds max payload size (default 1MB) | Reduce payload |
 | `INVALID_SESSION_ID` | Session ID format invalid | Use `new_session_id()` |
 | `UNSUPPORTED_PROTOCOL_VERSION` | Version mismatch | Update SDK |
+| `UNKNOWN_POLICY_VERSION` | Commitment `policy_version` doesn't match the session's bound policy | Echo the bound id, or send an empty `policy_version` (see below) |
+| `FAILED_PRECONDITION` | Mutating a read-only policy registry (`MACP_POLICIES_DIR`) | Check `Initialize` `policy_registry.register_policy` first |
+
+> **Commitment `policy_version` echo contract (runtime v0.5.0).** A commitment
+> with an **empty** `policy_version` matches whatever policy the session is
+> bound to — a session started with an empty policy_version no longer has to
+> echo `policy.default`. A **non-empty** value must equal the resolved policy
+> id (e.g. `policy.default`) or the commitment is rejected with
+> `UNKNOWN_POLICY_VERSION`. The SDK's session helpers echo
+> `self.policy_version` (default `policy.default`) on `commit()`, so
+> `start`/`commit` stay self-consistent by construction.
 
 **Transient errors** — Safe to retry with backoff.
 
