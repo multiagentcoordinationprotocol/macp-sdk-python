@@ -88,7 +88,7 @@ class ModeRegistryWatcher:
 
     def changes(self) -> Iterator[Any]:
         """Yield ``WatchModeRegistryResponse`` items from the runtime stream."""
-        yield from self._client.watch_mode_registry()
+        yield from self._client.watch_mode_registry(auth=self._auth)
 
     def watch(self, handler: Callable[[Any], None]) -> None:
         """Block and invoke *handler* for each registry change."""
@@ -111,7 +111,7 @@ class RootsWatcher:
 
     def changes(self) -> Iterator[Any]:
         """Yield ``WatchRootsResponse`` items from the runtime stream."""
-        yield from self._client.watch_roots()
+        yield from self._client.watch_roots(auth=self._auth)
 
     def watch(self, handler: Callable[[Any], None]) -> None:
         """Block and invoke *handler* for each root change."""
@@ -133,8 +133,12 @@ class SignalWatcher:
         self._auth = auth
 
     def signals(self) -> Iterator[Any]:
-        """Yield envelope objects extracted from ``WatchSignalsResponse``."""
-        for response in self._client.watch_signals():
+        """Yield envelope objects extracted from ``WatchSignalsResponse``.
+
+        Forwards the watcher's stored ``auth`` — runtime v0.5.0 requires
+        authentication for ``WatchSignals``.
+        """
+        for response in self._client.watch_signals(auth=self._auth):
             if hasattr(response, "envelope") and response.envelope.ByteSize() > 0:
                 yield response.envelope
 
@@ -217,7 +221,7 @@ class PolicyWatcher:
 
     def changes(self) -> Iterator[PolicyChange]:
         """Yield ``PolicyChange`` items from the runtime stream."""
-        for response in self._client.watch_policies():
+        for response in self._client.watch_policies(auth=self._auth):
             descriptors = list(response.descriptors) if hasattr(response, "descriptors") else []
             observed = getattr(response, "observed_at_unix_ms", 0)
             yield PolicyChange(descriptors=descriptors, observed_at_unix_ms=observed)

@@ -42,6 +42,30 @@ Each entry is a `SessionMetadata` proto with the same shape returned by
 fields that surface any extension blobs the initiator attached to
 `SessionStart.extensions` (see [Protocol → SessionStart](../protocol.md#sessionstart)).
 
+### Pagination (runtime v0.5.0)
+
+`ListSessions` is paginated since runtime v0.5.0 / `macp-proto 0.1.6`.
+`list_sessions()` **auto-paginates** for you: it drains every page (following
+the runtime's `next_page_token`) and returns the complete list, so existing
+callers stay correct against a paginating runtime. Tune the per-request batch
+with `page_size` (0 = server default):
+
+```python
+all_sessions = client.list_sessions(page_size=100)   # drains all pages
+```
+
+If you want to page manually — e.g. to render one page at a time — use
+`list_sessions_page`, which returns `(sessions, next_page_token)`. An empty
+token means the last page; **don't assume a complete list until the token is
+empty**:
+
+```python
+page, token = client.list_sessions_page(page_size=50)
+while token:
+    more, token = client.list_sessions_page(page_size=50, page_token=token)
+    page.extend(more)
+```
+
 ## `SessionLifecycleWatcher` (live stream)
 
 ```python
@@ -75,6 +99,15 @@ for event in watcher.changes():
 > so loops that wait `until event.is_terminal` keep working — but switch any
 > code that special-cased `is_expired` to detect cancellation over to
 > `is_cancelled`. `SUSPENDED` / `RESUMED` are non-terminal.
+
+> **Suspension cap (SDK 0.5.0 / runtime v0.5.0):** pass `max_suspend_ms` to
+> `session.start(...)` (or `SessionStart`) to bind a per-session maximum
+> suspension window. `0` (default) selects the runtime default (currently 7
+> days). A suspension that outlasts the cap **expires** the session
+> (`SUSPENDED` → `EXPIRED`), which you will observe as an `is_expired`
+> lifecycle event. The resolved cap is recorded on the session's `SessionStart`
+> log entry and used on replay, so it is stable regardless of later runtime
+> configuration. Negative values are rejected client-side.
 
 ### Startup snapshot semantics
 

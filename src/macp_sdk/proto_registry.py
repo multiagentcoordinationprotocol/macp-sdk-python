@@ -66,7 +66,11 @@ MODE_MAP: dict[str, dict[str, str]] = {
         "Abstain": "macp.modes.quorum.v1.AbstainPayload",
     },
     MODE_MULTI_ROUND: {
-        "Contribute": "__json__",
+        # Runtime v0.5.0 / macp-proto >= 0.1.4: Contribute is the last
+        # advertised mode moved onto the canonical protobuf wire format.
+        # Legacy JSON (``{"value": "..."}``) is still decoded (tried first,
+        # permanently) — see ``decode_known_payload``.
+        "Contribute": "macp.modes.multi_round.v1.ContributePayload",
     },
 }
 
@@ -88,6 +92,7 @@ def _ensure_pb2_imports() -> None:
         "macp.modes.task.v1.task_pb2",
         "macp.modes.handoff.v1.handoff_pb2",
         "macp.modes.quorum.v1.quorum_pb2",
+        "macp.modes.multi_round.v1.multi_round_pb2",
     ):
         importlib.import_module(_mod)
     _PB2_MODULES_LOADED = True
@@ -133,7 +138,28 @@ class ProtoRegistry:
         type_name = self.get_known_type_name(mode, message_type)
         if type_name is None or type_name == "__json__":
             return self._try_decode_utf8(payload)
+        if mode == MODE_MULTI_ROUND and message_type == "Contribute":
+            # RFC-MACP contract: multi_round Contribute accepts legacy JSON
+            # (``{"value": "..."}``) *permanently* and tries it first, so
+            # pre-proto histories/replays decode byte-identically. Proto
+            # (``ContributePayload``) is the new canonical encoding; its
+            # serialized bytes are not valid JSON, so the JSON attempt fails
+            # loudly and we fall through to proto.
+            return self._decode_json_first_then_proto(type_name, payload)
         return self.decode_message(type_name, payload)
+
+    def _decode_json_first_then_proto(
+        self, type_name: str, payload: bytes
+    ) -> dict[str, Any] | None:
+        if not payload:
+            return None
+        try:
+            parsed = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return self.decode_message(type_name, payload)
+        # Legacy JSON payload — keep the ``{"encoding": "json", "json": ...}``
+        # shape that existing consumers of decoded dicts already handle.
+        return {"encoding": "json", "json": parsed}
 
     @staticmethod
     def _try_decode_utf8(payload: bytes) -> dict[str, Any] | None:

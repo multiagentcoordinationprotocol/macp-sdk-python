@@ -203,3 +203,41 @@ envelope = build_envelope(
 )
 client.send(envelope, auth=auth)
 ```
+
+### Extension-mode constraints (runtime v0.5.0)
+
+The runtime enforces three constraints the SDK helps you honour:
+
+- **`Commitment` must be a terminal type.** A descriptor's
+  `terminal_message_types` must include `"Commitment"`. `register_ext_mode`
+  guards this client-side and raises `MacpSessionError` before the RPC if it
+  is missing.
+- **No promotion into `macp.mode.*`.** `PromoteMode` cannot re-key an
+  extension mode into the reserved `macp.mode.*` namespace; the runtime
+  rejects it.
+- **Empty `mode_version` binds the descriptor version.** An ext session
+  started without a `mode_version` binds the registered descriptor's version
+  — commitments no longer match an empty `mode_version` vacuously. Prefer
+  passing an explicit `mode_version`.
+
+### Read-only policy / mode registries
+
+A runtime started with `MACP_POLICIES_DIR` serves a **read-only** policy
+registry: `Initialize` advertises
+`capabilities.policy_registry.register_policy: false`, and every mutating
+policy RPC (`register_policy`, `unregister_policy`) is rejected with gRPC
+`FAILED_PRECONDITION`. The SDK surfaces that as
+`MacpAckError(code="FAILED_PRECONDITION")`. Check the capability before
+attempting a mutation to avoid the round-trip:
+
+```python
+resp = client.initialize()
+if resp.capabilities.policy_registry.register_policy:
+    client.register_policy(descriptor, auth=admin_auth)
+else:
+    ...  # registry is file-managed (MACP_POLICIES_DIR); mutation not allowed
+```
+
+The runtime also advertises `capabilities.roots.list_changed: false` and does
+not populate roots yet, so `list_roots()` returns an empty list and
+`WatchRoots` idles.

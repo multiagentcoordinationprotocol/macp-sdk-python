@@ -21,6 +21,7 @@ from .errors import (
     MacpAckError,
     MacpIdentityMismatchError,
     MacpSdkError,
+    MacpSessionError,
     MacpTransportError,
 )
 
@@ -67,6 +68,33 @@ def _parse_grpc_metadata_reasons(rpc_error: grpc.RpcError) -> list[str]:
     except Exception:
         pass
     return []
+
+
+def _rpc_status_name(rpc_err: grpc.RpcError) -> str | None:
+    """Return the gRPC status code name for *rpc_err*, or None.
+
+    Defensive against error objects that don't implement ``code()`` (the bare
+    ``grpc.RpcError`` base class doesn't; only concrete call errors do).
+    """
+    code_fn = getattr(rpc_err, "code", None)
+    if not callable(code_fn):
+        return None
+    try:
+        status = code_fn()
+    except Exception:
+        return None
+    return status.name if status is not None else None
+
+
+def _rpc_details(rpc_err: grpc.RpcError) -> str | None:
+    """Return ``rpc_err.details()`` if available, else None."""
+    details_fn = getattr(rpc_err, "details", None)
+    if not callable(details_fn):
+        return None
+    try:
+        return details_fn()
+    except Exception:
+        return None
 
 
 def _default_capabilities() -> core_pb2.Capabilities:
@@ -159,8 +187,18 @@ class MacpStream:
 
     def send_subscribe(self, session_id: str, after_sequence: int = 0) -> None:
         """RFC-MACP-0006-A1: Send a subscribe-only frame to receive session
-        history + live broadcast. The runtime replays accepted envelopes from
-        ``after_sequence`` onwards, then continues with live broadcast.
+        history + live broadcast.
+
+        ``after_sequence`` (RFC-MACP-0006 §3.2, runtime v0.5.0) is the 1-based
+        ordinal over *accepted envelopes*, interpreted **exclusively**: ``0``
+        (default) replays from the start; ``N`` replays from envelope ``N+1``
+        onward, so envelope ``N`` is never re-delivered. Ordinals are
+        contiguous and stable across log compaction and runtime restart. To
+        resume, track how many envelopes you have consumed and pass that count
+        as ``after_sequence`` on reconnect. Resuming below a compacted range
+        fails the stream with gRPC ``FAILED_PRECONDITION`` (surfaced as
+        ``MacpTransportError(code="FAILED_PRECONDITION")`` from :meth:`read`) —
+        restart from ``0`` and reconcile.
         """
         if self._closed:
             raise MacpSdkError("stream is already closed")
@@ -175,7 +213,10 @@ class MacpStream:
         if item is self._END:
             return None
         if isinstance(item, grpc.RpcError):
-            raise MacpTransportError(item.details() or str(item))
+            raise MacpTransportError(
+                _rpc_details(item) or str(item),
+                code=_rpc_status_name(item),
+            )
         assert isinstance(item, envelope_pb2.Envelope)
         return item
 
@@ -213,7 +254,7 @@ class MacpClient:
         root_certificates: bytes | None = None,
         default_timeout: float | None = None,
         client_name: str = "macp-sdk-python",
-        client_version: str = "0.4.0",
+        client_version: str = "0.5.0",
     ) -> None:
         if secure is None:
             secure = not allow_insecure
@@ -255,6 +296,43 @@ class MacpClient:
         if selected is None:
             raise MacpSdkError("this operation requires auth; pass auth= or configure client.auth")
         return selected
+
+    @staticmethod
+    def _transport_error_from_rpc(rpc_err: grpc.RpcError) -> MacpTransportError:
+        """Build a :class:`MacpTransportError` preserving the gRPC status code.
+
+        Watch/stream RPCs surface consumer lag as ``RESOURCE_EXHAUSTED`` and a
+        missing-auth ``WatchSignals`` as ``UNAUTHENTICATED``; attaching the
+        code lets callers decide to reconnect (lag) vs. fix auth vs. give up.
+        """
+        return MacpTransportError(
+            _rpc_details(rpc_err) or str(rpc_err),
+            code=_rpc_status_name(rpc_err),
+        )
+
+    @staticmethod
+    def _map_registry_mutation_error(rpc_err: grpc.RpcError, *, read_only_hint: str) -> Exception:
+        """Translate a registry-mutation ``RpcError`` into a typed SDK error.
+
+        A runtime configured with a read-only registry (e.g.
+        ``MACP_POLICIES_DIR`` for policies) advertises the corresponding
+        capability as ``false`` in ``Initialize`` and rejects every mutating
+        RPC with gRPC ``FAILED_PRECONDITION``. Surface that as a
+        :class:`MacpAckError` carrying the code so callers can branch on it,
+        mirroring how ``send``/``cancel_session`` surface NACKs. Any other
+        status stays a :class:`MacpTransportError` with the code attached.
+        """
+        name = _rpc_status_name(rpc_err)
+        if name == "FAILED_PRECONDITION":
+            failure = AckFailure(
+                code="FAILED_PRECONDITION",
+                message=_rpc_details(rpc_err) or read_only_hint,
+            )
+            return MacpAckError(failure)
+        return MacpTransportError(
+            _rpc_details(rpc_err) or str(rpc_err),
+            code=name,
+        )
 
     @staticmethod
     def _resolve_sender(auth_cfg: AuthConfig, sender: str) -> str:
@@ -418,6 +496,12 @@ class MacpClient:
         suspended the runtime rejects messages sent to the session with a
         non-OPEN error; call :meth:`resume_session` to return it to OPEN.
         The returned ``Ack.session_state`` reflects ``SUSPENDED``.
+
+        A suspension that outlasts the session-bound ``max_suspend_ms`` cap
+        (set at ``SessionStart``; runtime v0.5.0) expires the session
+        (``SUSPENDED`` → ``EXPIRED``), observed as an ``EVENT_TYPE_EXPIRED``
+        lifecycle event. ``max_suspend_ms=0`` uses the runtime default
+        (currently 7 days).
         """
         auth_cfg = self._require_auth(auth)
         try:
@@ -491,23 +575,55 @@ class MacpClient:
     def list_sessions(
         self,
         *,
+        page_size: int = 0,
         auth: AuthConfig | None = None,
         timeout: float | None = None,
     ) -> list[core_pb2.SessionMetadata]:
         """List all active sessions known to the runtime.
 
-        Returns the populated ``sessions`` repeated field of
-        ``ListSessionsResponse`` as a plain ``list`` so callers don't have
-        to reach through the proto wrapper. Per runtime semantics each
-        entry includes ``context_id`` and ``extension_keys``.
+        Auto-paginates (macp-proto >= 0.1.6 / runtime v0.5.0): repeatedly
+        requests ``ListSessions`` with the runtime's ``next_page_token`` until
+        it is empty, so the returned ``list`` is always the *complete* set
+        regardless of the runtime's page size. Each entry includes
+        ``context_id`` and ``extension_keys``. ``page_size`` (0 = server
+        default) tunes the per-request batch. Use :meth:`list_sessions_page`
+        for manual, single-page control.
+        """
+        auth_cfg = self._require_auth(auth)
+        sessions: list[core_pb2.SessionMetadata] = []
+        page_token = ""
+        while True:
+            batch, page_token = self.list_sessions_page(
+                page_size=page_size,
+                page_token=page_token,
+                auth=auth_cfg,
+                timeout=timeout,
+            )
+            sessions.extend(batch)
+            if not page_token:
+                return sessions
+
+    def list_sessions_page(
+        self,
+        *,
+        page_size: int = 0,
+        page_token: str = "",
+        auth: AuthConfig | None = None,
+        timeout: float | None = None,
+    ) -> tuple[list[core_pb2.SessionMetadata], str]:
+        """Fetch a single page of sessions (macp-proto >= 0.1.6).
+
+        Returns ``(sessions, next_page_token)``. An empty ``next_page_token``
+        means the last page. Callers that want to drain all pages should use
+        :meth:`list_sessions`, which loops this for them.
         """
         auth_cfg = self._require_auth(auth)
         resp = self.stub.ListSessions(
-            core_pb2.ListSessionsRequest(),
+            core_pb2.ListSessionsRequest(page_size=page_size, page_token=page_token),
             metadata=self._metadata(auth_cfg),
             timeout=timeout or self.default_timeout,
         )
-        return list(resp.sessions)
+        return list(resp.sessions), resp.next_page_token
 
     def watch_sessions(
         self,
@@ -535,7 +651,7 @@ class MacpClient:
         try:
             yield from call
         except grpc.RpcError as exc:
-            raise MacpTransportError(str(exc)) from exc
+            raise self._transport_error_from_rpc(exc) from exc
 
     def register_ext_mode(
         self,
@@ -544,12 +660,37 @@ class MacpClient:
         auth: AuthConfig | None = None,
         timeout: float | None = None,
     ) -> core_pb2.RegisterExtModeResponse:
+        """Register an extension-mode descriptor with the runtime.
+
+        Descriptors must declare ``Commitment`` among their
+        ``terminal_message_types`` (runtime v0.5.0 rejects those that don't),
+        and an ext session started without ``mode_version`` binds the
+        registered descriptor's version. Against a read-only mode registry the
+        runtime rejects this with gRPC ``FAILED_PRECONDITION``, surfaced here
+        as :class:`MacpAckError`.
+
+        Raises :class:`MacpSessionError` client-side if the descriptor omits
+        ``Commitment`` from ``terminal_message_types`` (runtime v0.5.0 requires
+        it), giving a clearer error than the runtime's rejection.
+        """
+        if "Commitment" not in descriptor.terminal_message_types:
+            raise MacpSessionError(
+                "ext-mode descriptor must declare 'Commitment' in "
+                "terminal_message_types (runtime v0.5.0 rejects descriptors "
+                "without a Commitment terminal type)"
+            )
         auth_cfg = self._require_auth(auth)
-        return self.stub.RegisterExtMode(
-            core_pb2.RegisterExtModeRequest(mode_descriptor=descriptor),
-            metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
-        )
+        try:
+            return self.stub.RegisterExtMode(
+                core_pb2.RegisterExtModeRequest(mode_descriptor=descriptor),
+                metadata=self._metadata(auth_cfg),
+                timeout=timeout or self.default_timeout,
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._map_registry_mutation_error(
+                rpc_err,
+                read_only_hint="RegisterExtMode refused: the mode registry is read-only",
+            ) from rpc_err
 
     def unregister_ext_mode(
         self,
@@ -559,11 +700,17 @@ class MacpClient:
         timeout: float | None = None,
     ) -> core_pb2.UnregisterExtModeResponse:
         auth_cfg = self._require_auth(auth)
-        return self.stub.UnregisterExtMode(
-            core_pb2.UnregisterExtModeRequest(mode=mode),
-            metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
-        )
+        try:
+            return self.stub.UnregisterExtMode(
+                core_pb2.UnregisterExtModeRequest(mode=mode),
+                metadata=self._metadata(auth_cfg),
+                timeout=timeout or self.default_timeout,
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._map_registry_mutation_error(
+                rpc_err,
+                read_only_hint="UnregisterExtMode refused: the mode registry is read-only",
+            ) from rpc_err
 
     def promote_mode(
         self,
@@ -573,12 +720,25 @@ class MacpClient:
         auth: AuthConfig | None = None,
         timeout: float | None = None,
     ) -> core_pb2.PromoteModeResponse:
+        """Promote a registered extension mode to a first-class mode.
+
+        Runtime v0.5.0 rejects promotion into the reserved ``macp.mode.*``
+        namespace. Against a read-only mode registry the runtime rejects this
+        with gRPC ``FAILED_PRECONDITION``, surfaced here as
+        :class:`MacpAckError`.
+        """
         auth_cfg = self._require_auth(auth)
-        return self.stub.PromoteMode(
-            core_pb2.PromoteModeRequest(mode=mode, promoted_mode_name=promoted_mode_name),
-            metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
-        )
+        try:
+            return self.stub.PromoteMode(
+                core_pb2.PromoteModeRequest(mode=mode, promoted_mode_name=promoted_mode_name),
+                metadata=self._metadata(auth_cfg),
+                timeout=timeout or self.default_timeout,
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._map_registry_mutation_error(
+                rpc_err,
+                read_only_hint="PromoteMode refused: the mode registry is read-only",
+            ) from rpc_err
 
     # ── Governance policy lifecycle ───────────────────────────────────
 
@@ -589,13 +749,28 @@ class MacpClient:
         auth: AuthConfig | None = None,
         timeout: float | None = None,
     ) -> policy_pb2.RegisterPolicyResponse:
-        """Register a governance policy with the runtime."""
+        """Register a governance policy with the runtime.
+
+        Raises :class:`MacpAckError` with ``code="FAILED_PRECONDITION"`` when
+        the runtime's policy registry is read-only — a runtime started with
+        ``MACP_POLICIES_DIR`` advertises ``policy_registry.register_policy:
+        false`` in :meth:`initialize` and refuses all mutating policy RPCs.
+        Check that capability before registering to avoid the round-trip.
+        """
         auth_cfg = self._require_auth(auth)
-        return self.stub.RegisterPolicy(
-            policy_pb2.RegisterPolicyRequest(policy_descriptor=descriptor),
-            metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
-        )
+        try:
+            return self.stub.RegisterPolicy(
+                policy_pb2.RegisterPolicyRequest(policy_descriptor=descriptor),
+                metadata=self._metadata(auth_cfg),
+                timeout=timeout or self.default_timeout,
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._map_registry_mutation_error(
+                rpc_err,
+                read_only_hint="RegisterPolicy refused: the policy registry is read-only "
+                "(runtime configured with MACP_POLICIES_DIR; "
+                "Initialize advertises policy_registry.register_policy=false)",
+            ) from rpc_err
 
     def unregister_policy(
         self,
@@ -604,13 +779,24 @@ class MacpClient:
         auth: AuthConfig | None = None,
         timeout: float | None = None,
     ) -> policy_pb2.UnregisterPolicyResponse:
-        """Unregister a governance policy from the runtime."""
+        """Unregister a governance policy from the runtime.
+
+        Like :meth:`register_policy`, raises :class:`MacpAckError` with
+        ``code="FAILED_PRECONDITION"`` against a read-only registry.
+        """
         auth_cfg = self._require_auth(auth)
-        return self.stub.UnregisterPolicy(
-            policy_pb2.UnregisterPolicyRequest(policy_id=policy_id),
-            metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
-        )
+        try:
+            return self.stub.UnregisterPolicy(
+                policy_pb2.UnregisterPolicyRequest(policy_id=policy_id),
+                metadata=self._metadata(auth_cfg),
+                timeout=timeout or self.default_timeout,
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._map_registry_mutation_error(
+                rpc_err,
+                read_only_hint="UnregisterPolicy refused: the policy registry is read-only "
+                "(runtime configured with MACP_POLICIES_DIR)",
+            ) from rpc_err
 
     def get_policy(
         self,
@@ -643,18 +829,24 @@ class MacpClient:
         )
 
     def watch_policies(
-        self, *, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
     ) -> Iterator[policy_pb2.WatchPoliciesResponse]:
-        """Server-streaming RPC: yields governance policy change events."""
+        """Server-streaming RPC: yields governance policy change events.
+
+        Auth is forwarded when available (``auth`` arg or ``client.auth``) but
+        not required. A lagging consumer is terminated with
+        ``RESOURCE_EXHAUSTED``; reconnect to resume.
+        """
         logger.debug("watch_policies starting")
         call = self.stub.WatchPolicies(
             policy_pb2.WatchPoliciesRequest(),
+            metadata=self._metadata(auth),
             timeout=timeout or self.default_timeout,
         )
         try:
             yield from call
         except grpc.RpcError as exc:
-            raise MacpTransportError(str(exc)) from exc
+            raise self._transport_error_from_rpc(exc) from exc
 
     def open_stream(
         self, *, auth: AuthConfig | None = None, timeout: float | None = None
@@ -667,44 +859,64 @@ class MacpClient:
         )
 
     def watch_mode_registry(
-        self, *, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
     ) -> Iterator[core_pb2.WatchModeRegistryResponse]:
-        """Server-streaming RPC: yields mode registry change events."""
+        """Server-streaming RPC: yields mode registry change events.
+
+        Auth is forwarded when available but not required.
+        """
         logger.debug("watch_mode_registry starting")
         call = self.stub.WatchModeRegistry(
             core_pb2.WatchModeRegistryRequest(),
+            metadata=self._metadata(auth),
             timeout=timeout or self.default_timeout,
         )
         try:
             yield from call
         except grpc.RpcError as exc:
-            raise MacpTransportError(str(exc)) from exc
+            raise self._transport_error_from_rpc(exc) from exc
 
-    def watch_roots(self, *, timeout: float | None = None) -> Iterator[core_pb2.WatchRootsResponse]:
-        """Server-streaming RPC: yields root change events."""
+    def watch_roots(
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+    ) -> Iterator[core_pb2.WatchRootsResponse]:
+        """Server-streaming RPC: yields root change events.
+
+        The runtime advertises ``roots.list_changed: false`` and does not yet
+        populate roots, so this stream idles. Auth is forwarded when available
+        but not required.
+        """
         logger.debug("watch_roots starting")
         call = self.stub.WatchRoots(
             core_pb2.WatchRootsRequest(),
+            metadata=self._metadata(auth),
             timeout=timeout or self.default_timeout,
         )
         try:
             yield from call
         except grpc.RpcError as exc:
-            raise MacpTransportError(str(exc)) from exc
+            raise self._transport_error_from_rpc(exc) from exc
 
     def watch_signals(
-        self, *, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
     ) -> Iterator[core_pb2.WatchSignalsResponse]:
-        """Server-streaming RPC: yields ambient signal envelopes."""
+        """Server-streaming RPC: yields ambient signal envelopes.
+
+        Requires authentication since runtime v0.5.0 — an unauthenticated
+        ``WatchSignals`` is rejected with gRPC ``UNAUTHENTICATED`` (surfaced
+        as ``MacpTransportError(code="UNAUTHENTICATED")``). A lagging consumer
+        is terminated with ``RESOURCE_EXHAUSTED``; reconnect to resume.
+        """
         logger.debug("watch_signals starting")
+        auth_cfg = self._require_auth(auth)
         call = self.stub.WatchSignals(
             core_pb2.WatchSignalsRequest(),
+            metadata=self._metadata(auth_cfg),
             timeout=timeout or self.default_timeout,
         )
         try:
             yield from call
         except grpc.RpcError as exc:
-            raise MacpTransportError(str(exc)) from exc
+            raise self._transport_error_from_rpc(exc) from exc
 
     def send_signal(
         self,

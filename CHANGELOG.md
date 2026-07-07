@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.5.0 (2026-07-06)
+
+Absorb **runtime v0.5.0** and **`macp-proto 0.1.6`**. Additive API surface for
+the new runtime capabilities, plus the canonical conformance-fixture format.
+
+> **⚠️ Consumer-visible dependency bump.** `macp-proto 0.1.6`'s generated code
+> was produced by **protobuf 7.35.0 / grpc 1.82.0** and protobuf enforces this
+> at *import time*, so this release raises three floors together:
+> **`macp-proto>=0.1.6`**, **`protobuf>=7.35.0`**, and **`grpcio>=1.82.0`**.
+> Deployments pinned to protobuf 6.x / grpcio < 1.82 cannot upgrade to 0.5.0 —
+> there is no way to straddle protobuf majors. Stay on 0.4.x if you must.
+
+### Added
+
+- **`max_suspend_ms` on session start** — `build_session_start_payload`,
+  `BaseSession.start`, and the agent `InitiatorConfig` / `start_session` accept
+  a per-session maximum-suspension cap (macp-proto ≥ 0.1.5). `0` selects the
+  runtime default (7 days); negatives are rejected client-side.
+- **`ListSessions` pagination** — `list_sessions()` now auto-paginates (drains
+  all pages, returns the complete list) and gains a `page_size` kwarg. New
+  `list_sessions_page(page_size, page_token) -> (sessions, next_page_token)`
+  for manual paging.
+- **Handoff `implicit` accept surfacing** — `HandoffRecord.implicit` and
+  `HandoffProjection.is_implicitly_accepted(handoff_id)` distinguish a
+  runtime-synthesized implicit accept (RFC-MACP-0010 §5.1) from an explicit
+  client accept. `accept_handoff()` never sets `implicit` (regression-tested).
+- **multi_round `Contribute` proto encoding** — `ext.multi_round.v1`
+  `Contribute` now encodes as `macp.modes.multi_round.v1.ContributePayload`
+  (macp-proto ≥ 0.1.4). Legacy JSON payloads are still decoded (tried first,
+  permanently). New `build_contribute_payload(value)` helper.
+- **`MacpTransportError.code`** — watch/stream transport errors now carry the
+  gRPC status code name (e.g. `RESOURCE_EXHAUSTED`, `UNAUTHENTICATED`,
+  `FAILED_PRECONDITION`) so callers can branch on lag/auth/precondition.
+- **`auth` kwargs on watch RPCs** — `watch_signals`, `watch_policies`,
+  `watch_mode_registry`, `watch_roots` accept/forward auth.
+- **Ext-mode `Commitment`-terminal guard** — `register_ext_mode` rejects a
+  descriptor missing `Commitment` from `terminal_message_types` client-side.
+
+### Changed
+
+- **Dependency floors** — `macp-proto>=0.1.6,<0.2.0`, **`protobuf>=7.35.0`**,
+  **`grpcio>=1.82.0`** (see the warning above).
+- **`list_sessions()` auto-paginates** — strictly-more-complete results;
+  behaviourally additive for single-page runtimes.
+- **`QuorumThreshold.value: float → int`** with range validation — a
+  `percentage` value must be an integer `0-100`, and any negative value is
+  rejected with `MacpSessionError` at build time. Such descriptors were
+  already rejected by the runtime's schema (`INVALID_POLICY_DEFINITION`); this
+  converts the server-side rejection into an immediate client-side error.
+- **`client_version`** default corrected to `0.5.0` (was a stale `0.4.0`).
+
+### Fixed
+
+- **`WatchSignals` authentication** — `MacpClient.watch_signals` and
+  `SignalWatcher` now send auth metadata; against a runtime v0.5.0 an
+  unauthenticated `WatchSignals` was rejected with `UNAUTHENTICATED`. The
+  other watchers' stored `auth` (previously dead code) is now forwarded too.
+- **Conformance harness** — re-keyed to fully-qualified canonical
+  `payload_type` names (derived from the SDK's own `proto_registry`),
+  excludes the vendored `schema.json` from fixture loading, and adds a
+  format-guard test. Vendored fixtures resynced to the canonical pack.
+- **`after_sequence` / stream docs** — documented the exclusive 1-based
+  accepted-envelope ordinal contract, compaction stability, and
+  `FAILED_PRECONDITION`-below-compaction recovery; stream errors preserve the
+  gRPC code for reconnect handling.
+- **Read-only policy registry** — `register_policy` / `unregister_policy` (and
+  the ext-mode mutation RPCs) wrap `grpc.RpcError`; a runtime with
+  `MACP_POLICIES_DIR` surfaces `FAILED_PRECONDITION` as a typed `MacpAckError`
+  instead of a raw gRPC error.
+- **`validate_session_id` no-fall-through** — a UUID-shaped string must now be
+  a lowercase v4/v7 UUID (no reinterpretation as base64url); 36-char base64url
+  IDs containing `-` remain accepted (advisory validator).
+
 ## 0.4.1 (2026-07-02)
 
 Patch release: packaging metadata and Decision policy JSON parity fixes. No

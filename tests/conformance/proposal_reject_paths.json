@@ -13,16 +13,16 @@
     {
       "sender": "agent://buyer",
       "message_type": "Commitment",
-      "payload_type": "Commitment",
+      "payload_type": "macp.v1.CommitmentPayload",
       "payload": {
         "commitment_id": "c1",
-        "outcome_positive": true,
         "action": "proposal.accepted",
         "authority_scope": "test",
         "reason": "done",
         "mode_version": "1.0.0",
-        "policy_version": "",
-        "configuration_version": "cfg-1"
+        "policy_version": "policy.default",
+        "configuration_version": "cfg-1",
+        "outcome_positive": true
       },
       "expect": "reject",
       "expected_error_code": "INVALID_ENVELOPE"
@@ -30,7 +30,7 @@
     {
       "sender": "agent://seller",
       "message_type": "CounterProposal",
-      "payload_type": "proposal.CounterProposal",
+      "payload_type": "macp.modes.proposal.v1.CounterProposalPayload",
       "payload": {
         "proposal_id": "p2",
         "supersedes_proposal_id": "",

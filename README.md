@@ -110,6 +110,12 @@ export MACP_ALLOW_INSECURE=1
 cargo run   # in the runtime repo
 ```
 
+Since runtime **v0.5.0**, a runtime with no authentication configured
+(`MACP_AUTH_TOKENS_*` / `MACP_AUTH_ISSUER` unset) **refuses to start** unless
+`MACP_ALLOW_INSECURE=1` is set, and the published Docker image **no longer
+bakes that env in** — pass it explicitly for local dev (as above and in the
+`docker run` command in `CLAUDE.md`).
+
 Dev-agent auth rides the standard `Authorization: Bearer` header — the
 runtime's `dev_authenticate` fallback binds the token value verbatim
 as the sender.

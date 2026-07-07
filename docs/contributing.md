@@ -25,9 +25,11 @@ Integration and runtime smoke tests require a running MACP runtime — see `CLAU
 
 ## Bumping `macp-proto`
 
-The SDK pins `macp-proto` with a **tight upper bound** (currently `>=0.1.3,<0.2.0`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
+The SDK pins `macp-proto` with a **tight upper bound** (currently `>=0.1.6,<0.2.0`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
 
-> **0.1.3 note:** the floor is `0.1.3` because the SDK now uses the suspend/cancel/supersede surface (`SuspendSession`/`ResumeSession` RPCs, `SESSION_STATE_SUSPENDED`/`CANCELLED`, the `SUSPENDED`/`RESUMED`/`CANCELLED` lifecycle events, and `CommitmentPayload.supersedes`). 0.1.3's generated gRPC stubs also require **`grpcio>=1.81.1`**, so the `grpcio` floor moved in lockstep — bump both together.
+> **0.1.6 note (SDK 0.5.0):** the floor is `0.1.6` because the SDK uses the runtime v0.5.0 wire surface — `SessionStartPayload.max_suspend_ms` (0.1.5), `HandoffAcceptPayload.implicit` and `ListSessionsRequest.page_size`/`page_token` (0.1.6), and the canonical `macp.modes.multi_round.v1.ContributePayload` encoding (0.1.4). **Critically, macp-proto 0.1.6's gencode was produced by protobuf 7.35.0 / grpc 1.82.0** and protobuf enforces this at *import time* (`runtime_version.VersionError` under an older protobuf), so the floors moved together: **`protobuf>=7.35.0`** and **`grpcio>=1.82.0`**. macp-proto's own METADATA floors are looser than the gencode requires, so do not trust them — derive the floors from the gencode. There is no way to straddle protobuf majors; consumers pinned to protobuf 6.x cannot upgrade to SDK 0.5.0.
+>
+> **0.1.3 note (historical):** 0.1.3 introduced the suspend/cancel/supersede surface and required `grpcio>=1.81.1`.
 
 To move the pin:
 

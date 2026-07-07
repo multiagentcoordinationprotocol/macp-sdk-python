@@ -10,7 +10,15 @@ from collections.abc import Sequence
 
 from .errors import MacpSessionError
 
-_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+# A string with the structural shape of a UUID (36 chars, hyphens at
+# 8-13-18-23, hex-only otherwise) — case-insensitive, any version/variant.
+_UUID_SHAPE_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+# Strict lowercase UUID v4/v7 (version nibble 4 or 7, RFC 9562 variant 8/9/a/b).
+_UUID_V4V7_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 _BASE64URL_RE = re.compile(r"^[A-Za-z0-9_-]{22,}$")
 
 _VALID_VOTES = frozenset({"APPROVE", "REJECT", "ABSTAIN"})
@@ -22,11 +30,31 @@ _MAX_TTL_MS = 86_400_000  # 24 hours
 
 
 def validate_session_id(sid: str) -> None:
-    """Validate that *sid* matches UUID v4/v7 or base64url (22+ chars)."""
-    if not (_UUID_RE.match(sid) or _BASE64URL_RE.match(sid)):
-        raise MacpSessionError(
-            f"session_id must be UUID v4/v7 or base64url (22+ chars), got: {sid!r}"
-        )
+    """Validate that *sid* is a lowercase UUID v4/v7 or base64url (22+ chars).
+
+    Mirrors the runtime's **no-fall-through** rule (runtime v0.5.0 change
+    review A4): a string that has the structural shape of a UUID is validated
+    strictly as a lowercase v4/v7 UUID — it is *not* reinterpreted as
+    base64url (which would otherwise accept an uppercase or wrong-version
+    UUID). A 36-char base64url ID containing ``-`` that is not UUID-shaped
+    (e.g. non-hex characters) still validates via the base64url branch, as the
+    runtime accepts.
+
+    This validation is advisory — it runs only when an explicit ``session_id``
+    is passed; auto-generated IDs are always valid v4 UUIDs.
+    """
+    if _UUID_SHAPE_RE.match(sid):
+        if not _UUID_V4V7_RE.match(sid):
+            raise MacpSessionError(
+                "session_id is UUID-shaped but not a lowercase v4/v7 UUID "
+                f"(no fall-through to base64url), got: {sid!r}"
+            )
+        return
+    if _BASE64URL_RE.match(sid):
+        return
+    raise MacpSessionError(
+        f"session_id must be a lowercase UUID v4/v7 or base64url (22+ chars), got: {sid!r}"
+    )
 
 
 def validate_vote(value: str) -> str:
