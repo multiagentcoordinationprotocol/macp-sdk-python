@@ -4,6 +4,19 @@
 
 Test-suite and CI/CD hardening. No SDK API changes.
 
+### Dependencies
+
+- **grpcio floor relaxed to `>=1.82.0rc2` and `macp-proto` capped `<0.1.8`**
+  — grpcio 1.82.0 stable was yanked from PyPI (metadata-only error,
+  [grpc/grpc#42906](https://github.com/grpc/grpc/issues/42906)) with no newer
+  stable available, making the previous `>=1.82.0` floor unsatisfiable in any
+  fresh environment (macp-proto 0.1.8 re-declares that unsatisfiable floor,
+  hence the cap). The rc satisfies the gencode's version check; re-widen both
+  once a stable grpcio ≥ 1.82.1 ships.
+- `grpcio-tools` removed from the `dev` extra — this repo has no
+  proto-generation step, and every installable grpcio-tools caps
+  `protobuf<7.0.0`, conflicting with the `protobuf>=7.35.0` floor.
+
 ### Testing
 
 - Integration tests now **auto-skip** when no runtime is reachable

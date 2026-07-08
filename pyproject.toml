@@ -31,7 +31,14 @@ dependencies = [
   # macp-proto's own (looser) METADATA. This is the consumer-visible bump in
   # SDK 0.5.0 — deployments pinned to protobuf 6.x / grpcio < 1.82 cannot
   # straddle it.
-  "grpcio>=1.82.0",
+  # grpcio 1.82.0 (stable) was YANKED from PyPI with no newer stable published
+  # yet, which made a ">=1.82.0" floor unsatisfiable in fresh environments
+  # (pip skips yanked versions when resolving ranges). The rc2 floor keeps the
+  # gencode's GRPC_GENERATED_VERSION=1.82.0 import check satisfied (verified:
+  # macp.v1.*_pb2_grpc imports cleanly under 1.82.0rc2) and, per PEP 440,
+  # a pre-release in the specifier lets pip resolve it; pip will prefer the
+  # next stable >= 1.82.1 as soon as one exists. Revisit then.
+  "grpcio>=1.82.0rc2",
   "protobuf>=7.35.0",
   # Requires 0.1.6+ for the runtime v0.5.0 wire surface referenced by the SDK:
   # SessionStartPayload.max_suspend_ms (0.1.5), HandoffAcceptPayload.implicit
@@ -40,7 +47,12 @@ dependencies = [
   # Retains the 0.1.3 surface (suspend/cancel/supersede, subscribe_session_id/
   # after_sequence, context_id/extensions). See docs/contributing.md
   # "Bumping macp-proto".
-  "macp-proto>=0.1.6,<0.2.0",
+  # Capped below 0.1.8: that release's METADATA floor is "grpcio>=1.82.0",
+  # which is unsatisfiable while grpcio 1.82.0 stable is yanked (see the
+  # grpcio comment above) — PEP 440 sorts 1.82.0rc2 below 1.82.0, so no
+  # candidate exists. 0.1.6/0.1.7 declare "grpcio>=1.74.0" and resolve fine.
+  # Re-widen to <0.2.0 once grpcio publishes a stable >= 1.82.1.
+  "macp-proto>=0.1.6,<0.1.8",
 ]
 
 [project.urls]
@@ -51,8 +63,11 @@ Changelog = "https://github.com/multiagentcoordinationprotocol/macp-sdk-python/b
 "Bug Tracker" = "https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues"
 
 [project.optional-dependencies]
+# grpcio-tools was dropped from dev: this repo has no proto-generation step
+# (bindings come from the macp-proto package; generation lives in the spec
+# repo), and every installable grpcio-tools stable caps protobuf<7.0.0,
+# which conflicts with the protobuf>=7.35.0 floor above.
 dev = [
-  "grpcio-tools>=1.74.0",  # only needed for proto-python package publishing
   "pytest>=8.0",
   "pytest-cov>=5.0",
   "mypy>=1.10",
