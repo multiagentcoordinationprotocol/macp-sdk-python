@@ -31,30 +31,16 @@ from macp_sdk.errors import (
 )
 from macp_sdk.handoff import HandoffProjection, HandoffSession
 from macp_sdk.policy import QuorumThreshold, build_quorum_policy
-from tests.conftest import make_ack, make_envelope
-
-
-def _client_with_stub(*, auth: AuthConfig | None = None) -> tuple[MacpClient, MagicMock]:
-    auth = auth or AuthConfig.for_bearer("tok", sender_hint="alice")
-    client = MacpClient(target="localhost:0", allow_insecure=True, auth=auth)
-    stub = MagicMock()
-    client.stub = stub
-    return client, stub
-
-
-class _FakeRpcError(grpc.RpcError):
-    """An RpcError that implements ``code()`` / ``details()`` like a real call."""
-
-    def __init__(self, code: grpc.StatusCode, details: str = "") -> None:
-        self._code = code
-        self._details = details
-
-    def code(self) -> grpc.StatusCode:
-        return self._code
-
-    def details(self) -> str:
-        return self._details
-
+from tests.conftest import (
+    FakeRpcError as _FakeRpcError,
+)
+from tests.conftest import (
+    client_with_stub as _client_with_stub,
+)
+from tests.conftest import (
+    make_ack,
+    make_envelope,
+)
 
 # ── B-2: max_suspend_ms ───────────────────────────────────────────────
 

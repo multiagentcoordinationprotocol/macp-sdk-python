@@ -9,32 +9,20 @@ Requires a running MACP runtime on localhost:50051 started with
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 
 import pytest
 
 from macp_sdk import (
-    AuthConfig,
     DecisionSession,
-    MacpClient,
     SessionLifecycle,
     SessionLifecycleWatcher,
     new_session_id,
 )
-
-RUNTIME_TARGET = os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051")
+from tests.integration.conftest import make_client as _client
 
 pytestmark = pytest.mark.integration
-
-
-def _client(agent: str) -> MacpClient:
-    return MacpClient(
-        target=RUNTIME_TARGET,
-        allow_insecure=True,
-        auth=AuthConfig.for_dev_agent(agent),
-    )
 
 
 class TestListSessions:

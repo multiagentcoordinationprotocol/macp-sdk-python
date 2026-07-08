@@ -31,6 +31,7 @@ from macp_sdk.envelope import (
     build_signal_payload,
     serialize_message,
 )
+from tests.conftest import VALID_SESSION_ID
 
 
 class TestPayloadDeterminism:
@@ -156,7 +157,7 @@ class TestEnvelopeDeterminismExcludingGeneratedFields:
             return build_envelope(
                 mode=MODE_DECISION,
                 message_type="SessionStart",
-                session_id="00000000-0000-4000-8000-000000000001",
+                session_id=VALID_SESSION_ID,
                 sender="alice",
                 payload=payload_bytes,
                 message_id="00000000-0000-4000-8000-000000000aaa",

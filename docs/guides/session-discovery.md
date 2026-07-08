@@ -2,8 +2,9 @@
 
 From SDK 0.3.0 the SDK wraps the runtime's `ListSessions` and `WatchSessions`
 RPCs. Together they let orchestrators and supervisor agents enumerate active
-sessions and react to `CREATED` / `RESOLVED` / `EXPIRED` lifecycle events
-without polling `GetSession`.
+sessions and react to lifecycle events (`CREATED` / `RESOLVED` / `EXPIRED`,
+plus `CANCELLED` / `SUSPENDED` / `RESUMED` since SDK 0.4.0) without polling
+`GetSession`.
 
 For the underlying RPC contracts (request/response shapes, scoping rules), see [Runtime API § Discovery](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#discovery) and [§ Streaming Watches](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#streaming-watches).
 
@@ -42,13 +43,18 @@ Each entry is a `SessionMetadata` proto with the same shape returned by
 fields that surface any extension blobs the initiator attached to
 `SessionStart.extensions` (see [Protocol → SessionStart](../protocol.md#sessionstart)).
 
-### Pagination (runtime v0.5.0)
+### Pagination (macp-proto 0.1.6)
 
-`ListSessions` is paginated since runtime v0.5.0 / `macp-proto 0.1.6`.
-`list_sessions()` **auto-paginates** for you: it drains every page (following
-the runtime's `next_page_token`) and returns the complete list, so existing
-callers stay correct against a paginating runtime. Tune the per-request batch
-with `page_size` (0 = server default):
+`macp-proto 0.1.6` added `page_size` / `page_token` to the `ListSessions`
+request, and the SDK threads them: `list_sessions()` **auto-paginates** —
+it follows the runtime's `next_page_token` until empty and returns the
+complete list — so callers are forward-compatible with a paginating runtime.
+
+> **Runtime status:** runtime v0.5.0 does **not** implement pagination
+> server-side yet — it ignores `page_size`/`page_token` and returns the full
+> set in a single page with an empty `next_page_token`. `list_sessions()`
+> already returns the complete list either way; multi-page behaviour becomes
+> observable only once a runtime honours `page_size`.
 
 ```python
 all_sessions = client.list_sessions(page_size=100)   # drains all pages
@@ -57,7 +63,8 @@ all_sessions = client.list_sessions(page_size=100)   # drains all pages
 If you want to page manually — e.g. to render one page at a time — use
 `list_sessions_page`, which returns `(sessions, next_page_token)`. An empty
 token means the last page; **don't assume a complete list until the token is
-empty**:
+empty**. (Against runtime v0.5.0 the loop below runs zero iterations — the
+first call already carries everything.)
 
 ```python
 page, token = client.list_sessions_page(page_size=50)

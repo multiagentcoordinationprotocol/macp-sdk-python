@@ -17,14 +17,8 @@ from macp_sdk.auth import AuthConfig
 from macp_sdk.client import MacpClient, _default_capabilities
 from macp_sdk.errors import MacpSdkError, MacpTransportError
 from macp_sdk.watchers import SessionLifecycle, SessionLifecycleWatcher
-
-
-def _client_with_stub() -> tuple[MacpClient, MagicMock]:
-    auth = AuthConfig.for_bearer("tok", sender_hint="alice")
-    client = MacpClient(target="localhost:0", allow_insecure=True, auth=auth)
-    stub = MagicMock()
-    client.stub = stub
-    return client, stub
+from tests.conftest import FakeRpcError
+from tests.conftest import client_with_stub as _client_with_stub
 
 
 def _lifecycle_response(event_type: int, session_id: str = "sess") -> MagicMock:
@@ -84,14 +78,10 @@ class TestWatchSessions:
     def test_grpc_error_wrapped_as_transport_error(self):
         import grpc
 
-        class FakeRpcError(grpc.RpcError):
-            def __str__(self) -> str:
-                return "boom"
-
         client, stub = _client_with_stub()
 
         def _raise_iter():
-            raise FakeRpcError()
+            raise FakeRpcError(grpc.StatusCode.UNAVAILABLE, "boom")
             yield  # pragma: no cover
 
         stub.WatchSessions.return_value = _raise_iter()
@@ -141,12 +131,8 @@ class TestSuspendResumeSession:
     def test_resume_grpc_error_wrapped(self):
         import grpc
 
-        class FakeRpcError(grpc.RpcError):
-            def details(self) -> str:
-                return "boom"
-
         client, stub = _client_with_stub()
-        stub.ResumeSession.side_effect = FakeRpcError()
+        stub.ResumeSession.side_effect = FakeRpcError(grpc.StatusCode.UNAVAILABLE, "boom")
         with pytest.raises(MacpTransportError):
             client.resume_session("s1")
 

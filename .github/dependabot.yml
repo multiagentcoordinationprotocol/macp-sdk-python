@@ -1,0 +1,20 @@
+# Keeps the SHA-pinned GitHub Actions and the pip dev toolchain current.
+# Dependabot understands SHA pins with trailing "# vX.Y.Z" comments and
+# updates both together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [maintenance]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [maintenance]
+    # macp-proto bumps are deliberate absorption work (see docs/contributing.md
+    # "Bumping macp-proto") — don't let Dependabot propose them.
+    ignore:
+      - dependency-name: macp-proto

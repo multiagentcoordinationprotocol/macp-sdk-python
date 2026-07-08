@@ -10,9 +10,10 @@ on:
 jobs:
   notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Trigger website sync
-        uses: peter-evans/repository-dispatch@v4
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ secrets.WEBSITE_SYNC_TOKEN }}
           repository: multiagentcoordinationprotocol/website

@@ -31,18 +31,9 @@ from macp_sdk import (
     new_session_id,
     serialize_message,
 )
-
-RUNTIME_TARGET = os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051")
+from tests.integration.conftest import make_client as _client
 
 pytestmark = pytest.mark.integration
-
-
-def _client(agent: str) -> MacpClient:
-    return MacpClient(
-        target=RUNTIME_TARGET,
-        allow_insecure=True,
-        auth=AuthConfig.for_dev_agent(agent),
-    )
 
 
 # ── Subscribe resume exclusivity (C-1) ────────────────────────────────
@@ -106,15 +97,9 @@ class TestSubscribeResumeExclusivity:
 
 
 class TestWatchSignalsAuth:
-    def test_unauthenticated_watch_signals_rejected(self) -> None:
-        # A client with no auth cannot even build the request (SDK guard),
-        # so exercise the runtime path with an anonymous-but-present token
-        # only if the runtime rejects it. The SDK-side guard is unit-tested;
-        # here we assert the runtime requires auth by observing that an
-        # authenticated watch succeeds (below) — the negative direction needs
-        # a runtime that treats the dev token as unauthenticated, which the
-        # insecure dev runtime does not. So we only assert the positive path.
-        pytest.skip("dev runtime accepts any bearer; negative path is unit-tested")
+    """Positive path only: the insecure dev runtime accepts any bearer, so the
+    unauthenticated-rejection direction cannot be exercised here — the SDK-side
+    auth guard for ``watch_signals`` is unit-tested instead."""
 
     def test_authenticated_watch_signals_receives_signal(self) -> None:
         watcher_client = _client("watcher")

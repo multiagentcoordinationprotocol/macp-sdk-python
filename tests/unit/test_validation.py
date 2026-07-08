@@ -23,11 +23,12 @@ from macp_sdk.validation import (
     validate_ttl_ms,
     validate_vote,
 )
+from tests.conftest import VALID_SESSION_ID
 
 
 class TestSessionId:
     def test_uuid_v4_ok(self):
-        validate_session_id("00000000-0000-4000-8000-000000000001")
+        validate_session_id(VALID_SESSION_ID)
 
     def test_base64url_ok(self):
         validate_session_id("A1b2C3d4E5f6G7h8I9j0K1")  # 22 chars

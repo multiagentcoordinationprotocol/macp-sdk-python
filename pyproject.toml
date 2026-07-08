@@ -54,7 +54,6 @@ Changelog = "https://github.com/multiagentcoordinationprotocol/macp-sdk-python/b
 dev = [
   "grpcio-tools>=1.74.0",  # only needed for proto-python package publishing
   "pytest>=8.0",
-  "pytest-asyncio>=0.24",
   "pytest-cov>=5.0",
   "mypy>=1.10",
   "ruff>=0.5",
@@ -133,8 +132,27 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
+addopts = "--strict-markers"
 markers = [
   "integration: requires running MACP runtime",
   "conformance: replays conformance fixtures against runtime",
 ]
+filterwarnings = [
+  "error",
+  # Unit tests build real MacpClient objects against localhost:0 with mocked
+  # stubs and rely on GC to reap the never-connected socket; the resulting
+  # "unclosed socket" ResourceWarning fires inside socket.__del__ and would
+  # otherwise escalate to PytestUnraisableExceptionWarning under -W error.
+  "ignore::ResourceWarning",
+]
+
+# Coverage gate: single source of truth for `make test`, `make coverage`, and
+# CI (all invoke pytest with a bare --cov and inherit source/branch/fail_under
+# from here).
+[tool.coverage.run]
+source = ["macp_sdk"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true

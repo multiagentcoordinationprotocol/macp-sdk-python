@@ -155,4 +155,6 @@ Cancel a session that should not proceed:
 session.cancel(reason="coordinator decided to abort")
 ```
 
-This transitions the session to EXPIRED. Already-resolved sessions cannot be cancelled.
+This transitions the session to **CANCELLED** (SDK < 0.4.0 surfaced it as
+EXPIRED; `macp-proto 0.1.3` split the states). Already-resolved sessions
+cannot be cancelled.

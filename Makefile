@@ -17,8 +17,8 @@ fmt:  ## Apply ruff format across src/ + tests/ + examples/.
 typecheck:  ## Run mypy against src/macp_sdk/.
 	mypy src/macp_sdk/
 
-test:  ## Run unit tests.
-	pytest tests/unit/ -v
+test:  ## Run unit tests with the coverage gate (fail_under from pyproject).
+	pytest tests/unit/ -v --cov
 
 test-integration:  ## Run integration tests (requires a running MACP runtime).
 	pytest tests/integration/ -v -m integration
@@ -29,7 +29,7 @@ test-conformance:  ## Replay the canonical conformance fixtures.
 test-all: lint typecheck test test-integration test-conformance  ## Run the full green-bar matrix.
 
 coverage:  ## Unit tests with HTML + terminal coverage report.
-	pytest --cov=macp_sdk --cov-report=html --cov-report=term tests/unit/
+	pytest tests/unit/ --cov --cov-report=html --cov-report=term
 
 build:  ## Build sdist + wheel into dist/.
 	python -m build
