@@ -34,8 +34,8 @@ from macp_sdk import (
     MacpIdentityMismatchError,
     new_session_id,
 )
+from tests.integration.conftest import RUNTIME_TARGET
 
-RUNTIME_TARGET = os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051")
 BEARER_TOKEN = os.environ.get("MACP_INTEGRATION_BEARER_TOKEN")
 BEARER_SENDER = os.environ.get("MACP_INTEGRATION_BEARER_SENDER", "initiator-integration")
 

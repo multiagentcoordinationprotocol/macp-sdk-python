@@ -8,8 +8,9 @@ import pytest
 
 from macp_sdk.decision import DecisionSession
 from macp_sdk.errors import MacpSessionError
+from tests.conftest import VALID_SESSION_ID
 
-_SID = "00000000-0000-4000-8000-000000000001"
+_SID = VALID_SESSION_ID
 
 
 @pytest.fixture

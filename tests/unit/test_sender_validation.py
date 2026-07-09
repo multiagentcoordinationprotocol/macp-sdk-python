@@ -19,8 +19,9 @@ from macp_sdk.decision import DecisionSession
 from macp_sdk.errors import MacpIdentityMismatchError
 from macp_sdk.proposal import ProposalSession
 from macp_sdk.task import TaskSession
+from tests.conftest import VALID_SESSION_ID
 
-SESSION_ID = "00000000-0000-4000-8000-000000000001"
+SESSION_ID = VALID_SESSION_ID
 
 
 def _make_mock_client(auth: AuthConfig) -> MagicMock:

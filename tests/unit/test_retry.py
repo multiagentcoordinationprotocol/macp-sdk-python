@@ -87,3 +87,51 @@ class TestRetrySend:
         with pytest.raises(MacpRetryError, match="retries exhausted"):
             retry_send(client, _make_envelope(), policy=policy)
         assert client.send.call_count == 3  # 1 initial + 2 retries
+
+    @patch("macp_sdk.retry.time.sleep")
+    def test_exponential_backoff_schedule(self, mock_sleep):
+        """The delays follow backoff_base * 2**attempt, with no jitter — the
+        deterministic schedule is cross-SDK parity behaviour (see retry.ts)."""
+        client = MagicMock()
+        client.send.side_effect = MacpTransportError("boom")
+
+        with pytest.raises(MacpRetryError):
+            retry_send(client, _make_envelope(), policy=RetryPolicy(max_retries=3))
+
+        assert [c.args[0] for c in mock_sleep.call_args_list] == [0.1, 0.2, 0.4]
+
+    @patch("macp_sdk.retry.time.sleep")
+    def test_backoff_clamped_at_max(self, mock_sleep):
+        client = MagicMock()
+        client.send.side_effect = MacpTransportError("boom")
+
+        policy = RetryPolicy(max_retries=3, backoff_base=1.0, backoff_max=2.0)
+        with pytest.raises(MacpRetryError):
+            retry_send(client, _make_envelope(), policy=policy)
+
+        assert [c.args[0] for c in mock_sleep.call_args_list] == [1.0, 2.0, 2.0]
+
+    @patch("macp_sdk.retry.time.sleep")
+    def test_no_sleep_after_final_attempt(self, mock_sleep):
+        client = MagicMock()
+        client.send.side_effect = MacpTransportError("boom")
+
+        policy = RetryPolicy(max_retries=2)
+        with pytest.raises(MacpRetryError):
+            retry_send(client, _make_envelope(), policy=policy)
+
+        # Sleeps happen between attempts only, never after the last failure.
+        assert mock_sleep.call_count == policy.max_retries
+
+    @patch("macp_sdk.retry.time.sleep")
+    def test_retry_emits_debug_log(self, mock_sleep, caplog):
+        import logging
+
+        client = MagicMock()
+        ack = envelope_pb2.Ack(ok=True)
+        client.send.side_effect = [MacpTransportError("boom"), ack]
+
+        with caplog.at_level(logging.DEBUG, logger="macp_sdk"):
+            retry_send(client, _make_envelope())
+
+        assert any("retry attempt=1" in r.getMessage() for r in caplog.records)

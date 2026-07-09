@@ -14,8 +14,7 @@ from macp_sdk.handoff import HandoffSession
 from macp_sdk.proposal import ProposalSession
 from macp_sdk.quorum import QuorumSession
 from macp_sdk.task import TaskSession
-
-RUNTIME_TARGET = "127.0.0.1:50051"
+from tests.integration.conftest import make_client
 
 pytestmark = pytest.mark.integration
 
@@ -26,11 +25,7 @@ def _auth(agent_id: str) -> AuthConfig:
 
 @pytest.fixture(scope="module")
 def client() -> MacpClient:
-    c = MacpClient(
-        target=RUNTIME_TARGET,
-        allow_insecure=True,
-        auth=_auth("coordinator"),
-    )
+    c = make_client("coordinator")
     yield c
     c.close()
 

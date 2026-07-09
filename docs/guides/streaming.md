@@ -187,7 +187,8 @@ PolicyWatcher(client).watch(on_policy_change)
 
 ### `SessionLifecycleWatcher`
 
-Observe `CREATED` / `RESOLVED` / `EXPIRED` events across every session the
+Observe lifecycle events (`CREATED` / `RESOLVED` / `EXPIRED` /
+`CANCELLED` / `SUSPENDED` / `RESUMED`) across every session the
 auth identity can see — ideal for supervisor / dashboard agents. See
 [Session Discovery](session-discovery.md) for the full walkthrough.
 

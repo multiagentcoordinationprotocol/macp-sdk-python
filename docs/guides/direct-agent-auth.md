@@ -3,9 +3,7 @@
 From SDK 0.2.0, agents are expected to authenticate to the MACP runtime
 **directly** with their own Bearer identity. The orchestrator /
 control-plane no longer forges envelopes on behalf of agents. This matches
-RFC-MACP-0004 §4 ("`sender` MUST be derived from authenticated identity")
-and the architectural invariants spelled out in
-`ui-console/plans/direct-agent-auth.md`.
+RFC-MACP-0004 §4 ("`sender` MUST be derived from authenticated identity").
 
 For the runtime side of identity binding (token validators, sender derivation, dev-mode fallback), see [Runtime API § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#authentication) and [Runtime Deployment § Authentication](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#authentication).
 

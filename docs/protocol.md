@@ -125,5 +125,5 @@ The SDK wraps each server-streaming RPC in a `*Watcher` that normalises response
 | `WatchModeRegistry` | `ModeRegistryWatcher` | Registry diff events |
 | `WatchRoots` | `RootsWatcher` | Root diff events (runtime currently idles) |
 | `WatchPolicies` | `PolicyWatcher` | `PolicyChange(descriptors, observed_at_unix_ms)` |
-| `WatchSessions` | `SessionLifecycleWatcher` | `SessionLifecycle` (`CREATED`/`RESOLVED`/`EXPIRED`) |
+| `WatchSessions` | `SessionLifecycleWatcher` | `SessionLifecycle` (`CREATED`/`RESOLVED`/`EXPIRED`/`CANCELLED`/`SUSPENDED`/`RESUMED`) |
 | `WatchSignals` | `SignalWatcher` | Ambient-plane signal envelopes |

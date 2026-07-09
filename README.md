@@ -92,9 +92,10 @@ make setup              # pip install -e ".[dev,docs]"
 make lint               # ruff check
 make fmt                # ruff format
 make typecheck          # mypy strict
-make test               # unit tests
+make test               # unit tests + coverage gate (85% branch, from pyproject)
+make test-integration   # integration tests (auto-skip without a running runtime)
 make test-all           # lint + typecheck + all tests
-make coverage           # coverage report
+make coverage           # HTML + terminal coverage report
 
 # Build
 make build              # sdist + wheel

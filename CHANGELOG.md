@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased
+
+Test-suite and CI/CD hardening. No SDK API changes.
+
+### Dependencies
+
+- **grpcio floor relaxed to `>=1.82.0rc2` and `macp-proto` capped `<0.1.8`**
+  — grpcio 1.82.0 stable was yanked from PyPI (metadata-only error,
+  [grpc/grpc#42906](https://github.com/grpc/grpc/issues/42906)) with no newer
+  stable available, making the previous `>=1.82.0` floor unsatisfiable in any
+  fresh environment (macp-proto 0.1.8 re-declares that unsatisfiable floor,
+  hence the cap). The rc satisfies the gencode's version check; re-widen both
+  once a stable grpcio ≥ 1.82.1 ships.
+- `grpcio-tools` removed from the `dev` extra — this repo has no
+  proto-generation step, and every installable grpcio-tools caps
+  `protobuf<7.0.0`, conflicting with the `protobuf>=7.35.0` floor.
+
+### Testing
+
+- Integration tests now **auto-skip** when no runtime is reachable
+  (`tests/integration/conftest.py` probes `MACP_RUNTIME_TARGET`, default
+  `127.0.0.1:50051`), so a bare `pytest tests/` no longer fails with
+  connection errors. The duplicated per-file `_client()` helpers moved into
+  that conftest, and `test_modes.py` now honours `MACP_RUNTIME_TARGET`.
+- New unit tests: `_logging` (`configure_logging`), retry backoff schedule
+  (exponential values + `backoff_max` clamp, no jitter — cross-SDK parity),
+  public re-export surface (`__all__` guard), direct `BaseSession` /
+  `BaseProjection` contract tests, and compile-only smoke tests for
+  `examples/`.
+- New integration tests (local-only): positive-path policy-registry
+  round-trip (register → get → list → unregister, duplicate-id conflict),
+  in-session `send_progress`, and `ListSessions` page-token threading. The
+  pagination test self-skips against runtime v0.5.0, which does not implement
+  pagination server-side (it ignores `page_size` and returns everything).
+- Removed a dead always-skip test; shared unit-test helpers
+  (`VALID_SESSION_ID`, `FakeRpcError`, `client_with_stub`) dedupe into
+  `tests/conftest.py`.
+- Pytest now runs with `--strict-markers` and `filterwarnings = error`;
+  `pytest-asyncio` / `asyncio_mode` removed (no async tests).
+
+### CI/CD
+
+- Coverage gate moved to `pyproject.toml` `[tool.coverage.*]` — 85% with
+  **branch coverage** — and now applies to `make test` locally, not just CI.
+- New reusable `.github/workflows/checks.yml` (lint / typecheck / unit matrix
+  3.11–3.13 / conformance) shared by `ci.yml` and `publish.yml`; conformance
+  replay now runs on every PR. `ci.yml` gains `twine check`, pip caching,
+  concurrency cancel, `workflow_dispatch`, and job timeouts.
+- All GitHub Actions SHA-pinned with version comments; `.github/dependabot.yml`
+  added (github-actions + pip weekly, `macp-proto` excluded — absorption is
+  manual).
+
 ## 0.5.0 (2026-07-06)
 
 Absorb **runtime v0.5.0** and **`macp-proto 0.1.6`**. Additive API surface for
