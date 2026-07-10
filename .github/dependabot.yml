@@ -1,6 +1,3 @@
-# Keeps the SHA-pinned GitHub Actions and the pip dev toolchain current.
-# Dependabot understands SHA pins with trailing "# vX.Y.Z" comments and
-# updates both together.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,9 +5,17 @@ updates:
     schedule:
       interval: weekly
     labels: [maintenance]
+    groups:
+      actions:
+        patterns: ['*']
 
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
     labels: [maintenance]
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+      major-updates:
+        update-types: ["major"]
