@@ -14,7 +14,3 @@ updates:
     schedule:
       interval: weekly
     labels: [maintenance]
-    # macp-proto bumps are deliberate absorption work (see docs/contributing.md
-    # "Bumping macp-proto") — don't let Dependabot propose them.
-    ignore:
-      - dependency-name: macp-proto
