@@ -1,0 +1,31 @@
+name: release-please
+
+# Automates releases like macp-runtime's release-plz: on every push to main it
+# opens/updates a "release PR" (version bump + CHANGELOG from Conventional
+# Commits). Merging that PR creates the git tag + GitHub Release, which triggers
+# publish.yml. Uses the macp-deps-bot App token so the release PR triggers CI
+# and the created Release triggers the publish workflow (GITHUB_TOKEN would not).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.MACP_BOT_APP_ID }}
+          private-key: ${{ secrets.MACP_BOT_PRIVATE_KEY }}
+
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
