@@ -52,6 +52,14 @@ Test-suite and CI/CD hardening. No SDK API changes.
   added (github-actions + pip weekly, `macp-proto` excluded — absorption is
   manual).
 
+## [0.5.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.5.0...v0.5.1) (2026-07-10)
+
+
+### Documentation
+
+* **plans:** cross-SDK parity follow-ups + runtime changes needed ([137123f](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/137123f4b8542824e093773c5fcf622037c08b9a))
+* **plans:** cross-SDK parity follow-ups and runtime-changes-needed ([e5211b5](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/e5211b5a40a634486805f1ff825159d9ac07f9ce))
+
 ## 0.5.0 (2026-07-06)
 
 Absorb **runtime v0.5.0** and **`macp-proto 0.1.6`**. Additive API surface for
