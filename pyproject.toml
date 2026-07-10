@@ -52,7 +52,7 @@ dependencies = [
   # grpcio comment above) — PEP 440 sorts 1.82.0rc2 below 1.82.0, so no
   # candidate exists. 0.1.6/0.1.7 declare "grpcio>=1.74.0" and resolve fine.
   # Re-widen to <0.2.0 once grpcio publishes a stable >= 1.82.1.
-  "macp-proto>=0.1.6,<0.1.8",
+  "macp-proto>=0.1.6,<0.1.9",
 ]
 
 [project.urls]
