@@ -19,6 +19,8 @@ jobs:
   checks:
     uses: ./.github/workflows/checks.yml
 
+  # This job's build + twine check steps are mirrored by the `build` Makefile
+  # target — keep the two in sync (see issue #39).
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10

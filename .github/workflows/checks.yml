@@ -5,6 +5,11 @@
 #
 # Note: callers of a reusable workflow cannot set timeout-minutes, so the
 # timeouts live on the jobs here.
+#
+# The lint/typecheck/test/conformance steps below are mirrored by the
+# `lint`/`typecheck`/`test`/`test-conformance` Makefile targets — if you add,
+# remove, or change a step here, update the matching Makefile target too, or
+# `make test-all` silently stops reproducing CI (see issue #39).
 name: Checks
 
 on:

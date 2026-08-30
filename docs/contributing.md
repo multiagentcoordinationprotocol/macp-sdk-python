@@ -8,7 +8,7 @@ Internal notes for maintainers of `macp-sdk-python`. End-user docs live under `d
 make setup            # pip install -e ".[dev,docs]"
 ```
 
-Runs the full dev toolchain: `ruff`, `mypy`, `pytest`, `build`, and the mkdocs site.
+Runs the full dev toolchain: `ruff`, `mypy`, `pytest`, `build`, `twine`, and the mkdocs site.
 
 ## Green-bar gates
 
@@ -16,12 +16,19 @@ Every PR must pass the shared quality gate in `.github/workflows/checks.yml`
 (reused by both `ci.yml` and `publish.yml` so the two can't drift):
 
 ```bash
-ruff check src/ tests/ examples/
-ruff format --check src/ tests/ examples/
-mypy src/macp_sdk/
-make test               # unit tests + coverage gate (fails under 85%)
-make test-conformance   # fixture replay — runs on every PR in CI too
+make lint                # ruff check + ruff format --check
+make typecheck           # mypy src/macp_sdk/
+make test                # unit tests + coverage gate (fails under 85%)
+make test-conformance    # fixture replay — runs on every PR in CI too
 ```
+
+Or run the whole thing in one command: `make test-all` (also runs
+`make test-integration`, which self-skips without a local runtime).
+
+A local green run proves less than CI does, though: `checks.yml` runs the
+unit tests across a 3.11 / 3.12 / 3.13 matrix, while `make test` runs
+whichever single interpreter you have active — a local pass is necessary
+but not sufficient.
 
 The fixture drift gate (`make verify-fixtures`) is a separate, related gate —
 see below for what it checks and which workflow runs it.

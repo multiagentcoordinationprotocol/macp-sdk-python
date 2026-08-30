@@ -74,6 +74,7 @@ dev = [
   "ruff>=0.5",
   "grpc-stubs>=1.53",
   "build>=1.0",
+  "twine>=5.0",  # validates the built artifacts (`make build`), mirroring ci.yml's build job
   "jsonschema>=4.0",  # validate vendored conformance fixtures against schema.json
 ]
 docs = [
