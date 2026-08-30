@@ -186,3 +186,16 @@ Plan: `plans/gate-cmt-hash-vectors.md` (this repo). Branch: `fix/38-gate-cmt-has
 - **Ship decision:** ship Phases 1+2 as one PR. This is what closes whole-plan acceptance
   criterion 7 — Phase 1 alone would have left `SOURCE.md` and the vector-test docstring
   asserting the opposite of the code.
+
+### Ship — 2026-08-30
+
+- Ship gate verdict: GAPS then PASS. The blocker was `ruff format --check` (run by
+  `.github/workflows/checks.yml:25`, absent from `make lint`) failing on the new test
+  module — CI would have gone red on PR open. Filed as #39, since the root cause is that
+  `make lint`/`make test-all` cannot reproduce `checks.yml`.
+- Squashed the two phase commits into one `ci:` commit `93ee199`: `release-please-config.json`
+  sets `bump-minor-pre-major: true`, so a `feat:` subject would have cut a 0.8.0 minor for a
+  change with zero `src/` impact. Repo squash setting is COMMIT_OR_PR_TITLE / COMMIT_MESSAGES,
+  so the `feat(build):` subject would otherwise have survived into the squashed body.
+- pushed fix/38-gate-cmt-hash-vectors 93ee199
+- PR #40 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/40
