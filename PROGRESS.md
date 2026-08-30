@@ -99,3 +99,8 @@ Plan: `../multiagentcoordinationprotocol/plans/cross-repo/macp-sdk-python-rfc-ma
 - **Commit:** `bb35eb9` (G1+G2), `40462c8` (G10) — still all local, nothing pushed.
 - **Re-verify round 2:** fresh Opus subagent, given the G10 gap. Independently reproduced the pre-fix collision from hand-crafted wire bytes (not reusing the fixer's test helper), confirmed the post-fix guards raise at both schema and wire level, confirmed `CommitmentRef` is exactly two scalar strings with no extension ranges (no further recursion possible — the fix class is retired, not just patched), confirmed no false positive against vectors 002/004 (live `supersedes`), and re-ran the full suite independently (649 passed 87.74%, `commitment_hash.py` 100%, conformance 50/2-skip, verify-fixtures clean, bare `pytest tests/` 699 passed/35 skipped). **Verdict: PASS — ready to push, open PR, and merge on green CI.**
 - **PLAN + SHIP-GATE COMPLETE.** Proceeding to `/ship` §3 (push) → §4 (PR) → §5 (CI watch, merge on green).
+
+## Ship checkpoints
+
+- pushed feat/rfc-macp-0013-commitment-hash 629458b
+- PR #36 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/36
