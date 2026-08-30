@@ -89,7 +89,7 @@ if winner and not session.decision_projection.has_blocking_objection(winner):
 make setup              # pip install -e ".[dev,docs]"
 
 # Quality
-make lint               # ruff check
+make lint               # ruff check + ruff format --check
 make fmt                # ruff format
 make typecheck          # mypy strict
 make test               # unit tests + coverage gate (85% branch, from pyproject)
@@ -98,7 +98,7 @@ make test-all           # lint + typecheck + all tests
 make coverage           # HTML + terminal coverage report
 
 # Build
-make build              # sdist + wheel
+make build              # build sdist + wheel, then twine check
 
 # Proto definitions (provided by macp-proto package)
 make dev-link-protos    # link local proto package for development

@@ -1,4 +1,4 @@
-.PHONY: help setup lint fmt typecheck test test-integration test-conformance test-all coverage build sync-fixtures verify-fixtures dev-link-protos
+.PHONY: help setup lint fmt typecheck test test-integration test-conformance test-all coverage build sync-fixtures verify-fixtures lint-fixtures dev-link-protos
 
 SPEC_CONFORMANCE_DIR := ../multiagentcoordinationprotocol/schemas/conformance
 
@@ -12,10 +12,11 @@ help:  ## Show this help.
 setup:  ## Install SDK + dev + docs extras in editable mode.
 	pip install -e ".[dev,docs]"
 
-lint:  ## Run ruff check on src/ + tests/ + examples/.
+lint:  ## Run ruff check + ruff format --check on src/ + tests/ + examples/ (mirrors checks.yml's lint job).
 	ruff check src/ tests/ examples/
+	ruff format --check src/ tests/ examples/
 
-fmt:  ## Apply ruff format across src/ + tests/ + examples/.
+fmt:  ## Apply ruff format across src/ + tests/ + examples/ (fixes a `make lint` formatting failure).
 	ruff format src/ tests/ examples/
 
 typecheck:  ## Run mypy against src/macp_sdk/.
@@ -30,13 +31,20 @@ test-integration:  ## Run integration tests (requires a running MACP runtime).
 test-conformance:  ## Replay the canonical conformance fixtures.
 	pytest tests/conformance/ -v -m conformance
 
-test-all: lint typecheck test test-integration test-conformance  ## Run the full green-bar matrix.
+test-all: lint typecheck test test-integration test-conformance lint-fixtures  ## Run the full green-bar matrix.
 
 coverage:  ## Unit tests with HTML + terminal coverage report.
 	pytest tests/unit/ --cov --cov-report=html --cov-report=term
 
-build:  ## Build sdist + wheel into dist/.
+# dist/ is wiped before building because `twine check dist/*` globs
+# everything in the directory -- without the wipe, a stale artifact left
+# over from a previous (or failed) build would get re-validated alongside
+# the new one.
+build:  ## Build sdist + wheel into dist/, then validate with twine check (mirrors ci.yml's build job).
+	rm -rf dist/
 	python -m build
+	@command -v twine >/dev/null 2>&1 || { echo "twine not found -- run 'make setup' (or pip install -e \".[dev]\")"; exit 1; }
+	twine check dist/*
 
 ## Sync conformance fixtures from canonical source
 sync-fixtures:  ## Copy conformance fixtures from the spec repo into tests/conformance/ and tests/vectors/cmt-hash/.
@@ -118,6 +126,17 @@ verify-fixtures:  ## Fail if local fixtures drifted from canonical (CI drift gat
 		exit 1; \
 	fi; \
 	echo "All conformance fixtures match the canonical source."
+
+lint-fixtures:  ## Lint canonical conformance fixtures for internal consistency (spec repo's lint_fixtures.py; mirrors conformance-fixtures.yml).
+	@if [ ! -d "$(SPEC_CONFORMANCE_DIR)" ]; then \
+		echo "  lint-fixtures: spec repo not found at $(SPEC_CONFORMANCE_DIR)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(SPEC_CONFORMANCE_DIR)/lint_fixtures.py" ]; then \
+		echo "  lint-fixtures: lint_fixtures.py not found at $(SPEC_CONFORMANCE_DIR)/lint_fixtures.py"; \
+		exit 1; \
+	fi
+	python3 $(SPEC_CONFORMANCE_DIR)/lint_fixtures.py
 
 ## Install local proto package for development (test proto changes before publishing)
 dev-link-protos:  ## Install ../multiagentcoordinationprotocol/packages/proto-python in editable mode.
