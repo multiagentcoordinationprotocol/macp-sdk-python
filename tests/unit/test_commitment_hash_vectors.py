@@ -37,11 +37,7 @@ _EXCLUDED_NAMES = {"vector-schema.json", "SOURCE.md"}
 
 
 def _discover_vector_files() -> list[Path]:
-    return [
-        p
-        for p in sorted(VECTORS_DIR.glob("cmt_hash_*.json"))
-        if p.name not in _EXCLUDED_NAMES
-    ]
+    return [p for p in sorted(VECTORS_DIR.glob("cmt_hash_*.json")) if p.name not in _EXCLUDED_NAMES]
 
 
 VECTOR_FILES = _discover_vector_files()
@@ -118,9 +114,7 @@ def test_must_differ_from_vectors_produce_distinct_hashes() -> None:
     rather than hardcoding "003 vs 004" so this stays correct if more such
     vectors are added later.
     """
-    vectors_by_name = {
-        vector_path.stem: _load_vector(vector_path) for vector_path in VECTOR_FILES
-    }
+    vectors_by_name = {vector_path.stem: _load_vector(vector_path) for vector_path in VECTOR_FILES}
 
     pairs_checked = 0
     for name, vector in vectors_by_name.items():
@@ -128,8 +122,7 @@ def test_must_differ_from_vectors_produce_distinct_hashes() -> None:
         if other_name is None:
             continue
         assert other_name in vectors_by_name, (
-            f"{name} declares must_differ_from={other_name!r}, "
-            "but no such vector was discovered"
+            f"{name} declares must_differ_from={other_name!r}, but no such vector was discovered"
         )
         other_vector = vectors_by_name[other_name]
 
@@ -142,6 +135,5 @@ def test_must_differ_from_vectors_produce_distinct_hashes() -> None:
         pairs_checked += 1
 
     assert pairs_checked > 0, (
-        "expected at least one vector declaring must_differ_from "
-        f"in {VECTORS_DIR}"
+        f"expected at least one vector declaring must_differ_from in {VECTORS_DIR}"
     )

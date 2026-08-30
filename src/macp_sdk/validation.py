@@ -70,8 +70,7 @@ def validate_commitment_hash(value: str) -> None:
     """
     if not is_canonical_commitment_hash(value):
         raise MacpSessionError(
-            "commitment_hash must match ^sha256:[0-9a-f]{64}$ (RFC-MACP-0013), "
-            f"got: {value!r}"
+            f"commitment_hash must match ^sha256:[0-9a-f]{{64}}$ (RFC-MACP-0013), got: {value!r}"
         )
 
 

@@ -411,9 +411,7 @@ def _build_payload_with_unknown_field() -> core_pb2.CommitmentPayload:
     add_field("action", 2, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
     # One past real CommitmentPayload's highest field number (9, `supersedes`)
     # -- a field number this installed schema has never heard of at all.
-    add_field(
-        "field_from_the_future", 10, descriptor_pb2.FieldDescriptorProto.TYPE_STRING
-    )
+    add_field("field_from_the_future", 10, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
 
     pool = descriptor_pool.DescriptorPool()
     pool.Add(fdp)
@@ -474,9 +472,7 @@ class TestUnknownWireFieldGuard:
     def test_ordinary_payload_without_unknown_fields_is_unaffected(self):
         # Additive, not a replacement: a normal payload with no unknown wire
         # data must still hash exactly as before.
-        payload = core_pb2.CommitmentPayload(
-            commitment_id="c1", outcome_positive=False
-        )
+        payload = core_pb2.CommitmentPayload(commitment_id="c1", outcome_positive=False)
         canonical_projection(payload)  # must not raise
         commitment_hash(payload)  # must not raise
 
@@ -514,9 +510,7 @@ def _build_ref_with_unknown_field() -> core_pb2.CommitmentRef:
     add_field("commitment_hash", 2, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
     # Field number 7, outside CommitmentRef's frozen two-field set (1, 2) --
     # a field number this installed schema has never heard of at all.
-    add_field(
-        "field_from_the_future", 7, descriptor_pb2.FieldDescriptorProto.TYPE_STRING
-    )
+    add_field("field_from_the_future", 7, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
 
     pool = descriptor_pool.DescriptorPool()
     pool.Add(fdp)
@@ -566,9 +560,7 @@ class TestUnknownRefWireFieldGuard:
         # condition that made the pre-fix code collide (it only projected
         # session_id/commitment_hash and never looked at anything else).
         tainted_ref = _build_ref_with_unknown_field()
-        clean_ref = core_pb2.CommitmentRef(
-            session_id="prior-sess", commitment_hash=VECTOR_001_HASH
-        )
+        clean_ref = core_pb2.CommitmentRef(session_id="prior-sess", commitment_hash=VECTOR_001_HASH)
         assert _supersedes_member(tainted_ref) == _supersedes_member(clean_ref)
         assert len(unknown_fields.UnknownFieldSet(tainted_ref)) == 1
         assert len(unknown_fields.UnknownFieldSet(clean_ref)) == 0
