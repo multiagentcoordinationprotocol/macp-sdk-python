@@ -52,6 +52,17 @@ Test-suite and CI/CD hardening. No SDK API changes.
   added (github-actions + pip weekly, `macp-proto` excluded — absorption is
   manual).
 
+## [0.7.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.6.0...v0.7.0) (2026-08-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* build_commitment_ref and build_commitment_payload's supersedes handling now validate commitment_hash against RFC-MACP-0013's canonical shape (sha256: + 64 lowercase hex) via a shared validate_commitment_hash(), raising MacpSessionError on a non-conforming value. Previously both were zero-validation pass-throughs, including when a CommitmentRef was constructed directly and passed as supersedes=, bypassing build_commitment_ref entirely -- that bypass is now closed. A caller previously passing an arbitrary string will now get an exception instead of a wire-invalid CommitmentRef/CommitmentPayload.
+
+### Features
+
+* compute RFC-MACP-0013 canonical commitment hashes and validate CommitmentRef syntax ([#36](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/36)) ([7e975dd](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/7e975dda9b21b3a1a618ea76ac27f69a96ccbcd0))
+
 ## [0.6.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.5.0...v0.6.0) (2026-07-11)
 
 
