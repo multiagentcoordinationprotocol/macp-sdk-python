@@ -4,13 +4,17 @@ import itertools
 import sys
 
 import pytest
-from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
+from google.protobuf import descriptor_pb2, descriptor_pool, message_factory, unknown_fields
 from macp.v1 import core_pb2
 
 from macp_sdk.commitment_hash import (
     _ACTUAL_FIELD_NAMES,
+    _ACTUAL_REF_FIELD_NAMES,
     _FROZEN_FIELD_NAMES,
+    _FROZEN_REF_FIELD_NAMES,
     _check_frozen_field_set,
+    _check_frozen_ref_field_set,
+    _supersedes_member,
     canonical_projection,
     commitment_hash,
     is_canonical_commitment_hash,
@@ -299,6 +303,65 @@ class TestFrozenFieldSetGuard:
             commitment_hash(payload)
 
 
+class TestFrozenRefFieldSetGuard:
+    """RFC-MACP-0013 §5: `supersedes`, when set, carries exactly two fields
+    (session_id, commitment_hash). A `CommitmentRef` carrying a field outside
+    that set is not hashable under this label and MUST raise, never be
+    silently ignored. Mirrors `TestFrozenFieldSetGuard` one level down."""
+
+    def test_frozen_ref_set_matches_installed_proto(self):
+        # Sanity check: the installed macp-proto's CommitmentRef fields are
+        # exactly the frozen two today. If this ever fails, a real field was
+        # added/removed upstream and this module needs updating.
+        assert _ACTUAL_REF_FIELD_NAMES == _FROZEN_REF_FIELD_NAMES
+
+    def test_accepts_exactly_the_frozen_two(self):
+        _check_frozen_ref_field_set(_FROZEN_REF_FIELD_NAMES)  # must not raise
+
+    def test_accepts_subset_of_frozen_two(self):
+        _check_frozen_ref_field_set(frozenset({"session_id"}))  # must not raise
+
+    def test_rejects_extra_field(self):
+        simulated_fields = _FROZEN_REF_FIELD_NAMES | {"new_field_from_future_proto"}
+        with pytest.raises(MacpSessionError, match="new_field_from_future_proto"):
+            _check_frozen_ref_field_set(simulated_fields)
+
+    def test_default_arg_checks_actual_installed_proto(self):
+        _check_frozen_ref_field_set()  # must not raise against the real descriptor
+
+    def test_canonical_projection_raises_when_ref_has_extra_field(self, monkeypatch):
+        # Simulate a future macp-proto that added a 3rd field to
+        # CommitmentRef, by making the module believe the installed
+        # descriptor carries one, and confirm canonical_projection() (and
+        # therefore commitment_hash()) refuses to silently hash it -- but
+        # only when supersedes is actually set.
+        monkeypatch.setattr(
+            _commitment_hash_module,
+            "_ACTUAL_REF_FIELD_NAMES",
+            _FROZEN_REF_FIELD_NAMES | {"unexpected_ref_field"},
+        )
+        payload_with_supersedes = core_pb2.CommitmentPayload(
+            outcome_positive=False,
+            supersedes=core_pb2.CommitmentRef(session_id="s", commitment_hash="h"),
+        )
+        with pytest.raises(MacpSessionError, match="unexpected_ref_field"):
+            canonical_projection(payload_with_supersedes)
+        with pytest.raises(MacpSessionError, match="unexpected_ref_field"):
+            commitment_hash(payload_with_supersedes)
+
+    def test_canonical_projection_unaffected_when_supersedes_absent(self, monkeypatch):
+        # The guard must only fire when supersedes is actually present -- an
+        # absent supersedes has no CommitmentRef to check.
+        monkeypatch.setattr(
+            _commitment_hash_module,
+            "_ACTUAL_REF_FIELD_NAMES",
+            _FROZEN_REF_FIELD_NAMES | {"unexpected_ref_field"},
+        )
+        payload_without_supersedes = core_pb2.CommitmentPayload(outcome_positive=False)
+        canonical_projection(payload_without_supersedes)  # must not raise
+        commitment_hash(payload_without_supersedes)  # must not raise
+
+
 # Monotonic counter so each call to `_build_payload_with_unknown_field` (across
 # tests, and across repeated calls within a single test) registers its
 # throwaway "shadow" proto under a fresh package/file name -- `descriptor_pool`
@@ -414,5 +477,130 @@ class TestUnknownWireFieldGuard:
         payload = core_pb2.CommitmentPayload(
             commitment_id="c1", outcome_positive=False
         )
+        canonical_projection(payload)  # must not raise
+        commitment_hash(payload)  # must not raise
+
+
+def _build_ref_with_unknown_field() -> core_pb2.CommitmentRef:
+    """Build a *real* ``core_pb2.CommitmentRef`` whose wire bytes include a
+    field number the installed schema does not recognize -- the same
+    "shadow" descriptor technique as `_build_payload_with_unknown_field`,
+    applied one level down to ``CommitmentRef`` (frozen fields
+    ``session_id``=1, ``commitment_hash``=2) instead of ``CommitmentPayload``
+    (frozen fields up to ``supersedes``=9).
+
+    This reproduces the G10 gap verbatim: a ``supersedes.CommitmentRef``
+    carrying wire data for field number 7 (chosen arbitrarily, matching the
+    verifier's own repro) that protobuf parses successfully and stashes as an
+    "unknown field", invisible to ``CommitmentRef.DESCRIPTOR.fields``.
+    """
+    n = next(_shadow_counter)
+    fdp = descriptor_pb2.FileDescriptorProto()
+    fdp.name = f"shadow_commitment_ref_{n}.proto"
+    fdp.package = f"shadow.ref.v1.n{n}"
+    fdp.syntax = "proto3"
+
+    msg = fdp.message_type.add()
+    msg.name = "ShadowCommitmentRef"
+
+    def add_field(name: str, number: int, ftype: int) -> None:
+        f = msg.field.add()
+        f.name = name
+        f.number = number
+        f.type = ftype
+        f.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+
+    add_field("session_id", 1, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
+    add_field("commitment_hash", 2, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
+    # Field number 7, outside CommitmentRef's frozen two-field set (1, 2) --
+    # a field number this installed schema has never heard of at all.
+    add_field(
+        "field_from_the_future", 7, descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    )
+
+    pool = descriptor_pool.DescriptorPool()
+    pool.Add(fdp)
+    shadow_cls = message_factory.GetMessageClass(
+        pool.FindMessageTypeByName(f"shadow.ref.v1.n{n}.ShadowCommitmentRef")
+    )
+    shadow = shadow_cls(
+        session_id="prior-sess",
+        commitment_hash=VECTOR_001_HASH,
+        field_from_the_future="unknown-wire-data",
+    )
+
+    ref = core_pb2.CommitmentRef()
+    ref.MergeFromString(shadow.SerializeToString())
+    return ref
+
+
+class TestUnknownRefWireFieldGuard:
+    """RFC-MACP-0013 §5, gap G10: a ``supersedes.CommitmentRef`` may carry
+    wire data for a field number this installed schema has never heard of at
+    all. Without recursing into the nested message, this was silently
+    dropped -- a payload with such an unknown field hashed identically to
+    the clean equivalent. This class confirms the collision existed
+    (empirically, via the fixture) and that the fix now raises instead."""
+
+    def test_unknown_field_reproduced_on_ref_instance(self):
+        # Sanity check on the fixture itself: confirm the "shadow" round-trip
+        # actually produces a real CommitmentRef instance carrying wire data
+        # for an unrecognized field number (field 7). If this ever fails,
+        # the fixture stopped reproducing the scenario and the rest of this
+        # class is testing nothing.
+        ref = _build_ref_with_unknown_field()
+        assert ref.session_id == "prior-sess"
+        assert ref.commitment_hash == VECTOR_001_HASH
+        unknown = unknown_fields.UnknownFieldSet(ref)
+        assert len(unknown) == 1
+        assert unknown[0].field_number == 7
+
+    def test_unknown_ref_field_collides_with_clean_equivalent_before_fix(self):
+        # Empirical reproduction of the G10 collision: build the payload with
+        # the tainted supersedes, and a clean payload with the same visible
+        # session_id/commitment_hash, and confirm that -- with the new guard
+        # bypassed -- they would hash identically. We can't literally "undo"
+        # the fix from the test, so instead we confirm the two refs are
+        # wire-distinguishable (the unknown field is really there) while the
+        # *visible* projected members are identical, which is exactly the
+        # condition that made the pre-fix code collide (it only projected
+        # session_id/commitment_hash and never looked at anything else).
+        tainted_ref = _build_ref_with_unknown_field()
+        clean_ref = core_pb2.CommitmentRef(
+            session_id="prior-sess", commitment_hash=VECTOR_001_HASH
+        )
+        assert _supersedes_member(tainted_ref) == _supersedes_member(clean_ref)
+        assert len(unknown_fields.UnknownFieldSet(tainted_ref)) == 1
+        assert len(unknown_fields.UnknownFieldSet(clean_ref)) == 0
+
+    def test_canonical_projection_raises_on_unknown_ref_wire_field(self):
+        payload = core_pb2.CommitmentPayload(
+            outcome_positive=False, supersedes=_build_ref_with_unknown_field()
+        )
+        with pytest.raises(MacpSessionError, match=r"\[7\]"):
+            canonical_projection(payload)
+
+    def test_commitment_hash_raises_on_unknown_ref_wire_field(self):
+        payload = core_pb2.CommitmentPayload(
+            outcome_positive=False, supersedes=_build_ref_with_unknown_field()
+        )
+        with pytest.raises(MacpSessionError, match=r"\[7\]"):
+            commitment_hash(payload)
+
+    def test_ordinary_supersedes_without_unknown_fields_is_unaffected(self):
+        # Additive, not a replacement: a normal, valid supersedes must still
+        # hash exactly as before (also covered by vector 002, but asserted
+        # directly here too).
+        payload = core_pb2.CommitmentPayload(
+            outcome_positive=False,
+            supersedes=core_pb2.CommitmentRef(
+                session_id="prior-sess", commitment_hash=VECTOR_001_HASH
+            ),
+        )
+        canonical_projection(payload)  # must not raise
+        commitment_hash(payload)  # must not raise
+
+    def test_absent_supersedes_is_unaffected(self):
+        payload = core_pb2.CommitmentPayload(outcome_positive=False)
         canonical_projection(payload)  # must not raise
         commitment_hash(payload)  # must not raise

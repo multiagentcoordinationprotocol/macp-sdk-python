@@ -50,6 +50,19 @@ _ACTUAL_FIELD_NAMES: frozenset[str] = frozenset(
     f.name for f in core_pb2.CommitmentPayload.DESCRIPTOR.fields
 )
 
+#: The frozen two-field set ``CommitmentRef`` (the type of `supersedes`) MUST
+#: be limited to for this hash label (RFC-MACP-0013 §5): "``supersedes``,
+#: when set, carries exactly two fields (``session_id``, ``commitment_hash``)".
+#: A future ``macp-proto`` release that adds a third field to ``CommitmentRef``
+#: itself is not hashable under this label -- see `_check_frozen_ref_field_set`.
+_FROZEN_REF_FIELD_NAMES = frozenset({"session_id", "commitment_hash"})
+
+#: The installed ``macp-proto``'s actual ``CommitmentRef`` field names,
+#: computed once at import time, mirroring `_ACTUAL_FIELD_NAMES` above.
+_ACTUAL_REF_FIELD_NAMES: frozenset[str] = frozenset(
+    f.name for f in core_pb2.CommitmentRef.DESCRIPTOR.fields
+)
+
 #: Matched with `re.fullmatch` (see `is_canonical_commitment_hash`), so the
 #: anchors here are redundant but kept for readability.
 _HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -136,6 +149,34 @@ def _check_frozen_field_set(field_names: frozenset[str] | None = None) -> None:
         )
 
 
+def _check_frozen_ref_field_set(field_names: frozenset[str] | None = None) -> None:
+    """Raise if ``field_names`` contains anything outside the RFC-MACP-0013 §5
+    frozen two-field set for ``CommitmentRef`` (the type of ``supersedes``).
+
+    Mirrors `_check_frozen_field_set` exactly, one level down: that guard
+    catches a future ``macp-proto`` growing a 10th field on
+    ``CommitmentPayload`` itself; this one catches a future ``macp-proto``
+    growing a 3rd field on the nested ``CommitmentRef`` message, which
+    `_supersedes_member` would otherwise silently under-project without
+    anything raising.
+
+    Defaults to the installed proto's actual field set
+    (`_ACTUAL_REF_FIELD_NAMES`, computed once at import time and re-read from
+    the module namespace here -- not bound as a mutable default argument --
+    so that tests can monkeypatch it); a caller may also pass an explicit set
+    directly, exactly as `_check_frozen_field_set` does.
+    """
+    if field_names is None:
+        field_names = _ACTUAL_REF_FIELD_NAMES
+    extra = field_names - _FROZEN_REF_FIELD_NAMES
+    if extra:
+        raise MacpSessionError(
+            "CommitmentRef carries field(s) outside the RFC-MACP-0013 §5 "
+            f"frozen two-field set and is not hashable under label {LABEL!r}: "
+            f"{sorted(extra)}"
+        )
+
+
 def _check_no_unknown_wire_fields(payload: core_pb2.CommitmentPayload) -> None:
     """Raise if ``payload`` carries wire data for a field number the
     installed schema does not recognize at all (an "unknown field").
@@ -155,6 +196,10 @@ def _check_no_unknown_wire_fields(payload: core_pb2.CommitmentPayload) -> None:
     the ``upb`` backend (the default fast C-extension protobuf backend), so
     this uses ``google.protobuf.unknown_fields.UnknownFieldSet``, the public
     upb-safe replacement, instead.
+
+    This only inspects ``payload`` itself, not the nested ``supersedes``
+    submessage -- see `_check_no_unknown_ref_wire_fields` for the equivalent
+    check one level down.
     """
     unknown = unknown_fields.UnknownFieldSet(payload)
     if len(unknown) > 0:
@@ -163,6 +208,34 @@ def _check_no_unknown_wire_fields(payload: core_pb2.CommitmentPayload) -> None:
             "CommitmentPayload carries wire data for unrecognized field "
             "number(s) outside the RFC-MACP-0013 §5 frozen nine-field set "
             f"and is not hashable under label {LABEL!r}: {field_numbers}"
+        )
+
+
+def _check_no_unknown_ref_wire_fields(ref: core_pb2.CommitmentRef) -> None:
+    """Raise if ``ref`` (a ``supersedes`` submessage) carries wire data for a
+    field number the installed schema does not recognize at all.
+
+    Mirrors `_check_no_unknown_wire_fields` one level down: a peer may send a
+    ``CommitmentRef`` with wire data for a field number outside the
+    RFC-MACP-0013 §5 frozen two-field set (``session_id``=1,
+    ``commitment_hash``=2). `_check_frozen_ref_field_set` only catches schema
+    drift (a newer installed ``macp-proto``'s ``CommitmentRef.DESCRIPTOR``
+    growing a 3rd field); it cannot see wire data for a field number the
+    *local* schema has never heard of at all, which protobuf parses
+    successfully and stashes as an "unknown field", invisible to
+    ``DESCRIPTOR.fields``. Left unchecked, `_supersedes_member` would
+    silently hash only ``session_id``/``commitment_hash`` and drop the
+    unknown field's contribution -- the same "not hashable under this label
+    ... never silently ignored" outcome the RFC prohibits, just nested one
+    level deeper.
+    """
+    unknown = unknown_fields.UnknownFieldSet(ref)
+    if len(unknown) > 0:
+        field_numbers = sorted({f.field_number for f in unknown})
+        raise MacpSessionError(
+            "CommitmentPayload.supersedes carries wire data for unrecognized "
+            "field number(s) outside the RFC-MACP-0013 §5 frozen two-field "
+            f"set and is not hashable under label {LABEL!r}: {field_numbers}"
         )
 
 
@@ -176,10 +249,17 @@ def canonical_projection(payload: core_pb2.CommitmentPayload) -> bytes:
     carries a field outside the RFC-MACP-0013 §5 frozen nine-field set (see
     `_check_frozen_field_set`), or if this particular message instance
     carries wire data for a field number the installed schema does not
-    recognize at all (see `_check_no_unknown_wire_fields`).
+    recognize at all (see `_check_no_unknown_wire_fields`). When `supersedes`
+    is set, the same two checks are additionally applied one level down to
+    the nested `CommitmentRef` (see `_check_frozen_ref_field_set` and
+    `_check_no_unknown_ref_wire_fields`) -- an absent `supersedes` has no
+    `CommitmentRef` to check, so those two are skipped in that case.
     """
     _check_frozen_field_set()
     _check_no_unknown_wire_fields(payload)
+    if payload.HasField("supersedes"):
+        _check_frozen_ref_field_set()
+        _check_no_unknown_ref_wire_fields(payload.supersedes)
     members: list[tuple[str, str]] = [
         ("action", _escape_json_string(payload.action)),
         ("authority_scope", _escape_json_string(payload.authority_scope)),
