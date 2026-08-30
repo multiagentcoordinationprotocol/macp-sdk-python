@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from macp.v1 import core_pb2
+
 from macp_sdk.envelope import (
     build_commitment_payload,
     build_commitment_ref,
@@ -13,6 +16,8 @@ from macp_sdk.envelope import (
     new_session_id,
     serialize_message,
 )
+from macp_sdk.errors import MacpSessionError
+from tests.conftest import VALID_COMMITMENT_HASH
 
 
 class TestIdGenerators:
@@ -62,7 +67,7 @@ class TestBuildCommitmentPayload:
         assert not payload.HasField("supersedes")
 
     def test_supersedes_threads_commitment_ref(self):
-        ref = build_commitment_ref(session_id="s-prev", commitment_hash="abc123")
+        ref = build_commitment_ref(session_id="s-prev", commitment_hash=VALID_COMMITMENT_HASH)
         payload = build_commitment_payload(
             action="deploy",
             authority_scope="release",
@@ -71,7 +76,40 @@ class TestBuildCommitmentPayload:
         )
         assert payload.HasField("supersedes")
         assert payload.supersedes.session_id == "s-prev"
-        assert payload.supersedes.commitment_hash == "abc123"
+        assert payload.supersedes.commitment_hash == VALID_COMMITMENT_HASH
+
+    def test_build_commitment_ref_rejects_non_canonical_hash(self):
+        with pytest.raises(MacpSessionError, match="commitment_hash"):
+            build_commitment_ref(session_id="s", commitment_hash="not-a-canonical-hash")
+
+    def test_supersedes_rejects_non_canonical_hash_even_when_built_directly(self):
+        # Bypass-closure test: construct the CommitmentRef directly via the
+        # proto class (NOT via build_commitment_ref) to prove
+        # build_commitment_payload validates supersedes.commitment_hash
+        # itself rather than relying solely on build_commitment_ref's guard.
+        ref = core_pb2.CommitmentRef(session_id="s", commitment_hash="not-a-canonical-hash")
+        with pytest.raises(MacpSessionError, match="commitment_hash"):
+            build_commitment_payload(
+                action="deploy",
+                authority_scope="release",
+                reason="revising the prior call",
+                supersedes=ref,
+            )
+
+    @pytest.mark.parametrize(
+        "bad_hash",
+        [
+            "",
+            "not-a-hash",
+            "SHA256:" + "a" * 64,
+            "sha256:" + "A" * 64,  # uppercase hex
+            "sha256:" + "a" * 63,  # one short
+            "sha256:" + "a" * 65,  # one long
+        ],
+    )
+    def test_build_commitment_ref_rejects_bad_shapes(self, bad_hash):
+        with pytest.raises(MacpSessionError):
+            build_commitment_ref(session_id="s", commitment_hash=bad_hash)
 
 
 class TestBuildEnvelope:

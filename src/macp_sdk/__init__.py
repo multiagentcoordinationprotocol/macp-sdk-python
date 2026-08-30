@@ -3,6 +3,7 @@ from .auth import AuthConfig
 from .base_projection import BaseProjection
 from .base_session import BaseSession
 from .client import InlineErrorCallback, MacpClient, MacpStream
+from .commitment_hash import commitment_hash, is_canonical_commitment_hash
 from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
     DEFAULT_MODE_VERSION,
@@ -85,6 +86,7 @@ from .quorum import QuorumProjection, QuorumSession
 from .retry import RetryPolicy, retry_send
 from .task import TaskProjection, TaskSession
 from .validation import (
+    validate_commitment_hash,
     validate_confidence,
     validate_participant_count,
     validate_participants,
@@ -195,13 +197,16 @@ __all__ = [
     "build_session_start_payload",
     "build_signal_payload",
     "build_task_policy",
+    "commitment_hash",
     "configure_logging",
     "infer_outcome_positive",
+    "is_canonical_commitment_hash",
     "new_commitment_id",
     "new_message_id",
     "new_session_id",
     "retry_send",
     "serialize_message",
+    "validate_commitment_hash",
     "validate_confidence",
     "validate_participant_count",
     "validate_participants",

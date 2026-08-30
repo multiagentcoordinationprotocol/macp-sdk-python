@@ -15,6 +15,10 @@ from macp_sdk.envelope import new_message_id, now_unix_ms, serialize_message
 # A syntactically valid UUIDv4 session id accepted by validate_session_id.
 VALID_SESSION_ID = "00000000-0000-4000-8000-000000000001"
 
+# A real canonical commitment hash (RFC-MACP-0013 vector cmt_hash_001_minimal)
+# accepted by validate_commitment_hash / is_canonical_commitment_hash.
+VALID_COMMITMENT_HASH = "sha256:9f58e9d114d11860d48aa2bcb8cda458b9618b1cc8560595a802b68c4af85d41"
+
 
 class FakeRpcError(grpc.RpcError):
     """An RpcError that implements ``code()`` / ``details()`` like a real call."""
