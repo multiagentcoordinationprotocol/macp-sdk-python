@@ -1,15 +1,17 @@
 """Replay the RFC-MACP-0013 canonical-commitment-hash spec vectors.
 
-The vector pack lives in ``tests/vectors/cmt-hash/`` -- a manual snapshot of
+The vector pack lives in ``tests/vectors/cmt-hash/`` -- originally a snapshot of
 the spec repo's ``schemas/conformance/cmt-hash/`` directory, kept outside
 ``tests/conformance/`` on purpose. See ``tests/vectors/cmt-hash/SOURCE.md``
 for the full rationale: ``tests/conformance/``'s zero-drift gate
-(``make verify-fixtures``) diffs a *flat* ``tests/conformance/*.json`` glob
-against the spec repo's flat ``schemas/conformance/*.json`` -- the spec
-repo's ``cmt-hash`` vectors live in a subdirectory there, so they can't be
-placed flat in ``tests/conformance/`` (would be flagged EXTRA and fail the
-gate) or in a ``tests/conformance/cmt-hash/`` subdirectory (invisible to the
-gate's non-recursive glob, so drift would never be caught). This module is
+(``make verify-fixtures``) is driven by a declarative list of canonical/local
+directory pairs and diffs each pair in both directions -- the flat top level
+of ``SPEC_CONFORMANCE_DIR`` is paired with ``tests/conformance/``, and the
+spec repo's ``schemas/conformance/cmt-hash/`` subdirectory is paired
+separately with ``tests/vectors/cmt-hash/``, so this pack *is* covered by the
+gate. It still can't be placed flat in ``tests/conformance/``, though: the
+spec repo's ``cmt-hash`` vectors live in a subdirectory there, so a flat copy
+would be flagged EXTRA against the flat pair and fail the gate. This module is
 the thing that actually exercises them, and it lives under ``tests/unit/``
 so the CI command (``pytest tests/unit/ -v --cov``) collects it.
 

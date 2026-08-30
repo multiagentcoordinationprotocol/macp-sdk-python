@@ -12,7 +12,7 @@ Plan: `../multiagentcoordinationprotocol/plans/cross-repo/macp-sdk-python-rfc-ma
 - `tests/unit/test_envelope.py` — `TestBuildCommitmentPayload` class (:50-75). H14 fixtures at `:65` and `:74` (`commitment_hash="abc123"`), both inside `test_supersedes_threads_commitment_ref`.
 - `tests/unit/test_session_id_validation.py:50` — **unrelated** `session_id="abc123"` fixture; a bare grep for `"abc123"` hits this too. Do not touch it.
 - `tests/conformance/test_conformance_projections.py` — existing fixture-runner pattern to model Phase 3's runner on (parametrize over discovered JSON files, `pytest.mark.conformance`).
-- `Makefile` — `test:` runs `pytest tests/unit/ -v --cov` (85% branch floor via `pyproject.toml [tool.coverage]`). `test-conformance:` runs `pytest tests/conformance/ -v -m conformance`. `verify-fixtures:` (:56-78) walks `tests/conformance/*.json` (non-recursive) vs spec repo's flat `schemas/conformance/*.json` — fails on drift AND on extra files. **A `tests/vectors/cmt-hash/` subdirectory is invisible to this glob**, confirming H13's chosen location is safe.
+- `Makefile` — `test:` runs `pytest tests/unit/ -v --cov` (85% branch floor via `pyproject.toml [tool.coverage]`). `test-conformance:` runs `pytest tests/conformance/ -v -m conformance`. `verify-fixtures:` (:56-78) walks `tests/conformance/*.json` (non-recursive) vs spec repo's flat `schemas/conformance/*.json` — fails on drift AND on extra files. **A `tests/vectors/cmt-hash/` subdirectory is invisible to this glob**, confirming H13's chosen location is safe. (Updated by #38: `verify-fixtures` now lives at `:77-120` and is driven by `FIXTURE_DIR_PAIRS`, a canonical-subpath-to-local-dir pair list; it checks each pair in both directions, and `cmt-hash:tests/vectors/cmt-hash` is one of the pairs, so this subdirectory is no longer invisible to the gate. Left as-is above as the historical record of the state this repo map was built against.)
 - `.github/workflows/checks.yml:52` — CI runs exactly `pytest tests/unit/ -v --cov`. **Phase 3's vector test module must live under `tests/unit/`** to be collected in CI (confirmed, not just per the plan's caution).
 - `pyproject.toml:55` — `macp-proto>=0.1.6,<0.1.9`. Installed in dev venv: `0.1.8`. `[tool.coverage]` at `:167-173`: `fail_under = 85`, `branch = true`.
 - Proto (`macp.v1.core_pb2`, from installed `macp-proto` 0.1.8), confirmed via descriptor introspection:
@@ -91,7 +91,7 @@ Plan: `../multiagentcoordinationprotocol/plans/cross-repo/macp-sdk-python-rfc-ma
   - G5 (vector runner doesn't assert the RFC-mandated count of 5 vectors or `vector["label"] == LABEL`) — accepted; a full wipe is still caught by the existing `pairs_checked > 0` backstop.
   - G6 (chaining property, RFC §3 rule 4, not asserted in the *file-driven* runner — though it is asserted inline in `test_commitment_hash.py` via `VECTOR_001_HASH`) — accepted, holds today.
   - G7 (`_EXCLUDED_NAMES` filter unreachable given the glob) — previously flagged as Phase 3 advisory C, deliberately left; still dead code, still harmless.
-  - G8 (vendored vectors have no automated drift gate against the spec repo) — this is H13's known, disclosed tradeoff (`tests/vectors/cmt-hash/SOURCE.md`), confirmed byte-identical to the spec repo today; accepted cost.
+  - G8 (vendored vectors have no automated drift gate against the spec repo) — this is H13's known, disclosed tradeoff (`tests/vectors/cmt-hash/SOURCE.md`), confirmed byte-identical to the spec repo today; accepted cost. (Closed by issue #38 — see below.)
   - G9 (`PROGRESS.md` newly tracked in a public repo, containing absolute `/Users/ajitkoti/…` local paths) — accepted; this repo already force-tracks plan files despite `.gitignore` ignoring `plans/`, so tracking process docs isn't unprecedented, and the paths reveal a local username, not a secret.
 - **Re-verify round 1:** fresh Opus subagent, given the G1-G9 gap list, independently reproduced the G1 fix with raw hand-crafted wire bytes (a different technique than the fixer's test), confirmed G2's config change and manifest, and spot-checked G3-G9 as accurately characterized. **Confirmed CLOSED/accurate for all 9** — but surfaced one new item:
   - **G10 (new):** `_check_no_unknown_wire_fields` only inspected `UnknownFieldSet(payload)` at the top level — it did not recurse into the `supersedes` submessage. A `CommitmentRef` carrying wire data for a field outside its own frozen two-field set (`session_id`, `commitment_hash` — RFC-MACP-0013 §5) hashed identically to a clean equivalent, silently dropping the unknown field's contribution — same MUST violation as G1, one level deeper, narrower trigger (requires `CommitmentRef` itself to have grown a field or receive out-of-schema wire data).
@@ -104,3 +104,85 @@ Plan: `../multiagentcoordinationprotocol/plans/cross-repo/macp-sdk-python-rfc-ma
 
 - pushed feat/rfc-macp-0013-commitment-hash 629458b
 - PR #36 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/36
+
+---
+
+# PROGRESS — Issue #38: gate `tests/vectors/cmt-hash/` against canonical
+
+Plan: `plans/gate-cmt-hash-vectors.md` (this repo). Branch: `fix/38-gate-cmt-hash-vectors`.
+
+## Repo map (built once)
+
+- `Makefile:1` — `.PHONY`, already lists `sync-fixtures verify-fixtures`; neither target has prerequisites.
+- `Makefile:3` — `SPEC_CONFORMANCE_DIR`, overridable; CI passes `$GITHUB_WORKSPACE/_spec/schemas/conformance`.
+- `Makefile:5-7` — **new** `FIXTURE_DIR_PAIRS`. Must never carry an inline `##` comment: `make help`'s awk (`Makefile:10`) matches `/^[a-zA-Z_-]+:.*##/` and `FIXTURE_DIR_PAIRS:` (from `:=`) satisfies the left half.
+- `Makefile:41-76` — `sync-fixtures`: spec-dir help block, pre-flight MISSING loop, per-pair copy loop, closing hints.
+- `Makefile:77-120` — `verify-fixtures`: spec-dir guard, `drift`/`missing` accumulators, per-pair MISSING/DRIFT/EXTRA/OK, summaries.
+- `tests/unit/test_fixture_drift_gate.py` — **new**, 17 cases. Drives the real recipes via `subprocess.run(cwd=tmp_repo, ...)` with an absolute `-f`; never `make -C` (implies `-w`, prints directory banners on GNU Make 4.x only). Strips `MAKEFLAGS`/`MAKELEVEL`/`MFLAGS` (nested under `make test`). Asserts `returncode != 0`, never `== 1` — **GNU Make exits 2** on recipe failure.
+- `tests/vectors/cmt-hash/` — 5 `cmt_hash_*.json` + `vector-schema.json` + local-only `SOURCE.md` (exempt: the gate globs `*.json`).
+- `.github/workflows/conformance-fixtures.yml` — checks the spec repo out to `_spec`; **no functional change needed**, header comment only (Phase 2).
+- `.github/workflows/proto-drift.yml:39` — runs `pytest tests/unit tests/conformance -q`, so the new module executes there too; it must never require the real spec repo.
+- `pyproject.toml` — `[tool.coverage.run] source = ["macp_sdk"]`, so a test module importing no `macp_sdk` affects neither numerator nor denominator of the 85% gate.
+
+## Phase status
+
+- **Phase 1 — Directory-pair fixture gate + tests:** DONE
+- **Phase 2 — Retire the deferral in the docs:** DONE
+
+## Log
+
+### Phase 1 — 2026-08-30
+
+- **Verdict:** PASS (1 round). Verifier tier: **Opus** — reversible CI-gate change, no
+  schema/auth/public-contract/trust-boundary surface, so no Fable escalation.
+- Plan itself was reverified by a separate Opus pass before any code: verdict
+  `PLAN-GAPS`, 19 items, all folded in. Two would have broken the tests outright —
+  GNU Make exits **2** (not 1) on recipe failure, and `${pair##*:}` takes the *last*
+  colon-segment rather than everything after the first.
+- **Gaps closed post-PASS (hardening, not a GAPS verdict):** swallowed `cp` exit status
+  in `sync-fixtures`; wrong remedy advertised when the only failure is `MISSING`; three
+  untested branches (sync pre-flight abort — deleting that block left all 14 tests green;
+  canonical-side empty-glob guard; one dirty pair suppressing another's `OK`).
+- **Files touched:** `Makefile`, `tests/unit/test_fixture_drift_gate.py` (new),
+  `plans/gate-cmt-hash-vectors.md`, `ASSUMPTIONS.md` (new), `PROGRESS.md`.
+- **Checks:** 17/17 new tests; unit suite 666 passed, coverage 87.74% (gate 85%); lint and
+  mypy clean; `make verify-fixtures` exits 0 against the real spec checkout naming both
+  pairs; tampering a vector yields `DRIFT` + exit 2. Recipes verified under `/bin/dash`,
+  `make -j4`, and paths containing spaces.
+- **Commit:** `6fb1c5f`
+- **Ship decision:** **accumulate**, do not ship alone. Landing Phase 1 by itself makes two
+  in-repo documents false — `tests/vectors/cmt-hash/SOURCE.md`'s "Known cost, accepted for
+  now" paragraph and `tests/unit/test_commitment_hash_vectors.py`'s docstring claim that
+  the pack is "invisible to the gate's non-recursive glob" — and leaves whole-plan
+  acceptance criterion 7 unmet. Phases 1+2 ship as one PR.
+- **Next:** Phase 2 (docs-only).
+
+### Phase 2 — 2026-08-30
+
+- **Verdict:** PASS after 2 rounds. Verifier tier: **Opus** both rounds — docs-only, no
+  one-way door.
+- **Round 1 verdict GAPS (6 items).** The material one: `CLAUDE.md` is **gitignored**
+  (`.gitignore:210`), so the phase's documentation edit would never have reached the PR —
+  Phase 2 was shipping zero committed docs. Redirected to `docs/contributing.md`, which is
+  tracked and already the home for the green-bar gates. Also: two present-tense claims in
+  this file's own older RFC-MACP-0013 repo map had gone false (`:15` "invisible to this
+  glob", `:94` G8 "accepted cost"), and the Phase 1 log cited `fb4a612`, an orphaned
+  pre-amend sha, rather than `6fb1c5f`.
+- **Round 2:** all five actionable items confirmed closed; two non-blocking nits taken as
+  well (an over-long line in the gates fence, and — more usefully — `verify-fixtures` was
+  listed as a green-bar gate without noting it hard-fails for a contributor with no
+  sibling spec clone, since unlike `sync-fixtures` that target prints no clone hint).
+- **Files touched:** `docs/contributing.md`, `tests/vectors/cmt-hash/SOURCE.md`,
+  `tests/unit/test_commitment_hash_vectors.py` (module docstring only — zero code lines),
+  `.github/workflows/conformance-fixtures.yml` (header comment only; `on:`/`permissions:`/
+  `jobs:`/every `run:` step byte-identical, confirmed by a non-comment-line diff),
+  `PROGRESS.md`. `CLAUDE.md` was also updated locally for convenience but is gitignored and
+  is not part of the PR.
+- **Checks:** lint and mypy clean; unit suite 666 passed, coverage 87.74% (gate 85%);
+  `make verify-fixtures` exit 0 against the real spec checkout; workflow re-parsed with
+  `yaml.safe_load`. Bare `pytest tests/` (unit + conformance + self-skipping integration):
+  716 passed, 35 skipped.
+- **Commit:** `2024480`
+- **Ship decision:** ship Phases 1+2 as one PR. This is what closes whole-plan acceptance
+  criterion 7 — Phase 1 alone would have left `SOURCE.md` and the vector-test docstring
+  asserting the opposite of the code.
