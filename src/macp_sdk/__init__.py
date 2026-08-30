@@ -3,6 +3,7 @@ from .auth import AuthConfig
 from .base_projection import BaseProjection
 from .base_session import BaseSession
 from .client import InlineErrorCallback, MacpClient, MacpStream
+from .commitment_hash import commitment_hash, is_canonical_commitment_hash
 from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
     DEFAULT_MODE_VERSION,
@@ -195,8 +196,10 @@ __all__ = [
     "build_session_start_payload",
     "build_signal_payload",
     "build_task_policy",
+    "commitment_hash",
     "configure_logging",
     "infer_outcome_positive",
+    "is_canonical_commitment_hash",
     "new_commitment_id",
     "new_message_id",
     "new_session_id",
