@@ -23,6 +23,9 @@ make test               # unit tests + coverage gate (fails under 85%)
 make test-conformance   # fixture replay — runs on every PR in CI too
 ```
 
+The fixture drift gate (`make verify-fixtures`) is a separate, related gate —
+see below for what it checks and which workflow runs it.
+
 The coverage gate (85%, **branch** coverage) is configured once in
 `pyproject.toml` under `[tool.coverage.*]`; `make test`, `make coverage`, and
 CI all invoke pytest with a bare `--cov` and inherit it — don't re-specify
@@ -36,9 +39,26 @@ probes the target (`MACP_RUNTIME_TARGET`, default `127.0.0.1:50051`) and
 auto-skips the whole directory when no runtime is reachable, so a bare
 `pytest tests/` is always safe to run.
 
+The fixture drift gate (`make verify-fixtures`) diffs this repo's vendored
+conformance fixtures against the canonical copies in the spec repo, in both
+directions — a canonical file missing or differing locally fails as `DRIFT`,
+a local-only file fails as `EXTRA`. It checks every pair listed in the
+`Makefile`'s `FIXTURE_DIR_PAIRS`, which covers both `tests/conformance/` and
+`tests/vectors/cmt-hash/`. `make sync-fixtures` refreshes all of them from
+the spec repo checkout pointed at by `SPEC_CONFORMANCE_DIR`; sync copies but
+never deletes, so a file flagged `EXTRA` must be removed by hand. This gate
+runs in its own workflow, `conformance-fixtures.yml`, on every push and PR
+targeting `main` — it is not part of the `checks.yml` gate above.
+
+Both targets need the spec repo on disk. `SPEC_CONFORMANCE_DIR` defaults to
+`../multiagentcoordinationprotocol/schemas/conformance`, i.e. a sibling clone
+next to this one; without it `make verify-fixtures` fails immediately with
+`spec repo not found`. Clone the spec repo alongside this one, or override the
+variable: `make verify-fixtures SPEC_CONFORMANCE_DIR=/path/to/schemas/conformance`.
+
 ## Bumping `macp-proto`
 
-The SDK pins `macp-proto` with a **tight upper bound** (currently `>=0.1.6,<0.2.0`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
+The SDK pins `macp-proto` with a **tight upper bound** (currently `>=0.1.6,<0.1.9`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
 
 > **0.1.6 note (SDK 0.5.0):** the floor is `0.1.6` because the SDK uses the runtime v0.5.0 wire surface — `SessionStartPayload.max_suspend_ms` (0.1.5), `HandoffAcceptPayload.implicit` and `ListSessionsRequest.page_size`/`page_token` (0.1.6), and the canonical `macp.modes.multi_round.v1.ContributePayload` encoding (0.1.4). **Critically, macp-proto 0.1.6's gencode was produced by protobuf 7.35.0 / grpc 1.82.0** and protobuf enforces this at *import time* (`runtime_version.VersionError` under an older protobuf), so the floors moved together: **`protobuf>=7.35.0`** and **`grpcio>=1.82.0`**. macp-proto's own METADATA floors are looser than the gencode requires, so do not trust them — derive the floors from the gencode. There is no way to straddle protobuf majors; consumers pinned to protobuf 6.x cannot upgrade to SDK 0.5.0.
 >
@@ -83,7 +103,8 @@ The CI job `proto-drift` (see `.github/workflows/proto-drift.yml`, Q-16) runs th
 - `ci.yml` — checks + build (`twine check`) on push/PR to `main`; cancels
   superseded runs, supports `workflow_dispatch`.
 - `conformance-fixtures.yml` — zero-drift gate for vendored fixtures vs the
-  spec repo.
+  spec repo; runs `make verify-fixtures` against the spec checkout, then the
+  spec repo's own `lint_fixtures.py` for internal consistency.
 - `proto-drift.yml` — daily canary against the latest published `macp-proto`.
 - All actions are SHA-pinned with version comments; `.github/dependabot.yml`
   keeps the pins and the pip dev toolchain current (it deliberately ignores

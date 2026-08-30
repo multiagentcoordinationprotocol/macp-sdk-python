@@ -3,7 +3,8 @@ name: Conformance fixtures
 # Enforces zero drift between this SDK's vendored conformance fixtures and the
 # canonical set in the spec repo (multiagentcoordinationprotocol). Runs on every
 # PR/push so a hand-edited fixture can never merge. See
-# tests/conformance/ and `make sync-fixtures` / `make verify-fixtures`.
+# tests/conformance/ and tests/vectors/cmt-hash/, and
+# `make sync-fixtures` / `make verify-fixtures`.
 #
 # If the spec repo is private, configure a read-scoped PAT as the
 # CONFORMANCE_SPEC_TOKEN secret; otherwise the default GITHUB_TOKEN is used.
