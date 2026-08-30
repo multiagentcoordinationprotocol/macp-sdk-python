@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import itertools
 import sys
 
 import pytest
+from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from macp.v1 import core_pb2
 
 from macp_sdk.commitment_hash import (
@@ -295,3 +297,122 @@ class TestFrozenFieldSetGuard:
             canonical_projection(payload)
         with pytest.raises(MacpSessionError, match="unexpected_field"):
             commitment_hash(payload)
+
+
+# Monotonic counter so each call to `_build_payload_with_unknown_field` (across
+# tests, and across repeated calls within a single test) registers its
+# throwaway "shadow" proto under a fresh package/file name -- `descriptor_pool`
+# raises if the same fully-qualified name is added twice, even into separate
+# `DescriptorPool()` instances in some versions.
+_shadow_counter = itertools.count()
+
+
+def _build_payload_with_unknown_field() -> core_pb2.CommitmentPayload:
+    """Build a *real* ``core_pb2.CommitmentPayload`` whose wire bytes include
+    a field number the installed schema does not recognize -- i.e. an actual
+    "unknown field" on the parsed instance, not merely a schema that has
+    grown a 10th field (that case is `TestFrozenFieldSetGuard`, simulated via
+    monkeypatching `_ACTUAL_FIELD_NAMES`).
+
+    This can't be done with a second ``.proto`` file (this repo has no local
+    proto-generation step -- see CLAUDE.md), so instead it synthesizes one at
+    runtime: a throwaway "shadow" message type is built via
+    ``descriptor_pb2``/``descriptor_pool`` that mirrors
+    ``CommitmentPayload``'s known field numbers 1-2 (``commitment_id``,
+    ``action``) plus one extra field at number 10 (one past the real
+    ``supersedes`` at 9) that the real schema has never heard of. Serializing
+    the shadow message and parsing those bytes into a real
+    ``core_pb2.CommitmentPayload`` reproduces exactly what happens when a
+    peer running a newer wire format sends an extra field this SDK's pinned
+    ``macp-proto`` doesn't know about: protobuf parses it successfully and
+    stashes the field-10 bytes as an "unknown field" on the real message,
+    invisible to ``CommitmentPayload.DESCRIPTOR.fields``.
+    """
+    n = next(_shadow_counter)
+    fdp = descriptor_pb2.FileDescriptorProto()
+    fdp.name = f"shadow_commitment_{n}.proto"
+    fdp.package = f"shadow.v1.n{n}"
+    fdp.syntax = "proto3"
+
+    msg = fdp.message_type.add()
+    msg.name = "ShadowCommitmentPayload"
+
+    def add_field(name: str, number: int, ftype: int) -> None:
+        f = msg.field.add()
+        f.name = name
+        f.number = number
+        f.type = ftype
+        f.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+
+    add_field("commitment_id", 1, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
+    add_field("action", 2, descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
+    # One past real CommitmentPayload's highest field number (9, `supersedes`)
+    # -- a field number this installed schema has never heard of at all.
+    add_field(
+        "field_from_the_future", 10, descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    )
+
+    pool = descriptor_pool.DescriptorPool()
+    pool.Add(fdp)
+    shadow_cls = message_factory.GetMessageClass(
+        pool.FindMessageTypeByName(f"shadow.v1.n{n}.ShadowCommitmentPayload")
+    )
+    shadow = shadow_cls(
+        commitment_id="c1",
+        action="decision.approved",
+        field_from_the_future="unknown-wire-data",
+    )
+
+    payload = core_pb2.CommitmentPayload()
+    payload.MergeFromString(shadow.SerializeToString())
+    return payload
+
+
+class TestUnknownWireFieldGuard:
+    """RFC-MACP-0013 §5: a peer may send a ``CommitmentPayload`` carrying
+    wire data for a field number this installed schema has never heard of at
+    all. Protobuf preserves that as an "unknown field" on the parsed
+    instance -- invisible to ``DESCRIPTOR.fields`` (and hence to
+    `_check_frozen_field_set`, which only sees schema drift). A verifier
+    presented with such a payload MUST return a cannot-verify result, never
+    silently omit the unknown field's contribution from the hash."""
+
+    def test_unknown_field_reproduced_on_instance(self):
+        # Sanity check on the fixture itself, independent of this module:
+        # confirm the "shadow" round-trip actually produces a real
+        # CommitmentPayload instance carrying wire data for an unrecognized
+        # field number (field 10), using the same upb-safe accessor the fix
+        # uses. If this ever fails, the fixture stopped reproducing the
+        # scenario and the rest of this class is testing nothing.
+        from google.protobuf import unknown_fields
+
+        payload = _build_payload_with_unknown_field()
+        assert payload.commitment_id == "c1"
+        assert payload.action == "decision.approved"
+        unknown = unknown_fields.UnknownFieldSet(payload)
+        assert len(unknown) == 1
+        assert unknown[0].field_number == 10
+
+        # And confirm the classic accessor is indeed unusable here (the
+        # constraint that ruled out `UnknownFields()` for the fix itself).
+        with pytest.raises(NotImplementedError):
+            payload.UnknownFields()
+
+    def test_canonical_projection_raises_on_unknown_wire_field(self):
+        payload = _build_payload_with_unknown_field()
+        with pytest.raises(MacpSessionError, match=r"\[10\]"):
+            canonical_projection(payload)
+
+    def test_commitment_hash_raises_on_unknown_wire_field(self):
+        payload = _build_payload_with_unknown_field()
+        with pytest.raises(MacpSessionError, match=r"\[10\]"):
+            commitment_hash(payload)
+
+    def test_ordinary_payload_without_unknown_fields_is_unaffected(self):
+        # Additive, not a replacement: a normal payload with no unknown wire
+        # data must still hash exactly as before.
+        payload = core_pb2.CommitmentPayload(
+            commitment_id="c1", outcome_positive=False
+        )
+        canonical_projection(payload)  # must not raise
+        commitment_hash(payload)  # must not raise

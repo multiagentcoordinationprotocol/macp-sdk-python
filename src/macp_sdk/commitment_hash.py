@@ -5,8 +5,10 @@ digest over an RFC 8785 (JCS) canonicalized JSON projection of the frozen
 nine-field ``CommitmentPayload`` set (RFC-MACP-0013 §5).
 
 This module intentionally has **no third-party imports beyond
-``macp.v1.core_pb2``** — the hashing algorithm is pure stdlib so that it can
-be reused (and re-verified) without pulling in the rest of the SDK.
+``google.protobuf``/``macp.v1.core_pb2``** — the hashing algorithm is pure
+stdlib (plus the protobuf runtime already required to hold ``payload``
+itself) so that it can be reused (and re-verified) without pulling in the
+rest of the SDK.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import re
 
+from google.protobuf import unknown_fields  # type: ignore[import-untyped]
 from macp.v1 import core_pb2
 
 from .errors import MacpSessionError
@@ -133,6 +136,36 @@ def _check_frozen_field_set(field_names: frozenset[str] | None = None) -> None:
         )
 
 
+def _check_no_unknown_wire_fields(payload: core_pb2.CommitmentPayload) -> None:
+    """Raise if ``payload`` carries wire data for a field number the
+    installed schema does not recognize at all (an "unknown field").
+
+    `_check_frozen_field_set` only catches schema drift: a *newer* installed
+    ``macp-proto`` whose ``CommitmentPayload.DESCRIPTOR`` has grown a 10th
+    field. It cannot see this case: a peer sent bytes for a field number the
+    *local* schema has never heard of, so protobuf parses the message
+    successfully and stashes those bytes as an "unknown field" on the
+    instance, invisible to ``DESCRIPTOR.fields`` (RFC-MACP-0013 §5). Left
+    unchecked, `canonical_projection` would silently hash only the known
+    fields and drop the unknown field's contribution -- exactly the
+    "not hashable under this label ... never silently ignored" outcome the
+    RFC prohibits.
+
+    Classic ``payload.UnknownFields()`` raises ``NotImplementedError`` under
+    the ``upb`` backend (the default fast C-extension protobuf backend), so
+    this uses ``google.protobuf.unknown_fields.UnknownFieldSet``, the public
+    upb-safe replacement, instead.
+    """
+    unknown = unknown_fields.UnknownFieldSet(payload)
+    if len(unknown) > 0:
+        field_numbers = sorted({f.field_number for f in unknown})
+        raise MacpSessionError(
+            "CommitmentPayload carries wire data for unrecognized field "
+            "number(s) outside the RFC-MACP-0013 §5 frozen nine-field set "
+            f"and is not hashable under label {LABEL!r}: {field_numbers}"
+        )
+
+
 def canonical_projection(payload: core_pb2.CommitmentPayload) -> bytes:
     """Return the JCS-canonicalized UTF-8 bytes of the Section 3 projection.
 
@@ -141,9 +174,12 @@ def canonical_projection(payload: core_pb2.CommitmentPayload) -> bytes:
 
     Raises `MacpSessionError` if the installed proto's `CommitmentPayload`
     carries a field outside the RFC-MACP-0013 §5 frozen nine-field set (see
-    `_check_frozen_field_set`).
+    `_check_frozen_field_set`), or if this particular message instance
+    carries wire data for a field number the installed schema does not
+    recognize at all (see `_check_no_unknown_wire_fields`).
     """
     _check_frozen_field_set()
+    _check_no_unknown_wire_fields(payload)
     members: list[tuple[str, str]] = [
         ("action", _escape_json_string(payload.action)),
         ("authority_scope", _escape_json_string(payload.authority_scope)),
