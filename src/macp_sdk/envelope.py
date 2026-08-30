@@ -14,6 +14,7 @@ from .constants import (
     MACP_VERSION,
 )
 from .errors import MacpSessionError
+from .validation import validate_commitment_hash
 
 # ── Outcome inference ────────────────────────────────────────────────
 
@@ -110,7 +111,14 @@ def _has_supersedes_field() -> bool:
 
 def build_commitment_ref(*, session_id: str, commitment_hash: str) -> core_pb2.CommitmentRef:
     """Build a ``CommitmentRef`` (macp-proto 0.1.3) pointing at a prior
-    commitment, for use as ``build_commitment_payload(supersedes=...)``."""
+    commitment, for use as ``build_commitment_payload(supersedes=...)``.
+
+    ``commitment_hash`` must be a canonical RFC-MACP-0013 commitment hash
+    (``sha256:`` followed by 64 lowercase hex digits) — see
+    ``commitment_hash()`` in ``macp_sdk.commitment_hash`` for computing one
+    from a ``CommitmentPayload``. Raises ``MacpSessionError`` otherwise.
+    """
+    validate_commitment_hash(commitment_hash)
     return core_pb2.CommitmentRef(session_id=session_id, commitment_hash=commitment_hash)
 
 
@@ -131,7 +139,10 @@ def build_commitment_payload(
     ``supersedes`` (macp-proto 0.1.3) optionally references a prior
     commitment this one revises, as a ``CommitmentRef`` of
     ``(session_id, commitment_hash)``. It is absent by default and unrelated
-    to proposal-mode ``supersedes_proposal_id``.
+    to proposal-mode ``supersedes_proposal_id``. ``supersedes.commitment_hash``
+    must be a canonical RFC-MACP-0013 hash (validated here even when the
+    ``CommitmentRef`` was constructed directly rather than via
+    ``build_commitment_ref``); raises ``MacpSessionError`` otherwise.
     """
     if outcome_positive is None:
         outcome_positive = infer_outcome_positive(action)
@@ -149,6 +160,7 @@ def build_commitment_payload(
     if supersedes is not None:
         if not _has_supersedes_field():
             raise MacpSessionError("CommitmentPayload.supersedes requires macp-proto >= 0.1.3")
+        validate_commitment_hash(supersedes.commitment_hash)
         kwargs["supersedes"] = supersedes
     return core_pb2.CommitmentPayload(**kwargs)
 

@@ -86,6 +86,7 @@ from .quorum import QuorumProjection, QuorumSession
 from .retry import RetryPolicy, retry_send
 from .task import TaskProjection, TaskSession
 from .validation import (
+    validate_commitment_hash,
     validate_confidence,
     validate_participant_count,
     validate_participants,
@@ -205,6 +206,7 @@ __all__ = [
     "new_session_id",
     "retry_send",
     "serialize_message",
+    "validate_commitment_hash",
     "validate_confidence",
     "validate_participant_count",
     "validate_participants",

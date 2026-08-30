@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
+from .commitment_hash import is_canonical_commitment_hash
 from .errors import MacpSessionError
 
 # A string with the structural shape of a UUID (36 chars, hyphens at
@@ -55,6 +56,23 @@ def validate_session_id(sid: str) -> None:
     raise MacpSessionError(
         f"session_id must be a lowercase UUID v4/v7 or base64url (22+ chars), got: {sid!r}"
     )
+
+
+def validate_commitment_hash(value: str) -> None:
+    """Validate that *value* has the shape of a canonical commitment hash.
+
+    Mirrors the runtime's RFC-MACP-0013 syntax check: a valid
+    ``commitment_hash`` MUST match ``^sha256:[0-9a-f]{64}$`` exactly (see
+    `macp_sdk.commitment_hash.is_canonical_commitment_hash`). This is a pure
+    shape check — it does not (and cannot) verify that the digest was
+    actually produced by `macp_sdk.commitment_hash.commitment_hash` over the
+    referenced payload; that requires the payload itself.
+    """
+    if not is_canonical_commitment_hash(value):
+        raise MacpSessionError(
+            "commitment_hash must match ^sha256:[0-9a-f]{64}$ (RFC-MACP-0013), "
+            f"got: {value!r}"
+        )
 
 
 def validate_vote(value: str) -> str:

@@ -11,6 +11,7 @@ import pytest
 
 from macp_sdk.errors import MacpSessionError
 from macp_sdk.validation import (
+    validate_commitment_hash,
     validate_confidence,
     validate_participant_count,
     validate_participants,
@@ -23,7 +24,32 @@ from macp_sdk.validation import (
     validate_ttl_ms,
     validate_vote,
 )
-from tests.conftest import VALID_SESSION_ID
+from tests.conftest import VALID_COMMITMENT_HASH, VALID_SESSION_ID
+
+
+class TestCommitmentHash:
+    def test_valid_ok(self):
+        validate_commitment_hash(VALID_COMMITMENT_HASH)
+
+    def test_empty_raises(self):
+        with pytest.raises(MacpSessionError, match="commitment_hash"):
+            validate_commitment_hash("")
+
+    def test_missing_prefix_raises(self):
+        with pytest.raises(MacpSessionError, match="commitment_hash"):
+            validate_commitment_hash("abc123")
+
+    def test_uppercase_hex_raises(self):
+        with pytest.raises(MacpSessionError, match="commitment_hash"):
+            validate_commitment_hash("sha256:" + "A" * 64)
+
+    def test_short_digest_raises(self):
+        with pytest.raises(MacpSessionError, match="commitment_hash"):
+            validate_commitment_hash("sha256:" + "a" * 63)
+
+    def test_long_digest_raises(self):
+        with pytest.raises(MacpSessionError, match="commitment_hash"):
+            validate_commitment_hash("sha256:" + "a" * 65)
 
 
 class TestSessionId:
