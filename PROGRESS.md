@@ -273,7 +273,7 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
 ## Phase status
 
 - **Phase 0 — Repo map into PROGRESS.md:** DONE
-- **Phase 1 — message_id-idempotent apply + normative docstring contract:** TODO
+- **Phase 1 — message_id-idempotent apply + normative docstring contract:** DONE
 - **Phase 2 — Replay inflation across seven append sites:** TODO
 - **Phase 3 — ProjectionAnomaly public surface (inert):** TODO
 - **Phase 4 — First-wins at the two sites:** TODO
@@ -286,3 +286,53 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
 - Plan authored by a fresh Opus planning agent doing its own deep read; corrected three claims in the brief (see Corrections above). Repo map written here so later phases do not re-scan.
 - One-way-door analysis (anomaly API shape) ran on Fable; three decisions escalated to and made by the user: base-level dedup gating transcript, TypeScript's scalar field set, ship-when-ready.
 - Cross-repo coordination with the spec-repo and macp-sdk-typescript sessions throughout; no writes outside this repo.
+
+### Phase 1 — 2026-08-31
+
+- **Verdict:** PASS (round 1) → GAPS (re-verify, 2 documentation-only) → closed. Verifier tier:
+  **Opus** both rounds — no one-way door in this phase (the API-shape one-way door was
+  resolved before the drive started and is baked in as D1–D5).
+- **Round 1 PASS with 6 advisory findings.** The gate proved rather than asserted its two
+  key claims: built a git worktree at HEAD to establish the pre-Phase-1 baseline (666 → 672,
+  exactly the six new tests, zero existing assertions touched), and mutation-proved the
+  mode-check ordering by moving the dedup gate above it (exactly one test failed, so
+  `test_wrong_mode_envelope_does_not_poison_seen_set` is the sole discriminator and is not
+  passing for an incidental reason). All spec citations verified; RFC-MACP-0006 §3.2's
+  redelivery clause confirmed present locally at `110add2` (not stale).
+- **Advisory finding promoted to blocking by the orchestrator: the partial-apply wedge.**
+  Recording the id and appending to `transcript` *before* the effect meant a raising
+  `_apply_mode_message` left the envelope marked-seen-but-unapplied, and every retry was
+  then silently swallowed — pre-Phase-1 a retry recovered. This is a regression introduced
+  by this phase and a silent-failure path, which the standing bar forbids, so it was fixed
+  rather than accepted. Fix: roll back `transcript` + `_seen_message_ids` on exception and
+  re-raise unchanged. Logged in `ASSUMPTIONS.md` (UNCONFIRMED) with rejected alternatives.
+- **Re-verify GAPS (2), both honesty items, both closed.** (1) The atomicity claim in the
+  code comment — and in the `ASSUMPTIONS.md` entry — was stated unqualified but the rollback
+  covers `transcript` and `_seen_message_ids` only, not `self.phase` or subclass collections.
+  Unreachable today only because every subclass raises before it mutates; that invariant was
+  undocumented, untested, and holds on a publicly exported ABC that Phases 3–4 will add
+  logic inside. Both now scoped, with the invariant named as the reason the narrow rollback
+  suffices. (2) The public docstring said nothing about exception behaviour, so a caller
+  catching an exception had no documented basis for retrying — the whole user-visible point
+  of the fix lived only in an internal comment. Now in the public contract.
+- **Best catch of the run:** the unconditional `transcript.pop()` was justified by a comment
+  about single-threadedness — the wrong hazard. The real risks to "`transcript[-1]` is what I
+  appended" are a subclass appending to `transcript` before raising, or re-entrancy. Neither
+  occurs today (all five subclasses and both call sites checked exhaustively), but a
+  wrong-entry pop on a public ABC is corruption worse than the bug it fixes. Now an
+  identity-guarded pop (`is`, not `==` — protobuf compares by value), with the false arm
+  covered honestly by a subclass that appends a sentinel before raising.
+- **Adversarial check imported from the TypeScript SDK session** (they found their own guard
+  provably dead at one of six call sites): deleted the empty-`message_id` guard and ran the
+  suite. Went red with exactly one failure, so the guard is live. Their structural risk did
+  not transfer — `recordAnomaly` has six call sites, `apply_envelope` has one.
+- **Files touched:** `src/macp_sdk/base_projection.py`, `tests/conftest.py`,
+  `tests/unit/test_base_projection.py`, `ASSUMPTIONS.md`, `PROGRESS.md`, plan.
+- **Checks:** `make lint`, `make typecheck`, `make test-all` green. **679 passed**
+  (666 baseline + 13 new), coverage 87.83% (gate 85%), `base_projection.py` 100% —
+  proven differentially by deselecting the new classes, not taken from the summary line.
+- **Ship decision:** **accumulate**, do not ship alone. Per the plan's shipping table PR A is
+  phases 0+1+2; Phase 1 alone would ship a user-visible `transcript` behaviour change with
+  zero CHANGELOG narrative, and Phase 2 *is* the release narrative for the second,
+  independent bug (replay inflation across seven append sites).
+- **Next:** Phase 2.
