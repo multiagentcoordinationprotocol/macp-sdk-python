@@ -6,7 +6,12 @@ import pytest
 from google.protobuf.message import DecodeError
 from macp.v1 import core_pb2
 
-from macp_sdk.base_projection import BaseProjection
+from macp_sdk.base_projection import (
+    ANOMALY_DUPLICATE_BALLOT,
+    ANOMALY_DUPLICATE_VOTE,
+    BaseProjection,
+    ProjectionAnomaly,
+)
 from tests.conftest import make_envelope
 
 TEST_MODE = "macp.mode.test.v1"
@@ -345,3 +350,140 @@ class TestReplayDeterminism:
 
         assert len(replay.transcript) == len(proj.transcript)
         assert replay.mode_messages == proj.mode_messages
+
+
+class TestProjectionAnomaly:
+    """Phase 3: the ProjectionAnomaly public surface is INERT here.
+
+    Nothing in production code calls ``_record_anomaly`` yet -- that is
+    Phase 4. These tests only prove the contract shape and the recording
+    mechanism itself, using the `_Projection` test harness directly.
+    """
+
+    def test_contract_field_names_and_order(self):
+        # This is the byte-for-byte cross-SDK contract with
+        # macp-sdk-typescript#55: field names AND their declaration order.
+        # If this assertion fails, it means the contract has been broken --
+        # do NOT "fix" this test to match a reordered/renamed dataclass.
+        # Coordinate with the TypeScript SDK side first.
+        assert list(ProjectionAnomaly.__annotations__) == [
+            "kind",
+            "mode",
+            "message_type",
+            "message_id",
+            "sender",
+            "subject_id",
+            "detail",
+        ]
+        # Note: this module has `from __future__ import annotations`, so
+        # `ProjectionAnomaly.__annotations__.values()` are the *strings*
+        # "str", never the type `str` -- an `annotation is str` check here
+        # would be silently dead code, and only a `== "str"` spelling
+        # comparison would carry the assert. Resolve through
+        # `typing.get_type_hints()` instead so this genuinely checks the
+        # resolved field *type*, not the annotation's source spelling.
+        import typing
+
+        resolved = typing.get_type_hints(ProjectionAnomaly)
+        for name in ProjectionAnomaly.__annotations__:
+            assert resolved[name] is str, name
+
+    def test_only_detail_has_a_default(self):
+        import dataclasses
+
+        no_default = {
+            f.name
+            for f in dataclasses.fields(ProjectionAnomaly)
+            if f.default is dataclasses.MISSING
+        }
+        assert no_default == {
+            "kind",
+            "mode",
+            "message_type",
+            "message_id",
+            "sender",
+            "subject_id",
+        }
+        detail_field = next(f for f in dataclasses.fields(ProjectionAnomaly) if f.name == "detail")
+        assert detail_field.default == ""
+
+    def test_kind_constants_are_exact_strings(self):
+        # Asserted against string literals, not by reference to themselves --
+        # a typo in the constant's value would pass an `assert X == X` check.
+        assert ANOMALY_DUPLICATE_VOTE == "duplicate_vote"
+        assert ANOMALY_DUPLICATE_BALLOT == "duplicate_ballot"
+
+    def test_frozen_and_slots(self):
+        assert ProjectionAnomaly.__dataclass_params__.frozen is True
+        assert hasattr(ProjectionAnomaly, "__slots__")
+
+        anomaly = ProjectionAnomaly(
+            kind=ANOMALY_DUPLICATE_VOTE,
+            mode=TEST_MODE,
+            message_type="Vote",
+            message_id="m1",
+            sender="alice",
+            subject_id="p1",
+        )
+        from dataclasses import FrozenInstanceError
+
+        with pytest.raises(FrozenInstanceError):
+            anomaly.kind = "changed"  # type: ignore[misc]
+
+    def test_detail_defaults_to_empty_string(self):
+        anomaly = ProjectionAnomaly(
+            kind=ANOMALY_DUPLICATE_VOTE,
+            mode=TEST_MODE,
+            message_type="Vote",
+            message_id="m1",
+            sender="alice",
+            subject_id="p1",
+        )
+        assert anomaly.detail == ""
+
+    def test_initial_state_has_no_anomalies(self):
+        proj = _Projection()
+        assert proj.anomalies == []
+        assert proj.has_anomalies is False
+
+    def test_record_anomaly_appends_and_warns_once(self, caplog):
+        import logging
+
+        proj = _Projection()
+        with caplog.at_level(logging.WARNING, logger="macp_sdk"):
+            proj._record_anomaly(
+                kind=ANOMALY_DUPLICATE_VOTE,
+                message_type="Vote",
+                message_id="m1",
+                sender="alice",
+                subject_id="p1",
+                detail="kept first vote 'APPROVE'; discarded 'REJECT'",
+            )
+
+        assert len(proj.anomalies) == 1
+        assert proj.has_anomalies is True
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+
+        # Pins a deliberate contract from the plan: `_record_anomaly` must
+        # use lazy `%`-formatting (`logger.warning("...%s...", a, b, ...)`)
+        # rather than an f-string or pre-interpolated string, so the message
+        # is never built when the WARNING level is disabled. The count
+        # assertion above would keep passing if a future edit switched to an
+        # f-string; these two do not -- an f-string bakes the values into
+        # `record.msg` and leaves `record.args` empty.
+        record = warnings[0]
+        assert record.args, "expected non-empty record.args (lazy %-formatting, not an f-string)"
+        assert "%s" in record.msg, "expected unformatted %s placeholders in record.msg"
+
+    def test_record_anomaly_fills_mode_from_projection(self):
+        proj = _Projection()
+        proj._record_anomaly(
+            kind=ANOMALY_DUPLICATE_BALLOT,
+            message_type="Approve",
+            message_id="m2",
+            sender="bob",
+            subject_id="r1",
+        )
+        assert proj.anomalies[0].mode == TEST_MODE
+        assert proj.anomalies[0].mode == proj.MODE

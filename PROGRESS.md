@@ -275,7 +275,7 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
 - **Phase 0 — Repo map into PROGRESS.md:** DONE
 - **Phase 1 — message_id-idempotent apply + normative docstring contract:** DONE
 - **Phase 2 — Replay inflation across seven append sites:** DONE
-- **Phase 3 — ProjectionAnomaly public surface (inert):** TODO
+- **Phase 3 — ProjectionAnomaly public surface (inert):** DONE
 - **Phase 4 — First-wins at the two sites:** TODO
 - **Phase 5 — Documented-behaviour removal and release notes:** TODO
 
@@ -384,3 +384,53 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
   depends on B or C — no anomaly surface, no cardinality change — so the hard sequencing
   interlock is satisfied.
 - **Next:** Phase 3 (inert `ProjectionAnomaly` surface).
+
+### Phase 3 — 2026-08-31
+
+- **Verdict:** PASS (round 1) with 4 non-blocking gaps, all closed. Verifier tier: **Opus** —
+  the one-way door (the anomaly API shape) was resolved before the drive began and is fixed
+  as D2, so this phase only implements a settled contract.
+- **Inertness proven empirically, not argued.** The gate monkeypatched `_record_anomaly` with
+  a counting spy and ran unit + conformance (745 tests): **call count 2**, both from the two
+  dedicated tests, zero from production code and zero from fixture replay. It also swept
+  `src/ tests/ examples/` for reflection over projections (`vars`, `__dict__`, `asdict`,
+  `copy`, `pickle`, `__eq__`, `dir`) — the only hit is `test_public_api.py:17` over the
+  *module*, not a projection. Adding an attribute to `__init__` is therefore unobservable.
+  `projections.py` / `quorum.py` byte-identical to `070f6f5`.
+- **`frozen=True, slots=True` pitfall sweep — all clean:** `asdict`, `astuple`, `replace`,
+  `copy`/`deepcopy`, **pickle roundtrip**, `__eq__`, **hashable**, plain and dataclass
+  subclassing. Hashability matters downstream: Phase 4 criterion 12's
+  `replay.anomalies == p.anomalies` list equality depends on it.
+- **Two permanent consequences of `slots=True`, recorded because the shape is now frozen:**
+  `vars(anomaly)` / `anomaly.__dict__` **raises**, so naive `__dict__`-based JSON
+  serialization fails on a type users will obviously want to serialize (`dataclasses.asdict`
+  is the answer); and the decorator returns a *new* class object, so any future method cannot
+  use zero-arg `super()`.
+- **G1 — the CHANGELOG preamble went false a second time.** Phase 2 narrowed it to "no API
+  *signature* changes"; Phase 3 adds three public exports. Now "additive only, no existing
+  signatures changed", plus an `### Added` entry that states plainly the surface is **inert**
+  (nothing produces an anomaly yet) so no reader thinks the signal is live.
+- **G3 — a defect in THIS PLAN.** Phase 3 criterion 10 required
+  `git grep 'warnings.warn' src/` to return *nothing*, which is unsatisfiable: four
+  pre-existing hits in `task.py`, all present at `070f6f5`, unrelated deprecation shims.
+  Anyone running the literal check would wrongly conclude the phase failed. Criterion
+  corrected to the whole-plan form (no *new* occurrences vs the base commit).
+- **G4 + a test defect the gate found.** Nothing pinned the lazy `%`-formatting the plan
+  requires — an f-string conversion would have kept the WARNING-count assertion green; now
+  asserted via `record.args` non-empty and `"%s" in record.msg`. Separately,
+  `from __future__ import annotations` makes `__annotations__` values the *string* `"str"`,
+  so an `annotation is str` arm was dead code and the test pinned annotation *spelling*
+  rather than resolved types; replaced with `typing.get_type_hints()`. Field name/order
+  assertions untouched — those are the cross-SDK contract.
+- **Files touched:** `src/macp_sdk/base_projection.py`, `src/macp_sdk/__init__.py`,
+  `tests/unit/test_base_projection.py`, `docs/api/index.md`, `CHANGELOG.md`, `PROGRESS.md`,
+  plan.
+- **Checks:** `make lint`, `make typecheck`, `make test-all` green. **695 unit passed**
+  (687 + 8), coverage 87.92% (gate 85%), `base_projection.py` 100% with both `has_anomalies`
+  arms and both `detail`-default paths covered by dedicated tests. `mkdocs build --strict`
+  NOT run — mkdocs is not installed in `.venv`; the mkdocstrings identifier was verified to
+  resolve by import instead.
+- **Ship decision:** **ship now as PR B.** Additive, provably inert, bisectable apart from
+  the semantics change, and nothing in B depends on C.
+- **Next:** Phase 4 (first-wins at the two sites) — the phase the sequencing interlock exists
+  to protect.
