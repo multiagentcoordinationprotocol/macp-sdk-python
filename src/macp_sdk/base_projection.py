@@ -66,9 +66,10 @@ class BaseProjection(ABC):
         # applied to this projection so a redelivered envelope is a no-op. See
         # apply_envelope's docstring for the contract.
         self._seen_message_ids: set[str] = set()
-        # Public: discarded-message observations recorded via _record_anomaly.
-        # Inert as of this phase -- nothing appends to this list yet. See
-        # ProjectionAnomaly's docstring for the cross-SDK contract it carries.
+        # Public: discarded-message observations recorded via _record_anomaly
+        # (Decision Vote, Quorum ballot -- see those projections' first-wins
+        # branches). See ProjectionAnomaly's docstring for the cross-SDK
+        # contract it carries.
         self.anomalies: list[ProjectionAnomaly] = []
 
     @property
@@ -108,13 +109,21 @@ class BaseProjection(ABC):
         deduplicated — every such envelope is applied. See the code comment on
         the dedup gate below for the precise normative basis.
 
-        Honest limitation: this dedups **redelivery of the same envelope**; it
-        cannot and does not detect a *genuine* duplicate — e.g. a second,
-        distinct ``Vote`` from a sender who already voted on the same proposal,
-        which carries its own new ``message_id`` and is applied like any other
-        envelope. A rejected vote from a sender who never votes again corrupts
-        derived state with nothing here to detect it. No mechanism in this
-        method closes that gap; do not imply one exists.
+        Honest limitation: this dedups **redelivery of the same envelope**, not
+        every way a feed can carry a non-conforming message. A *genuine*
+        duplicate -- e.g. a second, distinct ``Vote`` from a sender who already
+        voted on the same proposal, carrying its own new ``message_id`` -- is
+        not caught here: it passes this method's dedup gate, is appended to
+        ``transcript``, and is dispatched to mode handling like any other
+        envelope. Discarding it and recording the observation is the mode
+        projection's job, not this base method's -- see
+        ``DecisionProjection``'s Vote branch and ``QuorumProjection._set_ballot``,
+        which apply first-wins and append a ``ProjectionAnomaly`` (``anomalies``,
+        ``has_anomalies``) rather than silently overwriting. A rejected vote
+        from a sender who never votes again still corrupts derived state with
+        nothing here to detect it -- this method has no visibility into
+        cardinality rules, which are mode-specific. No mechanism in this
+        method closes that narrower gap; do not imply one exists.
 
         Determinism holds in both directions: replaying ``transcript`` through a
         fresh projection reproduces the same state, whether or not duplicates or
@@ -278,8 +287,9 @@ class BaseProjection(ABC):
         is filled in from ``self.MODE`` rather than accepted as an argument,
         so call sites cannot drift from the projection's own mode.
 
-        Inert in this phase: nothing calls this yet. Phase 4 wires up the two
-        call sites (Decision Vote, Quorum ballot) that actually invoke it.
+        Call sites: ``DecisionProjection``'s Vote branch and
+        ``QuorumProjection._set_ballot``, on first-wins discard of a genuine
+        duplicate Vote/ballot.
         """
         anomaly = ProjectionAnomaly(
             kind=kind,

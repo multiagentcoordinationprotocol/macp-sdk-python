@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+from macp.modes.decision.v1 import decision_pb2
+
 from macp_sdk.agent.strategies import (
     CommitmentDecision,
     EvaluationResult,
@@ -21,6 +23,9 @@ from macp_sdk.agent.types import (
     IncomingMessage,
     SessionInfo,
 )
+from macp_sdk.constants import MODE_DECISION
+from macp_sdk.projections import DecisionProjection
+from tests.conftest import make_envelope
 
 
 def _make_message(
@@ -350,3 +355,63 @@ class TestEvaluationValidation:
             raise AssertionError("Should have raised")
         except ValueError as exc:
             assert "confidence" in str(exc)
+
+
+class TestMajorityStrategiesUnderFirstWins:
+    """Behavioural regression for issue #43 Phase 4 (D3): ``majority_voter``
+    and ``majority_committer`` need no code change (they consume
+    ``vote_totals()`` / ``majority_winner()`` through a duck-typed ``Any``),
+    but first-wins changes the *values* those methods return, so this
+    exercises a real ``DecisionProjection`` -- not a ``MagicMock`` -- to
+    prove the strategies see the first-wins tally end to end.
+
+    | Test type   | Requires                        | How                                   |
+    |-------------|-----------------------------------|----------------------------------------|
+    | Cardinality | two **distinct** non-empty ids   | two ``make_envelope(...)`` calls --    |
+    |             |                                   | the default uuid4 already does this    |
+
+    Concrete stake: Alice votes REJECT then (duplicate) APPROVE on ``p1``.
+    Under first-wins her REJECT stands, so there is zero APPROVE vote and
+    both strategies correctly decline to act. Under the old last-wins
+    behaviour her APPROVE would have overwritten the REJECT, giving a
+    (wrong) unanimous majority and flipping both decisions.
+    """
+
+    def _proj_with_discarded_vote_change(self) -> DecisionProjection:
+        p = DecisionProjection()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="reject"),
+                sender="alice",
+            )
+        )
+        # Duplicate: alice tries to change her vote. Distinct message_id
+        # (fresh make_envelope call) -- discarded and recorded, not applied.
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
+                sender="alice",
+            )
+        )
+        return p
+
+    def test_majority_voter_sees_first_wins_tally(self):
+        p = self._proj_with_discarded_vote_change()
+        assert p.vote_totals() == {"p1": 0}
+        assert p.majority_winner() is None
+        assert len(p.anomalies) == 1
+
+        strategy = majority_voter()
+        assert strategy.should_vote(p) is False
+        decision = strategy.decide_vote(p)
+        assert decision.vote == "ABSTAIN"
+
+    def test_majority_committer_sees_first_wins_tally(self):
+        p = self._proj_with_discarded_vote_change()
+
+        strategy = majority_committer(quorum_size=1)
+        assert strategy.should_commit(p) is False

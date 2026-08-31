@@ -156,6 +156,13 @@ def test_projection_replay(name: str, fixture: dict):
         projection.apply_envelope(envelope)
         accepted_count += 1
 
+    # Zero-anomaly gate (issue #43 Phase 4): the corpus was verified to
+    # contain no accepted-path same-sender duplicate Vote/ballot. This
+    # converts that checked negative into a permanent gate -- a future
+    # canonical fixture introducing an accepted-path duplicate must fail
+    # loudly here instead of silently changing tallies.
+    assert not projection.has_anomalies, f"{name}: unexpected projection anomalies"
+
     # Verify transcript was tracked
     assert len(projection.transcript) == accepted_count
 

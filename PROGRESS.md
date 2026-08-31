@@ -276,7 +276,7 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
 - **Phase 1 — message_id-idempotent apply + normative docstring contract:** DONE
 - **Phase 2 — Replay inflation across seven append sites:** DONE
 - **Phase 3 — ProjectionAnomaly public surface (inert):** DONE
-- **Phase 4 — First-wins at the two sites:** TODO
+- **Phase 4 — First-wins at the two sites:** DONE
 - **Phase 5 — Documented-behaviour removal and release notes:** TODO
 
 ## Log
@@ -434,3 +434,74 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
   the semantics change, and nothing in B depends on C.
 - **Next:** Phase 4 (first-wins at the two sites) — the phase the sequencing interlock exists
   to protect.
+
+### Phase 4 — 2026-08-31
+
+- **Delivered:** First-wins at the two D3 sites, wiring the D2 anomaly surface (Phase 3) up
+  to a real producer for the first time.
+  - `src/macp_sdk/projections.py` — Decision Vote branch: if `envelope.sender` already has
+    an entry in `self.votes[proposal_id]`, records `ANOMALY_DUPLICATE_VOTE` and returns
+    without mutating `votes` or `phase`.
+  - `src/macp_sdk/quorum.py` — `_set_ballot` signature changed from
+    `(request_id, sender, vote, reason)` to `(envelope, request_id, vote, reason)` (sender
+    now read off the envelope); all three call sites (Approve/Reject/Abstain) updated. Being
+    the single funnel is what makes this one change enforce RFC-0011 §5 rule 3's
+    *across-type* cardinality (Approve→Reject→Abstain churn), not just same-type.
+    `message_type` recorded on the anomaly is the DISCARDED message's type.
+  - `src/macp_sdk/base_projection.py` — **docstring/comment only, zero code changes**
+    (confirmed via `git diff --stat`): fixed three claims that Phase 1/3 left true-then and
+    false-now — `apply_envelope`'s "Honest limitation" paragraph no longer says a genuine
+    duplicate "is applied like any other envelope" (it's now discarded and recorded, cites
+    the two producer sites); `_record_anomaly`'s "Inert in this phase" docstring line and
+    the matching `__init__` comment both replaced with the real call sites, since this exact
+    diff is what stops them being inert.
+  - `detail` is facts-only, no cause attribution, exactly per plan wording:
+    `"kept first vote 'approve'; discarded 'reject'"` style.
+- **Tests:** `tests/unit/test_quorum_projection.py` — `test_one_sender_one_ballot` rewritten
+  in place (name kept, now accurate), docstring cites RFC-MACP-0011 §5 rule 3 +
+  RFC-MACP-0007 §5.3 parity + `quorum.rs:164/184/204`, states why "latest ballot supersedes"
+  was wrong, ends with "do not fix this test by restoring the old assertions." New
+  `TestBallotCardinality` class: the three across-type ordered pairs (Approve→Reject,
+  Reject→Abstain, Abstain→Approve), the redelivery-is-a-noop test (same envelope object
+  twice ⇒ zero anomalies — the single most important test per the plan), and an
+  anomaly-shape + exactly-one-`caplog`-WARNING test. `tests/unit/test_decision_projection.py`
+  — new `TestVoteCardinality` class: `test_one_sender_one_vote_per_proposal` (cites
+  RFC-MACP-0007 §5.3 + `decision.rs:217`), a `majority_winner()`-under-duplicate-feed test,
+  the redelivery-no-anomaly test, an anomaly-shape/caplog test, and
+  `test_replay_of_transcript_reproduces_votes_and_anomalies` — feeds one conforming vote +
+  one redelivery of that same envelope + one genuine duplicate, replays `transcript` through
+  a fresh projection, asserts `replay.votes == p.votes`, `replay.phase == p.phase`, **and**
+  `replay.anomalies == p.anomalies` by content equality (criterion 12; guards the real
+  invariant that anomalies must be reconstructible from `transcript` alone — mutation
+  testing disproved the earlier claim that this also catches the dedup guard moving after
+  the transcript append; that mutation is caught by ten other transcript-length tests
+  instead). `tests/unit/test_agent_strategies.py` — new
+  `TestMajorityStrategiesUnderFirstWins`, feeding a real `DecisionProjection` (not a
+  `MagicMock`) through `majority_voter()`/`majority_committer()` with a discarded vote
+  change, confirming both strategies see the first-wins tally (0 approvals, no winner) and
+  would have flipped to a false majority under the old last-wins behaviour.
+  `tests/conformance/test_conformance_projections.py` — `assert not projection.has_anomalies`
+  added immediately after the accepted-message replay loop (line 164, matching the plan's
+  citation exactly), before the existing `transcript` length assertion.
+- **Criterion-8 regression check:** ran the seven named pre-existing tests
+  (`test_approve_and_threshold`, `test_reject_and_abstain`, `test_threshold_unreachable`,
+  `test_commitment_ready_false_after_commit`, `test_vote_and_totals`,
+  `test_abstain_excluded_from_majority`, `test_review_evaluations`) in isolation and via
+  `git diff` — all seven pass unmodified; only `test_one_sender_one_ballot` in that file was
+  touched, exactly as scoped.
+- **Checks:** `make lint`, `make typecheck` clean. `make test-all` green: unit **707 passed**
+  (695 baseline + 12 new), coverage 87.97% (gate 85%, `base_projection.py` 100%); integration
+  33 skipped (no live runtime, expected); conformance **50 passed, 2 skipped** (pre-existing
+  multi_round skips) with the new zero-anomaly assertion holding across the whole corpus;
+  `lint-fixtures` clean (17/17 fixtures internally consistent). `git grep -c 'warnings.warn'
+  src/` still 4, all pre-existing in `task.py`, zero new occurrences.
+- **Files touched:** `src/macp_sdk/projections.py`, `src/macp_sdk/quorum.py`,
+  `src/macp_sdk/base_projection.py` (docstrings/comments only),
+  `tests/unit/test_quorum_projection.py`, `tests/unit/test_decision_projection.py`,
+  `tests/unit/test_agent_strategies.py`, `tests/conformance/test_conformance_projections.py`,
+  `PROGRESS.md`. No CHANGELOG or `docs/modes/` edits — those are Phase 5 per the plan.
+- **Ship decision:** **accumulate.** This is PR C in the plan's shipping table and is the
+  phase the hard sequencing interlock exists to protect — Phase 5 (documented-behaviour
+  removal, CHANGELOG entries) is this phase's release narrative and ships alongside it, not
+  separately.
+- **Next:** Phase 5 (documented-behaviour removal and release notes).

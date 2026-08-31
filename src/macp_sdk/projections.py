@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from macp.modes.decision.v1 import decision_pb2
 from macp.v1 import envelope_pb2
 
-from .base_projection import BaseProjection
+from .base_projection import ANOMALY_DUPLICATE_VOTE, BaseProjection
 from .constants import MODE_DECISION
 
 
@@ -100,6 +100,24 @@ class DecisionProjection(BaseProjection):
         if message_type == "Vote":
             payload = decision_pb2.VotePayload()
             payload.ParseFromString(envelope.payload)
+            existing = self.votes.get(payload.proposal_id, {}).get(envelope.sender)
+            if existing is not None:
+                # First-wins (RFC-MACP-0007 §5.3: "the first accepted Vote
+                # stands"). A second, distinct Vote (its own message_id --
+                # redelivery of the same envelope never reaches here, see
+                # apply_envelope's dedup gate) from a sender who already
+                # voted on this proposal is discarded without mutating
+                # votes or phase. detail states facts only, no cause
+                # attribution.
+                self._record_anomaly(
+                    kind=ANOMALY_DUPLICATE_VOTE,
+                    message_type=envelope.message_type,
+                    message_id=envelope.message_id,
+                    sender=envelope.sender,
+                    subject_id=payload.proposal_id,
+                    detail=(f"kept first vote {existing.vote!r}; discarded {payload.vote!r}"),
+                )
+                return
             self.votes.setdefault(payload.proposal_id, {})[envelope.sender] = DecisionVoteRecord(
                 proposal_id=payload.proposal_id,
                 vote=payload.vote,
