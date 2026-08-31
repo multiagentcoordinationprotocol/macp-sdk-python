@@ -132,6 +132,13 @@ proj.majority_winner()     # "p1"
 4. Projection parses the payload and updates its local state
 5. Orchestrator queries the projection for decision-making
 
+`_send_and_track()`'s local apply targets `self.projection` — the same object
+`session.projection` exposes. If you *also* feed a `client.open_stream()`
+subscription into that same `session.projection`, every envelope this
+session sends gets applied twice: once here, once from the stream. See
+[Building orchestrators § Pattern: Event-driven orchestrator](guides/building-orchestrators.md#pattern-event-driven-orchestrator)
+for why that is safe as of this release and when it still isn't what you want.
+
 ### Important: projections are local
 
 Projections only see envelopes **sent through this session helper instance**. If multiple SDK instances participate in the same session, each has its own partial view. For a complete view, use `StreamSession` — and call `MacpStream.send_subscribe(session_id)` right after opening, so the runtime replays accepted history (RFC-MACP-0006-A1) before switching to live broadcast. `GrpcTransportAdapter` does this automatically for agents built on the `Participant` framework.

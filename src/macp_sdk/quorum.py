@@ -6,7 +6,7 @@ from macp.modes.quorum.v1 import quorum_pb2
 from macp.v1 import envelope_pb2
 
 from .auth import AuthConfig
-from .base_projection import BaseProjection
+from .base_projection import ANOMALY_DUPLICATE_BALLOT, BaseProjection
 from .base_session import BaseSession
 from .constants import MODE_QUORUM
 from .envelope import build_envelope, serialize_message
@@ -41,9 +41,11 @@ class BallotRecord:
 class QuorumProjection(BaseProjection):
     """In-process state tracking for Quorum mode sessions.
 
-    Supports multiple concurrent approval requests within a single session.
-    Query methods accept a ``request_id`` parameter to target a specific
-    request.
+    RFC-MACP-0011 §5 rule 1 caps a session at one ``ApprovalRequest`` in
+    base v1. The ``requests`` / ``ballots`` maps are keyed by ``request_id``
+    because that is the identifier the protocol uses, not because multiple
+    concurrent requests are supported. Query methods accept a ``request_id``
+    parameter to target that single request.
     """
 
     MODE = MODE_QUORUM
@@ -73,22 +75,44 @@ class QuorumProjection(BaseProjection):
         if mt == "Approve":
             p = quorum_pb2.ApprovePayload()
             p.ParseFromString(envelope.payload)
-            self._set_ballot(p.request_id, envelope.sender, "approve", p.reason)
+            self._set_ballot(envelope, p.request_id, "approve", p.reason)
             return
 
         if mt == "Reject":
             p = quorum_pb2.RejectPayload()
             p.ParseFromString(envelope.payload)
-            self._set_ballot(p.request_id, envelope.sender, "reject", p.reason)
+            self._set_ballot(envelope, p.request_id, "reject", p.reason)
             return
 
         if mt == "Abstain":
             p = quorum_pb2.AbstainPayload()
             p.ParseFromString(envelope.payload)
-            self._set_ballot(p.request_id, envelope.sender, "abstain", p.reason)
+            self._set_ballot(envelope, p.request_id, "abstain", p.reason)
 
-    def _set_ballot(self, request_id: str, sender: str, vote: str, reason: str) -> None:
+    def _set_ballot(
+        self, envelope: envelope_pb2.Envelope, request_id: str, vote: str, reason: str
+    ) -> None:
+        # Single funnel for Approve/Reject/Abstain -- this is exactly what
+        # enforces RFC-MACP-0011 §5 rule 3's *across-type* cardinality rule
+        # ("at most one ballot across Approve, Reject, or Abstain"). First
+        # ballot per sender stands; which-of-two-stands is inferred from
+        # RFC-MACP-0007 §5.3 parity plus what the only runtime enforces
+        # (quorum.rs:164/184/204) -- RFC-0011 itself is silent on that.
+        sender = envelope.sender
         sender_map = self.ballots.setdefault(request_id, {})
+        existing = sender_map.get(sender)
+        if existing is not None:
+            # detail states facts only, no cause attribution. message_type
+            # here is the DISCARDED message's type, not the first ballot's.
+            self._record_anomaly(
+                kind=ANOMALY_DUPLICATE_BALLOT,
+                message_type=envelope.message_type,
+                message_id=envelope.message_id,
+                sender=sender,
+                subject_id=request_id,
+                detail=f"kept first ballot {existing.vote!r}; discarded {vote!r}",
+            )
+            return
         sender_map[sender] = BallotRecord(
             request_id=request_id,
             vote=vote,

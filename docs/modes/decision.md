@@ -107,7 +107,7 @@ proj.evaluations                  # list[DecisionEvaluationRecord]
 
 # Objections
 proj.objections                   # list[DecisionObjectionRecord]
-proj.has_blocking_objection("p1") # True if severity in {high, critical, block}
+proj.has_blocking_objection("p1") # True if any "p1" objection has severity "critical" (only)
 
 # Votes
 proj.votes                        # dict[proposal_id, dict[sender, DecisionVoteRecord]]
@@ -118,7 +118,7 @@ proj.majority_winner()            # "p1" (most positive votes)
 proj.phase                        # "Proposal" | "Evaluation" | "Voting" | "Committed"
 proj.is_committed                 # True after Commitment accepted
 proj.commitment                   # CommitmentPayload or None
-proj.transcript                   # list[Envelope] — full ordered history
+proj.transcript                   # list[Envelope] — accepted history as fed, deduplicated by message_id
 ```
 
 ## Error cases
