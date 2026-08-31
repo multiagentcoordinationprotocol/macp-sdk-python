@@ -2,7 +2,38 @@
 
 ## Unreleased
 
-Test-suite and CI/CD hardening. No SDK API changes.
+Test-suite and CI/CD hardening, plus one projection behaviour fix — no API
+signature changes.
+
+### Fixed
+
+- **Projections no longer inflate their lists on replay (issue #43).**
+  `BaseProjection.apply_envelope` now no-ops when handed an envelope whose
+  `message_id` it has already applied. This is a `message_id`-keyed dedup
+  guard, not a vote/ballot-cardinality change — it affects callers who never
+  touch votes. It closes seven previously-unguarded `.append(` sites: Decision
+  `evaluations` / `objections` (and the derived `review_evaluations()` /
+  `qualifying_evaluations()` list accessors), Proposal `accepts` /
+  `rejections`, and Task `updates` / `completions` / `failures`, plus
+  `transcript` itself. Predicate accessors that were already duplicate-
+  tolerant by construction (`any(...)`/set/dict-backed, e.g.
+  `has_blocking_objection()`, `is_accepted()`, `accepted_proposal()`,
+  `is_retryable()`, `latest_progress()`, `progress_of()`) are unaffected —
+  they returned the same value before and after this fix.
+  The live trigger: `Participant`'s stream transport subscribes with
+  `after_sequence` defaulting to `0` (`agent/transports.py:60`), so every
+  (re)subscribe replays the full accepted session history, and
+  `Participant.run()` (`agent/participant.py:483`) has no re-entry guard — a
+  supervisor restarting `run()` after an error re-feeds the whole history into
+  the same projection object, previously double- (or N-times-) counting every
+  evaluation, objection, accept, rejection, task update, completion, and
+  failure it had already recorded.
+  Two boundaries worth calling out: an empty `message_id` (the proto3 default
+  for hand-built envelopes) is never deduplicated — every such envelope is
+  applied. And if applying an envelope raises, the `transcript` entry and its
+  dedup id are rolled back before the exception propagates, so a caller may
+  retry the same envelope — but this rollback covers only `transcript` and
+  the dedup set, not subclass-derived state.
 
 ### Dependencies
 

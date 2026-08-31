@@ -274,7 +274,7 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
 
 - **Phase 0 — Repo map into PROGRESS.md:** DONE
 - **Phase 1 — message_id-idempotent apply + normative docstring contract:** DONE
-- **Phase 2 — Replay inflation across seven append sites:** TODO
+- **Phase 2 — Replay inflation across seven append sites:** DONE
 - **Phase 3 — ProjectionAnomaly public surface (inert):** TODO
 - **Phase 4 — First-wins at the two sites:** TODO
 - **Phase 5 — Documented-behaviour removal and release notes:** TODO
@@ -336,3 +336,51 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
   zero CHANGELOG narrative, and Phase 2 *is* the release narrative for the second,
   independent bug (replay inflation across seven append sites).
 - **Next:** Phase 2.
+
+### Phase 2 — 2026-08-31
+
+- **Verdict:** GAPS (1 blocking, 4 minor) → closed → green. Verifier tier: **Opus** — tests
+  and release notes only, no one-way door.
+- **Tests are load-bearing, proven not assumed.** The gate neutered the Phase 1 dedup guard
+  and re-ran: **8 of 8** new tests failed. So no Phase 2 test fell into the id-reuse trap
+  (`make_envelope` mints a fresh uuid4 per call, so two calls would have silently turned a
+  redelivery test into a distinctness test that passes while proving nothing). Tree restored
+  byte-identically, verified by md5.
+- **Blast radius verified by execution, not by reading the plan.** The gate ran a real
+  double-apply and diffed every accessor. Changed: `evaluations` 2→4, `objections` 1→2,
+  `review_evaluations()` 1→2, `qualifying_evaluations()` 1→2, `accepts`/`rejections`/
+  `updates`/`completions`/`failures` 1→2, `transcript` 3→6. Unchanged:
+  `has_blocking_objection()`, `is_accepted()`, `accepted_proposal()`, `is_retryable()`,
+  `latest_progress()`, `progress_of()`, plus `is_terminally_rejected()`,
+  `has_terminal_rejection()`, `is_completed()`, `is_failed()`, `vote_totals()`.
+  **Zero false claims in the CHANGELOG body.**
+- **"Seven sites" confirmed exact, not an undercount** — full `.append(` inventory re-run
+  across `src/macp_sdk/`; `handoff.py` and `quorum.py` have zero.
+- **G1 (blocking):** the `## Unreleased` preamble read "No SDK API changes" while the bullet
+  four lines below described `apply_envelope` no-opping on redelivery — self-refuting on the
+  same screen. Narrowed to "plus one projection behaviour fix — no API *signature* changes."
+- **G2 — a defect in THIS PLAN, not in the executor's work.** Phase 2 criterion 1 prescribed
+  `assert len(qualifying_evaluations()) == 0`, which **cannot fail**: with a single `REVIEW`
+  evaluation that accessor filters `!= "REVIEW"` and returns `[]` however many times the
+  envelope is applied. It read like coverage of an accessor the CHANGELOG names as affected
+  while pinning nothing. Criterion corrected in the plan; the test now feeds a second
+  non-`REVIEW` evaluation and asserts `== 1`. The fixer confirmed the *new* assertion is
+  independently load-bearing by running the sequence standalone against a neutered guard
+  (returned 2, not 1) rather than letting it ride on an earlier assertion.
+- **G4:** this CHANGELOG entry is PR A's *only* user-facing artifact (Phase 1 docs are
+  deliberately deferred to Phase 5), so two contract boundaries had no user-visible signal
+  anywhere: empty `message_id` is never deduped, and a failed apply rolls back so the caller
+  can retry. Both added, with the rollback's honest limit stated.
+- **G3:** the class-docstring trap table listed a "Distinctness" row no test in that class
+  exercises; now cross-references `test_base_projection.py::TestIdempotentApply::
+  test_distinct_message_ids_both_applied`.
+- **Files touched:** `tests/unit/test_decision_projection.py`,
+  `tests/unit/test_proposal_projection.py`, `tests/unit/test_task_projection.py`,
+  `CHANGELOG.md`, `PROGRESS.md`, plan. **Zero `src/` changes** — the mechanism shipped in
+  Phase 1; this phase proves it and narrates it.
+- **Checks:** `make lint`, `make typecheck`, `make test-all` green. **687 passed**
+  (679 + 8), coverage 87.83% (gate 85%).
+- **Ship decision:** **ship now as PR A (phases 0+1+2).** The gate confirmed nothing in PR A
+  depends on B or C — no anomaly surface, no cardinality change — so the hard sequencing
+  interlock is satisfied.
+- **Next:** Phase 3 (inert `ProjectionAnomaly` surface).

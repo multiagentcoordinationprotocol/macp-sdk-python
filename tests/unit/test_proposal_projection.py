@@ -144,3 +144,66 @@ class TestProposalProjection:
         )
         assert p.proposals["p1"].status == "withdrawn"
         assert len(p.live_proposals()) == 0
+
+
+class TestReplayIdempotence:
+    """Regression coverage for issue #43 Phase 2 — replay inflation.
+
+    Separate bug from vote/ballot cardinality: BaseProjection.apply_envelope's
+    message_id dedup guard (Phase 1) also fixes seven previously-unguarded
+    ``.append(`` sites across Decision/Proposal/Task, including this file's
+    ``accepts`` (proposal.py:97) and ``rejections`` (proposal.py:109).
+
+    Real-world trigger: src/macp_sdk/agent/transports.py:60 subscribes with
+    after_sequence defaulting to 0, so every (re)subscribe replays the full
+    accepted history, and Participant.run() (participant.py:483) has no
+    re-entry guard — a supervisor restarting run() re-feeds the whole history
+    into the same projection object.
+
+    | Test type   | Requires                         | How                                   |
+    |-------------|-----------------------------------|----------------------------------------|
+    | Redelivery  | the SAME non-empty message_id     | reuse the same envelope object, or an  |
+    |             |                                    | explicit shared message_id=            |
+    | Distinctness| two DIFFERENT non-empty ids       | two make_envelope(...) calls (default) |
+
+    Distinctness is not exercised by this class — that coverage lives in
+    tests/unit/test_base_projection.py::TestIdempotentApply::
+    test_distinct_message_ids_both_applied.
+
+    Every test below is a redelivery test, so every one reuses the same
+    envelope object — a test that calls make_envelope twice gets two
+    different uuid4 message_ids, dedup never engages, and the test would
+    pass while proving nothing.
+    """
+
+    def _proj(self) -> ProposalProjection:
+        return ProposalProjection()
+
+    def test_redelivered_accept_is_noop(self):
+        # Trigger: agent/transports.py:60 (after_sequence=0 full replay) +
+        # participant.py:483 (run() has no re-entry guard).
+        p = self._proj()
+        env = make_envelope(
+            MODE_PROPOSAL,
+            "Accept",
+            proposal_pb2.AcceptPayload(proposal_id="p1", reason="looks good"),
+            sender="alice",
+        )
+        p.apply_envelope(env)
+        p.apply_envelope(env)
+        assert len(p.accepts) == 1
+        assert len(p.transcript) == 1
+
+    def test_redelivered_reject_is_noop(self):
+        # Trigger: agent/transports.py:60 + participant.py:483.
+        p = self._proj()
+        env = make_envelope(
+            MODE_PROPOSAL,
+            "Reject",
+            proposal_pb2.RejectPayload(proposal_id="p1", terminal=False, reason="no deal"),
+            sender="bob",
+        )
+        p.apply_envelope(env)
+        p.apply_envelope(env)
+        assert len(p.rejections) == 1
+        assert len(p.transcript) == 1
