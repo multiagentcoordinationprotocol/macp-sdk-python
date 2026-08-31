@@ -19,6 +19,7 @@ Auto-generated from docstrings.
 ## Projections
 
 ::: macp_sdk.base_projection.BaseProjection
+::: macp_sdk.base_projection.ProjectionAnomaly
 ::: macp_sdk.projections.DecisionProjection
 ::: macp_sdk.proposal.ProposalProjection
 ::: macp_sdk.task.TaskProjection

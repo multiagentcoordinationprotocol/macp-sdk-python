@@ -2,8 +2,26 @@
 
 ## Unreleased
 
-Test-suite and CI/CD hardening, plus one projection behaviour fix — no API
-signature changes.
+Test-suite and CI/CD hardening, one projection behaviour fix, and a new
+(currently inert) projection-anomaly surface — additive only, no existing
+signatures changed.
+
+### Added
+
+- **`ProjectionAnomaly`** (`macp_sdk.base_projection`) — a frozen, slots
+  dataclass recording a discarded-message observation. Every projection now
+  exposes `anomalies: list[ProjectionAnomaly]` and `has_anomalies: bool`.
+  Two `kind` constants are exported alongside it: `ANOMALY_DUPLICATE_VOTE =
+  "duplicate_vote"` and `ANOMALY_DUPLICATE_BALLOT = "duplicate_ballot"`.
+  **Currently inert:** nothing in this release produces an anomaly — the
+  list stays empty and `_record_anomaly` has no callers. The producer (the
+  first-wins Vote/ballot change) is a follow-up; this release only lands the
+  shape and the recording mechanism it will use. An anomaly is an
+  **observation**, not a spec-violation verdict — a projection cannot tell a
+  genuinely non-conforming source from a conforming one replayed through an
+  unfiltered loader. `ProjectionAnomaly`'s field names, their order, and
+  both `kind` string values are a byte-for-byte contract shared with the
+  TypeScript SDK (macp-sdk-typescript#55).
 
 ### Fixed
 

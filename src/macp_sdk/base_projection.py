@@ -1,9 +1,51 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import ClassVar
 
 from macp.v1 import core_pb2, envelope_pb2
+
+from ._logging import logger
+
+# Cross-SDK contract with macp-sdk-typescript#55 — these two string values are
+# part of the wire-adjacent public API and must match the TypeScript SDK
+# byte-for-byte. Do not rename, and do not add a third without coordinating
+# there first.
+ANOMALY_DUPLICATE_VOTE = "duplicate_vote"  # RFC-MACP-0007 §5.3
+ANOMALY_DUPLICATE_BALLOT = "duplicate_ballot"  # RFC-MACP-0011 §5
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionAnomaly:
+    """A discarded-message observation recorded by a projection.
+
+    Cross-SDK contract with macp-sdk-typescript#55: the field names, their
+    order, and both ``kind`` string values (``ANOMALY_DUPLICATE_VOTE``,
+    ``ANOMALY_DUPLICATE_BALLOT``) are a byte-for-byte contract shared with the
+    TypeScript SDK. Do not rename, reorder, or extend the field set without
+    coordinating there first.
+
+    Honesty clause: this records an **observation**, not a spec-violation
+    verdict. A projection cannot distinguish a genuinely non-conforming
+    source from a conforming source fed through an unfiltered loader --
+    acceptance is not a wire property (see ``apply_envelope``'s docstring).
+    Treat ``kind`` as "a second distinct message of this shape was observed
+    and discarded; the first stands," not as "this transcript violates the
+    spec."
+
+    Deliberately does not carry the full ``Envelope``: too heavy a public
+    commitment. The discarded envelope remains recoverable by correlating
+    ``message_id`` against a projection's ``transcript``.
+    """
+
+    kind: str
+    mode: str
+    message_type: str
+    message_id: str
+    sender: str
+    subject_id: str  # proposal_id / request_id
+    detail: str = ""
 
 
 class BaseProjection(ABC):
@@ -24,10 +66,18 @@ class BaseProjection(ABC):
         # applied to this projection so a redelivered envelope is a no-op. See
         # apply_envelope's docstring for the contract.
         self._seen_message_ids: set[str] = set()
+        # Public: discarded-message observations recorded via _record_anomaly.
+        # Inert as of this phase -- nothing appends to this list yet. See
+        # ProjectionAnomaly's docstring for the cross-SDK contract it carries.
+        self.anomalies: list[ProjectionAnomaly] = []
 
     @property
     def is_committed(self) -> bool:
         return self.commitment is not None
+
+    @property
+    def has_anomalies(self) -> bool:
+        return bool(self.anomalies)
 
     @property
     def is_positive_outcome(self) -> bool | None:
@@ -209,3 +259,46 @@ class BaseProjection(ABC):
     @abstractmethod
     def _apply_mode_message(self, envelope: envelope_pb2.Envelope) -> None:
         """Handle a mode-specific (non-Commitment) envelope."""
+
+    def _record_anomaly(
+        self,
+        *,
+        kind: str,
+        message_type: str,
+        message_id: str,
+        sender: str,
+        subject_id: str,
+        detail: str = "",
+    ) -> None:
+        """Append a `ProjectionAnomaly` and emit exactly one WARNING log line.
+
+        Protected and keyword-only: subclasses are the only callers, and
+        keyword-only arguments prevent a positional call from silently
+        transposing two same-typed fields (e.g. sender/subject_id). ``mode``
+        is filled in from ``self.MODE`` rather than accepted as an argument,
+        so call sites cannot drift from the projection's own mode.
+
+        Inert in this phase: nothing calls this yet. Phase 4 wires up the two
+        call sites (Decision Vote, Quorum ballot) that actually invoke it.
+        """
+        anomaly = ProjectionAnomaly(
+            kind=kind,
+            mode=self.MODE,
+            message_type=message_type,
+            message_id=message_id,
+            sender=sender,
+            subject_id=subject_id,
+            detail=detail,
+        )
+        self.anomalies.append(anomaly)
+        logger.warning(
+            "projection anomaly kind=%s mode=%s message_type=%s message_id=%s "
+            "sender=%s subject_id=%s detail=%s",
+            anomaly.kind,
+            anomaly.mode,
+            anomaly.message_type,
+            anomaly.message_id,
+            anomaly.sender,
+            anomaly.subject_id,
+            anomaly.detail,
+        )

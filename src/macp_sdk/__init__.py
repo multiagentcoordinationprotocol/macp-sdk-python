@@ -1,6 +1,11 @@
 from ._logging import configure_logging
 from .auth import AuthConfig
-from .base_projection import BaseProjection
+from .base_projection import (
+    ANOMALY_DUPLICATE_BALLOT,
+    ANOMALY_DUPLICATE_VOTE,
+    BaseProjection,
+    ProjectionAnomaly,
+)
 from .base_session import BaseSession
 from .client import InlineErrorCallback, MacpClient, MacpStream
 from .commitment_hash import commitment_hash, is_canonical_commitment_hash
@@ -110,6 +115,8 @@ from .watchers import (
 )
 
 __all__ = [
+    "ANOMALY_DUPLICATE_BALLOT",
+    "ANOMALY_DUPLICATE_VOTE",
     "DEFAULT_CONFIGURATION_VERSION",
     "DEFAULT_MODE_VERSION",
     "DEFAULT_POLICY_VERSION",
@@ -165,6 +172,7 @@ __all__ = [
     "ObjectionHandlingRules",
     "PolicyChange",
     "PolicyWatcher",
+    "ProjectionAnomaly",
     "ProposalAcceptanceRules",
     "ProposalProjection",
     "ProposalSession",
