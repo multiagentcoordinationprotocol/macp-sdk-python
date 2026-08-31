@@ -492,19 +492,15 @@ class TestVoteCardinality:
         under both dedup (D1) and first-wins (D3), for ``votes``, ``phase``,
         AND ``anomalies``.
 
-        The real invariant this guards: anomalies must be reconstructible
-        from ``transcript`` alone. If an anomaly is ever recorded for an
-        envelope that was NOT appended to ``transcript``, replay produces a
-        fresh projection with fewer anomalies than the original, and this
-        assertion catches it -- no other test in the suite does.
-
-        (An earlier version of this docstring claimed the test also catches
-        the dedup guard moving to AFTER the transcript append. Mutation
-        testing disproved that: under that mutation the transcript carries
-        the redelivered envelope twice, so replaying it re-triggers dedup on
-        the second copy and ``anomalies`` reproduces anyway -- this test
-        passes, and ten other transcript-length tests catch that mutation
-        regardless. Do not re-derive that rationale.)
+        The invariant this guards: an anomaly must never be recorded for an
+        envelope that never entered ``transcript`` -- anomalies must be
+        reconstructible from the transcript alone, or replay-equivalence
+        breaks and docs/determinism.md:53-63 becomes false. Per RFC-MACP-0006
+        §3.2 point 3, "a consumer that accumulates state per envelope --
+        appending to a list, incrementing a counter -- MUST be idempotent
+        with respect to `message_id`"; both ``transcript`` and ``anomalies``
+        are per-envelope accumulated state, so this test replays the
+        transcript and checks both stay in lockstep with the original.
 
         Mixed transcript: one conforming vote, one redelivery of that same
         envelope (same message_id -- must NOT produce an anomaly), and one

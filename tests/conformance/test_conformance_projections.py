@@ -9,6 +9,7 @@ not by the SDK projection layer.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -132,7 +133,7 @@ FIXTURE_IDS = [name for name, _ in FIXTURES]
 
 @pytest.mark.conformance
 @pytest.mark.parametrize("name,fixture", FIXTURES, ids=FIXTURE_IDS)
-def test_projection_replay(name: str, fixture: dict):
+def test_projection_replay(name: str, fixture: dict, caplog: pytest.LogCaptureFixture):
     """Replay accepted messages through the projection and verify commitment state."""
     mode = fixture["mode"]
     projection_cls = MODE_PROJECTIONS.get(mode)
@@ -149,19 +150,50 @@ def test_projection_replay(name: str, fixture: dict):
     # fixtures still replay their accepted prefix, in lockstep with the
     # TypeScript harness.
     accepted_count = 0
-    for msg in fixture["messages"]:
-        if msg.get("expect") != "accept":
-            continue
-        envelope = _build_envelope(mode, msg, session_id)
-        projection.apply_envelope(envelope)
-        accepted_count += 1
+    with caplog.at_level(logging.WARNING, logger="macp_sdk"):
+        for msg in fixture["messages"]:
+            if msg.get("expect") != "accept":
+                continue
+            envelope = _build_envelope(mode, msg, session_id)
+            projection.apply_envelope(envelope)
+            accepted_count += 1
 
     # Zero-anomaly gate (issue #43 Phase 4): the corpus was verified to
     # contain no accepted-path same-sender duplicate Vote/ballot. This
     # converts that checked negative into a permanent gate -- a future
     # canonical fixture introducing an accepted-path duplicate must fail
     # loudly here instead of silently changing tallies.
-    assert not projection.has_anomalies, f"{name}: unexpected projection anomalies"
+    #
+    # If this gate fails, the cause may not be an SDK regression at all:
+    # these fixtures are vendored copies of the canonical corpus in the spec
+    # repo (`multiagentcoordinationprotocol`, under `schemas/conformance/`).
+    # A canonical fixture change upstream that introduces an accepted-path
+    # duplicate will fail here first -- check `schemas/conformance/` in the
+    # spec repo before assuming the bug is local to this SDK.
+    assert not projection.has_anomalies, (
+        f"{name}: unexpected projection anomalies -- this may indicate a canonical "
+        "fixture change upstream (spec repo `schemas/conformance/`) rather than an "
+        "SDK regression; diff this fixture against the canonical corpus first"
+    )
+
+    # Second, independent channel on the same invariant: the anomalies list
+    # is the contractual signal, but the WARNING log emitted by
+    # `_record_anomaly` was explicitly declared non-contractual in the
+    # cross-SDK agreement. A future change may legitimately drop the warn
+    # while keeping the list -- if this gate only checked the list, that
+    # change would silently stop covering half of what it was written for,
+    # with nothing going red. Checking both channels means either one
+    # drifting from "no anomalies" is caught.
+    anomaly_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "projection anomaly" in r.getMessage()
+    ]
+    assert not anomaly_warnings, (
+        f"{name}: unexpected 'projection anomaly' WARNING log(s) during replay -- "
+        "this may indicate a canonical fixture change upstream (spec repo "
+        "`schemas/conformance/`) rather than an SDK regression"
+    )
 
     # Verify transcript was tracked
     assert len(projection.transcript) == accepted_count

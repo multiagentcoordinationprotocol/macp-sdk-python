@@ -134,6 +134,61 @@ for envelope in stream.responses(timeout=300.0):
         break
 ```
 
+> **Warning — this feeds `session.projection` from two directions at once.**
+> `session.vote(...)` / `session.approve(...)` / any other `*Session` action
+> already applies its own envelope locally, on `ack.ok`, to `session.projection`
+> (`BaseSession._send_and_track`, see [Architecture](../architecture.md#why-projections-exist)).
+> The loop above *also* feeds that same object every envelope the stream
+> delivers, including the ones this process just sent through the session.
+> That is a double apply on the same projection instance.
+>
+> **This is safe as of this release**: `BaseProjection.apply_envelope` is
+> idempotent on `message_id` — applying the same envelope twice is a no-op,
+> so the double apply here does not corrupt `proj.votes`, `proj.transcript`,
+> or any other derived state. For a genuine duplicate — a second, distinct
+> `Vote`/ballot with its own `message_id` from a sender who already voted —
+> check `proj.anomalies` / `proj.has_anomalies` rather than assuming the
+> stream fed it twice.
+>
+> **If you followed this pattern before this release, your projection may
+> have been double-applying** — the idempotency guarantee above is new;
+> earlier `BaseProjection.apply_envelope` had no `message_id` dedup. The
+> symptom is inflated `evaluations` / `objections` / `accepts` /
+> `rejections` / `updates` / `completions` / `failures` counts and
+> inflated `len(transcript)`. If those numbers look too high on a session
+> built this way, that is why. Upgrading fixes the double apply going
+> forward; it does not retroactively correct decisions already made
+> against inflated counts.
+>
+> **The example above works, and that is exactly why it is dangerous.**
+> Its coordinator loop never itself calls `session.vote(...)` (or any other
+> `*Session` action besides the terminal `session.commit(...)`), so no
+> envelope this session already applied locally ever comes back around the
+> stream into the loop's `apply_envelope` call — and the loop `break`s the
+> instant it commits, before the stream can even echo that `Commitment`
+> back to it. That is why this exact snippet, read literally, never
+> actually double-applies anything, with or without the idempotency
+> guarantee above. It is tempting to copy this snippet as the starting
+> point for an orchestrator that *also* votes through the same session (an
+> easy, natural extension) — at which point that vote's echo on the stream
+> hits the loop's `session.projection.apply_envelope(envelope)` line a
+> second time, and the double apply stops being incidental and starts
+> mattering. Don't copy the shape; copy the intent and re-derive the loop,
+> or feed the stream into a *separate* projection instance instead of
+> `session.projection`.
+>
+> **Projection topology in this SDK: session-driven and stream-driven
+> projections are separate objects, deliberately.** `Participant` (the
+> agent framework in `macp_sdk.agent`) never constructs a `BaseSession` —
+> its stream-fed projection and a hand-built session's projection are never
+> the same instance, so `Participant`-based agents cannot hit this hazard.
+> The pattern above is reachable only when *you* explicitly feed
+> `stream.responses()` into `session.projection`, as shown. **This differs
+> from the TypeScript SDK**, which deliberately shares one projection
+> instance between its `Participant` and its mode session. Neither choice
+> is wrong, but if you work across both SDKs, do not assume the topology
+> transfers.
+
 ## What NOT to put in the SDK
 
 These belong in your orchestrator, not in the SDK:

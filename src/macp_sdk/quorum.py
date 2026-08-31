@@ -41,9 +41,11 @@ class BallotRecord:
 class QuorumProjection(BaseProjection):
     """In-process state tracking for Quorum mode sessions.
 
-    Supports multiple concurrent approval requests within a single session.
-    Query methods accept a ``request_id`` parameter to target a specific
-    request.
+    RFC-MACP-0011 §5 rule 1 caps a session at one ``ApprovalRequest`` in
+    base v1. The ``requests`` / ``ballots`` maps are keyed by ``request_id``
+    because that is the identifier the protocol uses, not because multiple
+    concurrent requests are supported. Query methods accept a ``request_id``
+    parameter to target that single request.
     """
 
     MODE = MODE_QUORUM

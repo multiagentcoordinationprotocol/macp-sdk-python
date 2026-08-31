@@ -2,9 +2,12 @@
 
 ## Unreleased
 
-Test-suite and CI/CD hardening, one projection behaviour fix, and a new
-(currently inert) projection-anomaly surface — additive only, no existing
-signatures changed.
+Test-suite and CI/CD hardening, a projection replay-inflation fix, a new
+projection-anomaly surface, and a **breaking change to vote/ballot
+cardinality**. This is not additive-only: two projection code paths now return
+different results than before for the same accepted history. See **Changed**
+below before upgrading if any orchestrator re-sends a vote or ballot to
+change it.
 
 ### Added
 
@@ -13,15 +16,59 @@ signatures changed.
   exposes `anomalies: list[ProjectionAnomaly]` and `has_anomalies: bool`.
   Two `kind` constants are exported alongside it: `ANOMALY_DUPLICATE_VOTE =
   "duplicate_vote"` and `ANOMALY_DUPLICATE_BALLOT = "duplicate_ballot"`.
-  **Currently inert:** nothing in this release produces an anomaly — the
-  list stays empty and `_record_anomaly` has no callers. The producer (the
-  first-wins Vote/ballot change) is a follow-up; this release only lands the
-  shape and the recording mechanism it will use. An anomaly is an
-  **observation**, not a spec-violation verdict — a projection cannot tell a
-  genuinely non-conforming source from a conforming one replayed through an
-  unfiltered loader. `ProjectionAnomaly`'s field names, their order, and
-  both `kind` string values are a byte-for-byte contract shared with the
-  TypeScript SDK (macp-sdk-typescript#55).
+  **Wired in this release:** `_record_anomaly` has two callers —
+  `DecisionProjection`'s Vote handling and `QuorumProjection._set_ballot` —
+  both added by the first-wins change documented under **Changed** below.
+  A discarded second Vote or ballot from the same sender is what populates
+  `anomalies` / `has_anomalies`; nothing else in this release produces one.
+  An anomaly is an **observation**, not a spec-violation verdict — a
+  projection cannot tell a genuinely non-conforming source from a
+  conforming one replayed through an unfiltered loader.
+  `ProjectionAnomaly`'s field names, their order, and both `kind` string
+  values are a byte-for-byte contract shared with the TypeScript SDK
+  (macp-sdk-typescript#55).
+
+### Changed
+
+- **BREAKING: the first accepted Vote or ballot per sender now stands;
+  later ones are discarded (issue #43).** `DecisionProjection`'s Vote
+  handling and `QuorumProjection._set_ballot` (the shared funnel behind
+  `Approve`/`Reject`/`Abstain`) used to overwrite by sender — last write
+  wins. **If your code re-sends a Vote or ballot to change your mind, that
+  no longer works**: the second envelope is discarded and the first
+  answer stands. There is no vote-changing mechanism in this SDK, and we
+  are not adding one — changing an already-cast vote would require a
+  spec-level Retract/Supersede message with its own cardinality rules,
+  which no current RFC defines. The legal way to change an outcome
+  differs by mode: for **Decision**, cast a fresh `Vote` under a new
+  `proposal_id` (RFC-MACP-0007 §5 rule 1: `proposal_id` MUST be unique
+  within the session but a session MAY hold more than one) — or start a
+  new session. For **Quorum**, a session accepts at most one
+  `ApprovalRequest` (RFC-MACP-0011 §5 rule 1), so a new `request_id` is
+  not available within the same session; only a new session works.
+
+  **Motivation: this aligns the SDK with the runtime, which already
+  rejects the second Vote/ballot** (`INVALID_ENVELOPE`,
+  `macp-runtime/crates/macp-modes/src/mode/decision.rs:217`,
+  `mode/quorum.rs:164/184/204`) — it never reaches accepted history, so
+  last-wins was unreachable through a conforming runtime and only ever
+  fired on hand-built fixtures, captured/edited transcripts, or direct
+  `apply_envelope`/`process_event` calls. This is not a response to an RFC
+  edit tightening the rule; the runtime already enforced first-wins.
+
+  **Concrete stake:** with `required_approvals=1`, a participant who
+  Rejects and then Approves the same request used to reach quorum
+  (`has_quorum(request_id)` `True`) and now does not (`False`) — same accepted
+  history, different terminal outcome, previously with no signal either
+  way.
+
+  A discarded Vote/ballot now appends a `ProjectionAnomaly` (see *Added*
+  above) to `proj.anomalies`, so this is no longer silent going forward.
+  That anomaly is an **observation** — "a second distinct message of this
+  shape was discarded, the first stands" — not a verdict that the source
+  transcript violates the spec; a projection cannot tell a genuinely
+  non-conforming feed from a conforming one replayed through an unfiltered
+  loader.
 
 ### Fixed
 
@@ -46,6 +93,17 @@ signatures changed.
   the same projection object, previously double- (or N-times-) counting every
   evaluation, objection, accept, rejection, task update, completion, and
   failure it had already recorded.
+  A second trigger is doc-taught, not framework-internal: the streaming loop
+  in `docs/guides/building-orchestrators.md` ("Pattern: Event-driven
+  orchestrator") feeds `stream.responses()` into `session.projection`
+  alongside `session.vote()` / `session.approve()`, which already applies
+  locally on `ack.ok` — the same double apply, on any orchestrator that
+  copied that snippet and also votes through the session it streams. If
+  your `evaluations` / `objections` / `accepts` / `rejections` / `updates`
+  / `completions` / `failures` counts or `len(transcript)` look inflated
+  and you built a coordinator this way, this fix (and the retraction in
+  that guide) is why — and after this release it would also have produced
+  spurious `duplicate_vote` anomalies had dedup not landed first.
   Two boundaries worth calling out: an empty `message_id` (the proto3 default
   for hand-built envelopes) is never deduplicated — every such envelope is
   applied. And if applying an envelope raises, the `transcript` entry and its

@@ -38,14 +38,17 @@ session.approve("r1", reason="agreed", sender="dave")
 
 # --- Check threshold ---
 proj = session.quorum_projection
-print(f"Approvals: {proj.approval_count()}, Rejections: {proj.rejection_count()}")
-print(f"Threshold reached: {proj.has_quorum()}")
+request_id = "r1"
+print(
+    f"Approvals: {proj.approval_count(request_id)}, Rejections: {proj.rejection_count(request_id)}"
+)
+print(f"Threshold reached: {proj.has_quorum(request_id)}")
 
-if proj.has_quorum():
+if proj.has_quorum(request_id):
     session.commit(
         action="quorum.approved",
         authority_scope="security-policy",
-        reason=f"{proj.approval_count()} of 5 approved",
+        reason=f"{proj.approval_count(request_id)} of 5 approved",
     )
     print("Policy update approved via quorum")
 

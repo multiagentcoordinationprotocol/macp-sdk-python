@@ -277,7 +277,7 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
 - **Phase 2 — Replay inflation across seven append sites:** DONE
 - **Phase 3 — ProjectionAnomaly public surface (inert):** DONE
 - **Phase 4 — First-wins at the two sites:** DONE
-- **Phase 5 — Documented-behaviour removal and release notes:** TODO
+- **Phase 5 — Documented-behaviour removal and release notes:** DONE
 
 ## Log
 
@@ -505,3 +505,263 @@ Plan: `plans/first-wins-vote-cardinality.md` (this repo).
   removal, CHANGELOG entries) is this phase's release narrative and ships alongside it, not
   separately.
 - **Next:** Phase 5 (documented-behaviour removal and release notes).
+
+### Phase 5 — 2026-08-31
+
+- **Delivered:** the documented-behaviour removal (`## Ballot override` →
+  `## First ballot stands`) and the release narrative. Docs-only; zero `src/` changes.
+- **Both brief claims about `## Ballot override` verified true before rewriting, as
+  required:** (1) its `session.reject("r1", sender="alice")` → `session.approve("r1",
+  sender="alice")` example is NACKed by a conforming runtime (`quorum.rs:164/184/204`,
+  `INVALID_ENVELOPE`) before the second call ever reaches `_send_and_track`'s local apply —
+  confirmed by reading `base_session.py:79-88`, which only calls
+  `self.projection.apply_envelope(envelope)` when `ack.ok`; on a NACK it just logs and
+  returns, so the projection is never touched. (2) its code sample's shape does not match
+  the real API: `proj.ballots["alice"].choice` assumes a flat `dict[sender, BallotRecord]`
+  with a `.choice` field; the real shape is `dict[request_id, dict[sender, BallotRecord]]`
+  (`quorum.py:55`) with field `.vote` (`quorum.py:31`), confirmed by reading the source.
+- **`docs/modes/quorum.md`** — rewrote the projection-queries block (`:105-131` original)
+  fixing every identifier against `quorum.py`: `proj.request` → `proj.requests.get(request_id)`;
+  all six count/threshold helpers now take `request_id`; added the three previously-undocumented
+  query methods (`threshold`, `voted_senders`, `remaining_votes_needed`) since acceptance
+  criterion 2 named them explicitly; added `proj.anomalies` / `proj.has_anomalies` (criterion 3).
+  Replaced `## Ballot override` with `## First ballot stands`: states the RFC-0011 §5 cap
+  citation is for cardinality only (§5's MUST-enforce preamble), states RFC-0011 is silent on
+  which-of-two-stands, attributes first-wins to RFC-0007 §5.3 parity + runtime behaviour
+  (not an RFC-0011 citation), demonstrates the discard via direct `apply_envelope` calls
+  (not `session.approve()`, since that path never reaches the projection against a
+  conforming runtime — see verification above), and states plainly there is no vote-changing
+  mechanism and the SDK will not invent one (Retract/Supersede is spec-level).
+  **Flagged as out-of-scope when this phase first landed, then found and fixed in a
+  follow-up pass before shipping — not deferred.** The `## Session helper` (`:56-101`
+  original) and `## Orchestrator patterns` (`:145-180` original) code blocks in this same file
+  called `proj.has_quorum()`, `proj.approval_count()`, `proj.is_threshold_unreachable(5)`,
+  `proj.commitment_ready(total_eligible=5)` with no `request_id`, and the "Weighted quorum"
+  block read `ballot.choice` off a flat `proj.ballots.items()` instead of `.vote` off the
+  nested `dict[request_id, dict[sender, BallotRecord]]` (`quorum.py:55`). Re-verifying against
+  `quorum.py` while fixing these also turned up two more instances of the same drift class
+  that the original flag missed: `## Key semantics` (`:44` original) still said "later ballots
+  override earlier ones," contradicting the "First ballot stands" section a few lines below in
+  the same file; and `## Authorization & termination` (`:53` original) told readers to call
+  `proj.commitment_ready(total_eligible)`, a signature that has never existed —
+  `commitment_ready` takes only `request_id` (`quorum.py:156`) and folds in the
+  already-committed check, it does not do the mathematically-unreachable half at all (that's
+  `is_threshold_unreachable(request_id, total_eligible)`, a separate call). All five spots
+  fixed in place; every identifier and arity re-checked against `quorum.py` directly rather
+  than trusting the earlier flag's list. Rationale for fixing now rather than filing a
+  follow-up issue as originally planned: a doc file that was just certified correct in one
+  section while known-broken samples remain two sections down is worse than either leaving
+  the whole file uncorrected (which at least doesn't carry the false signal of "this page was
+  just verified") or fixing it completely — a half-corrected file invites a reader to trust
+  the parts that were never re-checked.
+- **`docs/modes/decision.md`** — `:108` `has_blocking_objection` claim corrected from
+  `{high, critical, block}` to `critical`-only, verified against `projections.py:165-174`
+  (`any(objection.severity.lower() == "critical" ...)`) and `test_critical_only_veto`.
+  `:120` `transcript` description corrected from "full ordered history" to "accepted history
+  as fed, deduplicated by `message_id`". Confirmed no "latest wins" claim exists anywhere in
+  this file (grep-verified) — nothing else touched, per the brief's explicit instruction not
+  to add an unrelated correction here.
+- **`docs/guides/building-orchestrators.md`** — added a warning block after the Event-driven
+  orchestrator snippet (`:117-134` original) covering all four required elements: the
+  double-apply mechanics (`session.projection` fed by both `_send_and_track` and the stream
+  loop), "safe as of this release" (idempotent on `message_id`), the "works, which is why
+  it's dangerous" framing (the example's `break`-before-second-apply narrowly escapes, which
+  is exactly what makes it a template someone extends unsafely), and a pointer to
+  `proj.anomalies` for genuine duplicates. Added the projection-topology statement (criterion
+  11) in the same block: Python's `Participant` never constructs a `BaseSession` (separate
+  projection instances), explicitly stated as differing from the TypeScript SDK's deliberate
+  sharing.
+- **`docs/architecture.md:131`** — added a short paragraph after the "Projection lifecycle"
+  list cross-referencing the building-orchestrators warning by anchor
+  (`guides/building-orchestrators.md#pattern-event-driven-orchestrator`), matching this repo's
+  existing cross-reference convention (verified other `../architecture.md#anchor` /
+  `guides/*.md` links in `docs/protocol.md`, `docs/guides/agent-framework.md`).
+- **`CHANGELOG.md`** — added `### Changed` between `### Added` and `### Fixed` (matching this
+  file's own established heading order, e.g. the `0.5.0` section). Contains, in substance: the
+  first-accepted-stands rule, "changing your vote by re-sending it no longer works" in the
+  caller's own words, the Retract/Supersede spec-level framing, motivation framed as
+  runtime-alignment (explicitly not "the RFC was tightened" — checked against spec commit
+  `f1489df`'s own "needs no code change anywhere" framing), the `required_approvals=1`
+  concrete stake (same accepted history, different terminal outcome), and the anomaly
+  signal's narrow observation-not-verdict claim. Verified by grep (see below) that the
+  `### Fixed` (replay-inflation) entry remains independently findable by a reader grepping
+  `replay`/`duplicate` while excluding lines containing `vote` — line 67 ("Projections no
+  longer inflate their lists on replay (issue #43)") matches. Narrowed the `## Unreleased`
+  preamble a third time: dropped "additive only, no existing signatures changed" (false now —
+  two methods return different results for the same input) for language naming the breaking
+  change directly.
+- **`CLAUDE.md`** — added one line under `base_projection.py` mentioning `message_id`
+  idempotency and `ProjectionAnomaly`, per the brief. **Not a deliverable**: `CLAUDE.md` is
+  gitignored (`.gitignore:210`), confirmed by reading the file; this edit is local-only and
+  will not appear in the PR diff.
+- **Criterion-1 grep, run exactly as specified:**
+  `git grep -in 'latest wins\|latest ballot\|ballot override\|supersedes the previous' docs/`
+  → zero hits. `docs/modes/proposal.md`'s four `supersedes` hits (`:35/:44/:103/:123`, the
+  correct CounterProposal feature) untouched — confirmed still present, matching neither
+  banned phrase (the grep pattern requires "supersedes the previous", not the bare word).
+- **Checks:** `make lint` (ruff check + format --check) clean. `make typecheck` (mypy strict)
+  clean. `make test-all` green: unit **707 passed** (identical to the Phase 4 baseline — zero
+  `src/`/`tests/` changes this phase), coverage **87.97%** (gate 85%), conformance 50 passed /
+  2 skipped, `lint-fixtures` 17/17 clean. `tests/unit/test_examples_smoke.py` unaffected
+  (still 9/9 example-compile tests passing, untouched). `mkdocs build --strict` NOT run —
+  mkdocs not installed in `.venv` (consistent with Phase 3's note); not a CI gate today per
+  criterion 8's own wording.
+- **Ship decision:** **ship now as PR C (phases 4 + 5), per the plan's shipping table.** This
+  closes the plan: A (0+1+2) already shipped, B (3) already shipped, C (4+5) is now complete
+  and gated by the same interlock (Phase 4's redelivery tests) that was verified green in the
+  Phase 4 log.
+- **Next:** none — plan complete. The `docs/modes/quorum.md` drift flagged above as
+  out-of-scope was found and fixed in a follow-up pass before PR C shipped (see below);
+  nothing remains deferred.
+
+### Phase 5 follow-up — 2026-08-31
+
+Four items closed before PR C shipped, none touching `src/`:
+
+1. `tests/unit/test_decision_projection.py::test_replay_of_transcript_reproduces_votes_and_anomalies`
+   — removed the docstring's uniqueness claim ("no other test in the suite does"). Uniqueness
+   is a property of one suite at one moment, falsified by the next added test including one
+   that improves the codebase; measured evidence showed the claimed mutation produced 1
+   failure in this suite and 4 in the TypeScript SDK's, i.e. non-transferable. Kept the actual
+   invariant (anomalies reconstructible from `transcript` alone) and added the normative
+   anchor RFC-MACP-0006 §3.2 point 3 (the consumer-side idempotency clause), distinct from
+   the obligation-4 citation already correct in `base_projection.py`. No assertions changed.
+2. `tests/conformance/test_conformance_projections.py:164`'s zero-anomaly gate is now
+   two-channel: alongside `not projection.has_anomalies`, replay now runs inside
+   `caplog.at_level(logging.WARNING, logger="macp_sdk")` and asserts no `projection anomaly`
+   WARNING was logged, following `tests/unit/test_base_projection.py`'s logging-assertion
+   style. The anomalies list is contractual; the warn log was declared non-contractual in the
+   cross-SDK agreement, so a future change could legitimately drop the warn while keeping the
+   list — a single-channel gate would then silently stop covering half of what it was written
+   for. Reasoning commented at the assertion.
+3. Same gate's failure messages now name `schemas/conformance/` in the spec repo explicitly,
+   since a failure here can mean a canonical fixture changed upstream rather than an SDK
+   regression — the message now points a reader's debugging path out of this repo instead of
+   ending at "the test is fussy."
+4. `docs/modes/quorum.md` — finished the correction Phase 5 started rather than leaving it
+   half-done (see the amended Phase 5 log entry above for the full list: `## Session helper`,
+   `## Orchestrator patterns` incl. Weighted quorum, plus two more instances of the same drift
+   class found while re-verifying — `## Key semantics`'s "later ballots override" line and
+   `## Authorization & termination`'s nonexistent `commitment_ready(total_eligible)` call).
+   Every identifier and arity re-checked directly against `src/macp_sdk/quorum.py`.
+
+Re-ran the criterion-1 grep from Phase 5 as instructed:
+`git grep -in 'latest wins\|latest ballot\|ballot override\|supersedes the previous' docs/`
+→ zero hits, `docs/modes/proposal.md`'s legitimate `supersedes` hits still present.
+`make lint`, `make typecheck`, `make test-all` all green; unit suite still 707 passed,
+coverage 87.97% (no test count change — item 2 added assertions inside the existing
+parametrized test, not a new test).
+
+### Final verification gate — 2026-08-31
+
+A verification pass ahead of shipping PR C found five more findings, closed here.
+Worth remembering: one of them (GAP 1) was not old drift — it was a **false normative
+claim introduced by the Phase 5 fix itself**. The Phase 5 rewrite of
+`docs/modes/quorum.md`'s "Projection queries" intro replaced accurate-but-vague text
+with a new sentence ("Quorum mode supports multiple concurrent approval requests
+within one session") that is flatly wrong: RFC-MACP-0011 §5 rule 1 caps a session at
+one `ApprovalRequest`, the runtime holds `state.request` as a single `Option`, and the
+*same file* says so twice more (`## Key semantics` and the error-cases table). A fix
+for one accuracy gap silently created another, in the same file, contradicting text
+left untouched three lines away. Lesson: an accuracy-motivated rewrite needs the same
+verify-against-source discipline as the drift it's replacing — "sounds more precise"
+is not the same as "checked against the RFC" — and a file-local self-consistency pass
+(does the fixed paragraph agree with the rest of the same page?) is worth doing even
+when the paragraph is a small, no-code documentation edit.
+
+Gaps closed, no `src/` changes:
+
+1. **[BLOCKING] `docs/modes/quorum.md:106-108` false claim** (above) — replaced with the
+   true rationale: `requests`/`ballots` are keyed by `request_id` (`quorum.py:54-55`),
+   an implementation shape the accessors mirror; cited RFC-MACP-0011 §5 rule 1 for the
+   one-request-per-session cap instead of denying it. `src/macp_sdk/quorum.py:44`'s
+   docstring carries the same overclaim — pre-existing, out of scope, not touched; filing
+   for a follow-up.
+2. **[BLOCKING] `CHANGELOG.md` `### Added` self-contradiction** — rewrote the
+   `ProjectionAnomaly` entry from "currently inert, follow-up producer" (false as of
+   `4a29087`: `_record_anomaly` has two callers, `projections.py:112` and
+   `quorum.py:105`) to "wired in this release," cross-referencing `### Changed` for the
+   producer.
+3. **Missing retraction** — added the mandated "if you followed this pattern before
+   this release, your projection may have been double-applying" warning, naming the
+   inflated-counts/`len(transcript)` symptom, to both `docs/guides/building-orchestrators.md`
+   (addressed to a reader who copied the streaming-loop snippet) and `CHANGELOG.md`'s
+   `### Fixed` entry (naming the guide's pattern as a second trigger alongside the
+   `Participant`/supervisor `run()` reconnect one, which was previously the only one
+   named).
+4. **`examples/quorum_approval.py` `TypeError`** — four calls
+   (`approval_count`/`rejection_count`/`has_quorum`, twice) used the pre-`request_id`
+   arity. Re-verified every identifier and arity in the file against
+   `src/macp_sdk/quorum.py`; only those four were stale. Fixed by threading a
+   `request_id = "r1"` variable through, matching the pattern already used in
+   `docs/modes/quorum.md`. Verified by extracting the same projection calls into a
+   standalone script against a hand-built envelope sequence — no `TypeError`, correct
+   counts (3 approvals, 1 rejection, `has_quorum` True).
+5. **[minor] `CHANGELOG.md:7` undercount** — "two projection methods" → "two projection
+   code paths" (at least ten methods plus two attributes actually changed behavior).
+   Also fixed comment-column misalignment in `docs/modes/quorum.md`'s "Ballots" and
+   "Counts" blocks (three lines whose `#` landed one-to-two columns off their block's
+   established column).
+
+**Checks:** `make lint`, `make typecheck`, `make test-all` all green; unit suite
+**707 passed** (no test count change — doc/example-only), coverage **87.97%** (gate
+85%). Re-ran the criterion-1-style grep for the retraction language:
+`grep -rn 'if you followed\|before this release\|inflated' docs/ CHANGELOG.md` → hits
+only in the two newly-added blocks, confirming both required locations now carry it.
+
+### Phase 5 — 2026-08-31 (final)
+
+- **Verdict:** GAPS → GAPS → GAPS → **PASS on round 4.** Verifier tier: **Opus** every round.
+  Docs-only phase, no one-way door.
+- **The defining pattern of this phase, worth remembering:** `docs/modes/quorum.md` was
+  rewritten four times for accuracy, and **each of the first three passes introduced a NEW
+  false statement while fixing the previous one.** An accuracy-motivated rewrite is not safer
+  than the drift it replaces — it is a fresh opportunity to assert something wrong, made worse
+  by reading as authoritative *because* it was just reviewed. Round 4 broke the streak only
+  because the brief said so explicitly and required an end-to-end sweep rather than a
+  diff-scoped one.
+- **Round 1 GAPS (4+1).** Two blockers were self-contradictions inside the artifacts this
+  phase exists to make trustworthy: the rewritten block asserted "Quorum mode supports multiple
+  concurrent approval requests within one session" — false per RFC-MACP-0011 §5 rule 1, the
+  runtime, and *the same file* at two other lines — and `CHANGELOG.md`'s `### Added` still
+  called the anomaly surface "inert" with its producer "a follow-up", false as of Phase 4 in
+  the same release and refuted 40 lines below. Also: the mandated retraction was missing from
+  both required locations, and a shipped example called pre-`request_id` arities.
+- **Round 2 GAPS (2 substantive).** The GAP 1 fix was only applied to hand-written prose:
+  `quorum.md` renders `::: macp_sdk.quorum.QuorumProjection` via mkdocstrings, and
+  `quorum.py`'s class docstring still carried the identical false claim — so **the built page
+  asserted and denied it 130 lines apart.** The orchestrator's own "zero `src/` changes" rule
+  was the direct cause; it was lifted for a docstring-only edit. Round 2 also found new prose
+  offering "a new `request_id`, or a new session" as alternatives, when rule 1 makes the first
+  require the second.
+- **A correction to a prior gate's evidence.** Round 1 reported `examples/quorum_approval.py`
+  "proven to raise `TypeError`". Round 2 ran the *example* rather than the methods and found
+  it raises `MacpIdentityMismatchError` first (`:34`, session built as `coordinator`, sends as
+  `alice`) — pre-existing at `4a29087`, so execution never reaches the arity bug. Execution-
+  based proof is only as good as what was actually executed.
+- **Round 4 PASS.** Every normative statement and code sample in the 246-line file verified
+  against `quorum.py`, RFC-0011, RFC-0007, RFC-0012 and the runtime; whole `## Unreleased`
+  CHANGELOG read as one document; `git diff 4a29087 -- src/` confirmed one hunk, -3/+5, the
+  class docstring only, **zero executable lines**; collected node-id set byte-identical to
+  `4a29087` (759 ids incl. parametrisations).
+- **Files touched:** `docs/modes/quorum.md`, `docs/modes/decision.md`,
+  `docs/guides/building-orchestrators.md`, `docs/architecture.md`, `CHANGELOG.md`,
+  `examples/quorum_approval.py`, `src/macp_sdk/quorum.py` (docstring only), `PROGRESS.md`,
+  plan. `CLAUDE.md` updated locally but is gitignored (`.gitignore:210`) — **not a deliverable
+  and absent from the PR.**
+- **Checks:** `make lint`, `make typecheck`, `make test-all` green. 707 passed, 87.97%
+  (gate 85%), conformance 50/2, fixture lint 17/17.
+- **Interrupted mid-phase by the machine running out of disk space.** Every writing tool
+  failed with `ENOSPC`, including Bash (it cannot write its own output log). The blocked agent
+  failed atomically and left the tree untouched — no partial writes, nothing lost. Resumed
+  after the user freed space; HEAD, all modified files and the 707-test suite were intact.
+- **Ship decision:** ship as PR C (phases 4+5).
+- **Filed as follow-up, all PRE-EXISTING and present on main:** (1) `examples/quorum_approval.py`
+  is advertised as runnable but raises on an auth/sender mismatch, with the same latent defect
+  in `quorum.md`'s snippet; (2) `quorum.md:46` claims a fractional threshold raises
+  `MacpSessionError` — `build_quorum_policy` only raises on `< 0` or `> 100`, so `0.75` passes
+  through silently and only mypy catches it; (3) `quorum.md:88`'s `total_eligible = 5  # all
+  participants except coordinator` contradicts RFC-0011 §2.1 — a listed coordinator IS an
+  eligible ballot caster, so it is 6; (4) the conformance corpus has zero fixtures for
+  `Objection`, `Withdraw`, `TaskUpdate` (spec repo issue #81), so `has_blocking_objection`
+  has no cross-implementation oracle.
