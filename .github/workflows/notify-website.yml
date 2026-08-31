@@ -16,7 +16,7 @@ jobs:
       # Zero-PAT: mint a short-lived macp-deps-bot token scoped to website.
       - name: Mint GitHub App token
         id: app
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.MACP_BOT_APP_ID }}
           private-key: ${{ secrets.MACP_BOT_PRIVATE_KEY }}
