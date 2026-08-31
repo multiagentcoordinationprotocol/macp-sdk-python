@@ -222,3 +222,129 @@ class TestDecisionProjection:
             )
         )
         assert p.is_positive_outcome is True
+
+
+class TestReplayIdempotence:
+    """Regression coverage for issue #43 Phase 2 — replay inflation.
+
+    Separate bug from vote/ballot cardinality: BaseProjection.apply_envelope's
+    message_id dedup guard (Phase 1) also fixes seven previously-unguarded
+    ``.append(`` sites across Decision/Proposal/Task, including this file's
+    ``evaluations`` (projections.py:75) and ``objections`` (projections.py:90).
+
+    Real-world trigger: src/macp_sdk/agent/transports.py:60 subscribes with
+    after_sequence defaulting to 0, so every (re)subscribe replays the full
+    accepted history, and Participant.run() (participant.py:483) has no
+    re-entry guard — a supervisor restarting run() re-feeds the whole history
+    into the same projection object.
+
+    | Test type   | Requires                         | How                                   |
+    |-------------|-----------------------------------|----------------------------------------|
+    | Redelivery  | the SAME non-empty message_id     | reuse the same envelope object, or an  |
+    |             |                                    | explicit shared message_id=            |
+    | Distinctness| two DIFFERENT non-empty ids       | two make_envelope(...) calls (default) |
+
+    Distinctness is not exercised by this class — that coverage lives in
+    tests/unit/test_base_projection.py::TestIdempotentApply::
+    test_distinct_message_ids_both_applied.
+
+    Every test below is a redelivery test, so every one reuses the same
+    envelope object — a test that calls make_envelope twice gets two
+    different uuid4 message_ids, dedup never engages, and the test would
+    pass while proving nothing.
+    """
+
+    def _proj(self) -> DecisionProjection:
+        return DecisionProjection()
+
+    def test_redelivered_evaluation_is_noop(self):
+        # Trigger: agent/transports.py:60 (after_sequence=0 full replay) +
+        # participant.py:483 (run() has no re-entry guard).
+        p = self._proj()
+        env = make_envelope(
+            MODE_DECISION,
+            "Evaluation",
+            decision_pb2.EvaluationPayload(
+                proposal_id="p1", recommendation="REVIEW", confidence=0.7, reason="needs review"
+            ),
+            sender="alice",
+        )
+        # A second, non-REVIEW evaluation so qualifying_evaluations() (which
+        # filters recommendation != "REVIEW") has a genuine positive case to
+        # pin — asserting it stays at 0 with an all-REVIEW feed can never go
+        # red, since qualifying_evaluations() would return [] regardless of
+        # whether dedup ran at all.
+        qualifying_env = make_envelope(
+            MODE_DECISION,
+            "Evaluation",
+            decision_pb2.EvaluationPayload(
+                proposal_id="p1", recommendation="APPROVE", confidence=0.9, reason="looks good"
+            ),
+            sender="bob",
+        )
+        p.apply_envelope(env)
+        p.apply_envelope(env)
+        p.apply_envelope(qualifying_env)
+        p.apply_envelope(qualifying_env)
+        assert len(p.evaluations) == 2
+        assert len(p.review_evaluations()) == 1
+        assert len(p.qualifying_evaluations()) == 1
+        assert len(p.transcript) == 2
+
+    def test_redelivered_objection_is_noop_and_predicate_unaffected(self):
+        # Trigger: agent/transports.py:60 + participant.py:483.
+        p = self._proj()
+        env = make_envelope(
+            MODE_DECISION,
+            "Objection",
+            decision_pb2.ObjectionPayload(proposal_id="p1", reason="risk", severity="critical"),
+            sender="alice",
+        )
+        p.apply_envelope(env)
+        # has_blocking_objection is any(...) over self.objections — it was
+        # never affected by duplication, before or after the redelivery.
+        assert p.has_blocking_objection("p1") is True
+        p.apply_envelope(env)
+        assert len(p.objections) == 1
+        assert p.has_blocking_objection("p1") is True
+
+    def test_full_history_replay_is_stable(self):
+        """The run()-restart scenario: re-apply the same accepted feed."""
+        # Trigger: agent/transports.py:60 + participant.py:483.
+        p = self._proj()
+        envelopes = [
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+                sender="alice",
+            ),
+            make_envelope(
+                MODE_DECISION,
+                "Evaluation",
+                decision_pb2.EvaluationPayload(
+                    proposal_id="p1", recommendation="APPROVE", confidence=0.9, reason="ok"
+                ),
+                sender="bob",
+            ),
+            make_envelope(
+                MODE_DECISION,
+                "Objection",
+                decision_pb2.ObjectionPayload(proposal_id="p1", reason="risk", severity="low"),
+                sender="carol",
+            ),
+        ]
+        for env in envelopes:
+            p.apply_envelope(env)
+        transcript_len = len(p.transcript)
+        evaluations_len = len(p.evaluations)
+        objections_len = len(p.objections)
+
+        # Re-apply the SAME envelope objects, in order — simulating a
+        # reconnect that replays the whole accepted history again.
+        for env in envelopes:
+            p.apply_envelope(env)
+
+        assert len(p.transcript) == transcript_len
+        assert len(p.evaluations) == evaluations_len
+        assert len(p.objections) == objections_len

@@ -81,13 +81,20 @@ def make_envelope(
     *,
     session_id: str = "test-session",
     sender: str = "test-agent",
+    message_id: str | None = None,
 ) -> envelope_pb2.Envelope:
-    """Build an Envelope for testing projections."""
+    """Build an Envelope for testing projections.
+
+    ``message_id`` defaults to a fresh id per call (``is None`` check, not
+    ``or``, so an explicit ``message_id=""`` is honoured rather than silently
+    replaced) — existing call sites that don't pass it keep getting a unique
+    id, byte-identical to prior behaviour.
+    """
     return envelope_pb2.Envelope(
         macp_version="1.0",
         mode=mode,
         message_type=message_type,
-        message_id=new_message_id(),
+        message_id=new_message_id() if message_id is None else message_id,
         session_id=session_id,
         sender=sender,
         timestamp_unix_ms=now_unix_ms(),

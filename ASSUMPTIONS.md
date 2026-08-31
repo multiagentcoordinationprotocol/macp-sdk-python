@@ -46,3 +46,42 @@ existing convention. Reconciled via `/reconcile`.
 - **Blast radius if wrong:** Adds ~0.5s and a `make` dependency to the unit suite. Guarded
   by `skipif(shutil.which("make") is None)`. Coverage gate is unaffected —
   `[tool.coverage.run] source = ["macp_sdk"]` excludes test modules.
+
+## `apply_envelope` rolls back on failure rather than leaving a wedged dedup entry
+- **Plan:** `plans/first-wins-vote-cardinality.md`
+- **Assumed:** Phase 1's `message_id` dedup must not convert a recoverable error into
+  permanent silent data loss. The Phase 1 verification gate found that recording the id and
+  appending to `transcript` *before* the effect means a raising `_apply_mode_message` leaves
+  the envelope marked-as-seen but unapplied — and every retry is then silently swallowed.
+  Pre-Phase-1, a retry recovered. This bites the plan's own motivating scenario: a supervisor
+  catching an exception from `Participant.run()` resubscribes at `after_sequence=0` and
+  re-feeds history, and the failed envelope is permanently skipped while `transcript` claims
+  it is there.
+- **Chose:** On any exception after the seen-set add and the transcript append, roll **those
+  two** back to their pre-call state and re-raise the original exception unchanged. This
+  preserves retry-to-recover, which is the behaviour callers had before dedup existed, and
+  keeps the SDK's standing "no silent-failure paths" bar.
+- **Scope of the guarantee — deliberately narrower than "atomic":** the rollback covers
+  `transcript` and `_seen_message_ids` only. It does **not** restore `self.phase` (assigned by
+  subclasses inside `_apply_mode_message`) or any subclass collection. A retry is therefore
+  safe only because every current subclass performs its single fallible operation
+  (`ParseFromString`) strictly *before* any mutation, and its record types are plain
+  slotted dataclasses whose construction cannot raise. That invariant is what makes the
+  narrow rollback sufficient — it is not a property the base class enforces, and
+  `BaseProjection` is publicly exported (`__init__.py:143`) for third parties to subclass.
+  Phases 3–4 add logic inside `_apply_mode_message` and must preserve raise-before-mutate.
+  (An earlier revision of this entry claimed the call becomes "as if it never happened."
+  That overstated what the code delivers; corrected here after the Phase 1 re-verification
+  gate flagged it.)
+- **Alternatives:** (a) Accept it and document — rejected: the failure is silent, and a
+  silently-skipped envelope with a `transcript` that disagrees is precisely the class of bug
+  issue #43 exists to remove. (b) Record the id only after successful application, leaving
+  the transcript append early — rejected: a raise would then duplicate the transcript entry
+  on retry, trading one inconsistency for another. (c) Swallow and log — rejected outright;
+  the caller must learn the envelope failed.
+- **Blast radius if wrong:** Contained to `BaseProjection.apply_envelope`. The rollback only
+  runs on an exception path that, per the accepted-history precondition, a conforming feed
+  never reaches — so conforming callers see no behaviour change at all. Reverting is deleting
+  a `try`/`except`/`raise`. The risk of the change is that rollback masks the original
+  exception; a test asserts the exception propagates unchanged.
+- **Status:** UNCONFIRMED

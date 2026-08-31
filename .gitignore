@@ -213,3 +213,4 @@ plans/
 
 # macOS
 .DS_Store
+.drive.lock

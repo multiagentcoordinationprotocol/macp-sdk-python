@@ -199,3 +199,188 @@ Plan: `plans/gate-cmt-hash-vectors.md` (this repo). Branch: `fix/38-gate-cmt-has
   so the `feat(build):` subject would otherwise have survived into the squashed body.
 - pushed fix/38-gate-cmt-hash-vectors 93ee199
 - PR #40 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/40
+
+---
+
+# PROGRESS — Issue #43: first-wins vote/ballot cardinality
+
+Plan: `plans/first-wins-vote-cardinality.md` (this repo).
+
+## Repo map (built once, Phase 0)
+
+- `src/macp_sdk/base_projection.py:19-22` — `__init__`; gains `_seen_message_ids: set[str]`.
+- `src/macp_sdk/base_projection.py:35-48` — `apply_envelope`. Mode check `:37`, transcript append `:39`, Commitment early-return `:41-46`, mode delegation `:48`. D1 gate goes between `:37` and `:39`. Docstring at `:36` is the D4 contract site.
+- `src/macp_sdk/base_projection.py:37-38` — mode-mismatch silent discard. "Projections never drop input" was already false before this change.
+- `src/macp_sdk/projections.py:100-109` — Decision Vote branch; `:103` is the unconditional per-sender overwrite (last-wins). `:109` sets `phase = "Voting"` on every Vote, including one arriving after a Commitment.
+- `src/macp_sdk/projections.py:75`, `:90` — unguarded `evaluations` / `objections` appends.
+- `src/macp_sdk/projections.py:147-164` — `has_blocking_objection` is `any(...)` (duplicate-tolerant); `review_evaluations` / `qualifying_evaluations` return lists (NOT duplicate-tolerant).
+- `src/macp_sdk/quorum.py:55` — `ballots: dict[request_id, dict[sender, BallotRecord]]`. Docs claim `ballots[sender].choice`; real field is `.vote` (`:31`).
+- `src/macp_sdk/quorum.py:76`, `:82`, `:88` — the three `_set_ballot` call sites (Approve/Reject/Abstain). Single funnel => correctly enforces RFC-0011 §5's *across-type* rule.
+- `src/macp_sdk/quorum.py:90-97` — `_set_ballot`; `:92` is the unconditional overwrite. Underscore-prefixed, not exported => signature change is internal.
+- `src/macp_sdk/quorum.py:107-161` — every query helper takes `request_id`. `commitment_ready` (`:134`) is `has_quorum(...) and phase != "Committed"`.
+- `src/macp_sdk/proposal.py:97`, `:109` — unguarded `accepts` / `rejections` appends. Derived accessors `:137` (set), `:146`/`:159`/`:163` (`any`) are duplicate-tolerant.
+- `src/macp_sdk/task.py:123`, `:138`, `:154` — unguarded `updates` / `completions` / `failures` appends. `:184` (`any`), `:186`/`:191` (dict / `[-1]`) are duplicate-tolerant.
+- `src/macp_sdk/base_session.py:57` — `self.projection = self._create_projection()`; the same object `_send_and_track` (`:86`) writes to and that callers reach as `session.projection`. `:202-204` `open_stream()`.
+- `src/macp_sdk/agent/participant.py:97-99` — `ParticipantActions.send_envelope` -> `self._client.send(...)`. **No local apply.** `:109-153` `start_session` likewise ends at `return self.send_envelope(envelope)`. Grep-verified: **zero** `*Session` constructions anywhere in `src/macp_sdk/agent/`. The agent path is NOT exposed to spurious anomalies.
+- `src/macp_sdk/agent/participant.py:410` — `_process_envelope` feeds the projection. `:483` `run()` has **no re-entry guard**. `:550` `process_event` is **public and unguarded**.
+- `src/macp_sdk/agent/transports.py:60` — `send_subscribe(session_id)` with `after_sequence` defaulting to `0` => **full accepted-history replay on every subscribe**. The live redelivery path.
+- `src/macp_sdk/agent/strategies.py:248-268`, `:286-309` — `majority_voter` / `majority_committer` consume `vote_totals()` / `majority_winner()` via duck-typed `Any`. **No code change needed**; Phase 4 adds a behavioural regression test only.
+- `src/macp_sdk/client.py:188` — `send_subscribe(session_id, after_sequence=0)`. `:419-422` — `ack.duplicate` treated as idempotent success; the runtime-boundary analogue of D1.
+- `src/macp_sdk/envelope.py:39-40` — `new_message_id()` = `str(uuid.uuid4())`. `:235` — `build_envelope` does `message_id or new_message_id()`, so SDK-built envelopes always carry an id.
+- `src/macp_sdk/_logging.py:5` — `logger = logging.getLogger("macp_sdk")`. Use this; **never `warnings.warn`** (`pyproject.toml:157` `filterwarnings = ["error"]`).
+- `src/macp_sdk/__init__.py:112-221` — `__all__`, isort-style grouped (SCREAMING -> CamelCase -> snake_case, each alphabetical). New: both `ANOMALY_*` at the head of the SCREAMING block; `ProjectionAnomaly` before `ProposalAcceptanceRules`.
+- `tests/conftest.py:59-74` — `make_ack`, whose `message_id: str = ""` is at **`:62`**. The brief attributed this default to `make_envelope`; it does not belong to it.
+- `tests/conftest.py:77-95` — `make_envelope`. **No `message_id` parameter**; `:90` always calls `new_message_id()`. Two calls => two different uuid4s. Phase 1 adds `message_id: str | None = None` resolved with `is None` (so `""` is honourable).
+- `tests/unit/test_base_projection.py:13-21` — `_Projection` harness (`mode_messages` list). Reuse for all D1/D2 base tests.
+- `tests/unit/test_quorum_projection.py:177-209` — `test_one_sender_one_ballot`. `required_approvals=1`, so last-wins REACHES quorum and first-wins does not. **Rewrite, keep the name.**
+- `tests/unit/test_decision_projection.py` — 16 tests, no duplicate-vote case. `test_review_evaluations` (`:189`) sends two Evaluations from the same sender `agent-REVIEW` — legal; evaluations are not one-per-sender, and their ids differ.
+- `tests/conformance/test_conformance_projections.py:98` — `_build_envelope` uses `new_message_id()`. `:153` — the `expect != "accept"` filter (the D4 caller-filters exemplar). `:157` — insert the zero-anomaly assertion after this line. `:181-186` — per-sender vote assertions.
+- `tests/conformance/quorum_reject_paths.json` — `reject Approve alice` then `accept Approve alice`. A same-sender duplicate **iff the loader stops filtering**. The concrete case that makes D4 load-bearing.
+- `tests/unit/test_client_helpers.py:142`, `tests/unit/test_client_stream.py:160` — hand-built `Envelope(message_type="Vote", session_id="x")` with proto3-default `message_id == ""`. The real justification for the empty-id guard.
+- `tests/unit/test_absorb_runtime_v050.py:151` — `_synthetic_accept` is the repo's only deterministic-id producer (`implicit-accept:h1`). Used at `:175` and `:217` on **different** projection objects, so D1 does not affect it — but a future test applying it twice to one projection would now no-op.
+- `tests/unit/test_public_api.py:32` — `test_every_reexport_is_in_all` catches a missing `__all__` entry.
+- `docs/guides/building-orchestrators.md:117-134` — **shipped documented double-apply shape**: `client.open_stream(...)` -> `session.projection.apply_envelope(envelope)` at `:126`, alongside `_send_and_track`'s local apply. The real motivation for the dedup-before-detection constraint.
+- `docs/guides/streaming.md:143`, `docs/guides/direct-agent-auth.md:72`/`:92`, `examples/direct_agent_auth_initiator.py:65`, `examples/direct_agent_auth_observer.py:43` — shipped `session.open_stream()` call sites.
+- `docs/determinism.md:53-63` — documented replay-equivalence pattern. Holds under D1+D3 for `votes`, `ballots`, and `anomalies`; asserted by Phase 4 criterion 12.
+- `docs/modes/quorum.md:105-131` — projection-queries block; stale on nearly every line (`proj.request`, `.choice`, arity-0 counts, `commitment_ready(5)`).
+- `docs/modes/quorum.md:133-143` — `## Ballot override`. The documented-behaviour removal.
+- `docs/modes/decision.md:108` — falsely claims `has_blocking_objection` fires on `{high, critical, block}`; code says `critical` only. `:120` — `transcript` "full ordered history", now deduplicated.
+- `docs/api/index.md:21-26` — mkdocstrings projection block; add `ProjectionAnomaly` after `:21`.
+- `pyproject.toml:99` — ruff `select` includes `RUF` but **preview is off**, so RUF022 (`__all__` sort) is not enforced; the existing grouping is convention, follow it. `:151` `--strict-markers`. `:156-163` `filterwarnings = ["error"]`. `:168-174` branch coverage, `fail_under = 85`.
+- `Makefile:15` — `lint` = `ruff check` **+ `ruff format --check`**. `:34` — `test-all` = lint + typecheck + test + integration + conformance + lint-fixtures.
+- `release-please-config.json` — `release-type: python`, `bump-minor-pre-major: true` => pre-1.0 a `BREAKING CHANGE:` cuts a **minor**. `CHANGELOG.md:3` has a hand-written `## Unreleased`.
+
+### External references (read-only; do not edit these repos)
+
+- `macp-runtime/crates/macp-modes/src/mode/decision.rs:217` — rejects a second Vote per sender.
+- `macp-runtime/crates/macp-modes/src/mode/quorum.rs:164`, `:184`, `:204` — reject a second ballot on Approve/Reject/Abstain.
+- `macp-runtime/crates/macp-core/src/error.rs:66` — `InvalidPayload` -> `INVALID_ENVELOPE`.
+- `macp-runtime/src/runtime.rs:634-640` — `Precheck::Duplicate` early-returns **before** `log_store.append` (`:679`) and `publish_accepted_envelope` (`:728`); returns `duplicate: true` -> `ack.duplicate`. Duplicates never enter accepted history, so excluding them from `transcript` is faithful reconstruction, not a tradeoff. (Reported by the TypeScript SDK session; verified in runtime source.)
+- `multiagentcoordinationprotocol/rfcs/RFC-MACP-0007-decision-mode.md:79` — §5.3, "the first accepted `Vote` stands."
+- `multiagentcoordinationprotocol/rfcs/RFC-MACP-0011-quorum-mode.md:67` — §5 rule 3, "at most one ballot across Approve, Reject, or Abstain." **Silent on which stands.**
+- `multiagentcoordinationprotocol/rfcs/RFC-MACP-0001-core.md:306` — at-least-once (load-bearing); `:316` — §8.2 runtime idempotency (corroborating, supplies the identity only).
+- `multiagentcoordinationprotocol/rfcs/RFC-MACP-0006-transport-bindings.md` — §3.2 Passive Session Subscription. Obligation 4: "Never replay rejected envelopes." **Redelivery clause added in spec PR #80 (`110add2`, RFC-0006 -> 1.4.0-draft):** clients MUST tolerate already-observed envelopes and key detection on `message_id`; a repeat MUST NOT advance sequence position; a repeat MUST NOT count against a Mode cardinality rule; consumers accumulating per-envelope state MUST be idempotent on `message_id`. This is the conformance basis for PR A.
+- Spec commit `f1489df` (spec PR #79) — the RFC-0007 §5.3 tightening. Its own message says it "needs no code change anywhere." **Not the justification for this work.**
+
+## Corrections to the original brief (code wins)
+
+1. `tests/conftest.py:62` is `make_ack`, not `make_envelope`. `make_envelope` (`:77`) has no `message_id` parameter and always generates a uuid4. **This inverts the test-design trap:** the risk is two *different* ids from two helper calls silently turning a redelivery test into a cardinality test — not two empty ids.
+2. `has_blocking_objection()` is `any(...)` and **cannot** change value from duplication. Only raw list lengths and the two Decision list accessors do.
+3. RFC-0011 §5 does **not** say "first wins" — it says "at most one ballot" and is silent on which stands. First-wins for ballots is inferred from RFC-0007 §5.3 parity plus runtime behaviour.
+4. The append-on-replay bug is **seven** sites across **three** modes (Decision 2, Proposal 2, Task 3), not two.
+5. The double-apply risk is **not** present on the agent path (verified: no local apply in `ParticipantActions`, no `BaseSession` in `agent/`) — unlike the TypeScript SDK, which has it on its happy path. It **is** present via `BaseSession` + `open_stream`, and that shape is taught by `docs/guides/building-orchestrators.md:126`, making it documented guidance rather than a hypothetical integration.
+
+## Phase status
+
+- **Phase 0 — Repo map into PROGRESS.md:** DONE
+- **Phase 1 — message_id-idempotent apply + normative docstring contract:** DONE
+- **Phase 2 — Replay inflation across seven append sites:** DONE
+- **Phase 3 — ProjectionAnomaly public surface (inert):** TODO
+- **Phase 4 — First-wins at the two sites:** TODO
+- **Phase 5 — Documented-behaviour removal and release notes:** TODO
+
+## Log
+
+### Phase 0 — 2026-08-31
+
+- Plan authored by a fresh Opus planning agent doing its own deep read; corrected three claims in the brief (see Corrections above). Repo map written here so later phases do not re-scan.
+- One-way-door analysis (anomaly API shape) ran on Fable; three decisions escalated to and made by the user: base-level dedup gating transcript, TypeScript's scalar field set, ship-when-ready.
+- Cross-repo coordination with the spec-repo and macp-sdk-typescript sessions throughout; no writes outside this repo.
+
+### Phase 1 — 2026-08-31
+
+- **Verdict:** PASS (round 1) → GAPS (re-verify, 2 documentation-only) → closed. Verifier tier:
+  **Opus** both rounds — no one-way door in this phase (the API-shape one-way door was
+  resolved before the drive started and is baked in as D1–D5).
+- **Round 1 PASS with 6 advisory findings.** The gate proved rather than asserted its two
+  key claims: built a git worktree at HEAD to establish the pre-Phase-1 baseline (666 → 672,
+  exactly the six new tests, zero existing assertions touched), and mutation-proved the
+  mode-check ordering by moving the dedup gate above it (exactly one test failed, so
+  `test_wrong_mode_envelope_does_not_poison_seen_set` is the sole discriminator and is not
+  passing for an incidental reason). All spec citations verified; RFC-MACP-0006 §3.2's
+  redelivery clause confirmed present locally at `110add2` (not stale).
+- **Advisory finding promoted to blocking by the orchestrator: the partial-apply wedge.**
+  Recording the id and appending to `transcript` *before* the effect meant a raising
+  `_apply_mode_message` left the envelope marked-seen-but-unapplied, and every retry was
+  then silently swallowed — pre-Phase-1 a retry recovered. This is a regression introduced
+  by this phase and a silent-failure path, which the standing bar forbids, so it was fixed
+  rather than accepted. Fix: roll back `transcript` + `_seen_message_ids` on exception and
+  re-raise unchanged. Logged in `ASSUMPTIONS.md` (UNCONFIRMED) with rejected alternatives.
+- **Re-verify GAPS (2), both honesty items, both closed.** (1) The atomicity claim in the
+  code comment — and in the `ASSUMPTIONS.md` entry — was stated unqualified but the rollback
+  covers `transcript` and `_seen_message_ids` only, not `self.phase` or subclass collections.
+  Unreachable today only because every subclass raises before it mutates; that invariant was
+  undocumented, untested, and holds on a publicly exported ABC that Phases 3–4 will add
+  logic inside. Both now scoped, with the invariant named as the reason the narrow rollback
+  suffices. (2) The public docstring said nothing about exception behaviour, so a caller
+  catching an exception had no documented basis for retrying — the whole user-visible point
+  of the fix lived only in an internal comment. Now in the public contract.
+- **Best catch of the run:** the unconditional `transcript.pop()` was justified by a comment
+  about single-threadedness — the wrong hazard. The real risks to "`transcript[-1]` is what I
+  appended" are a subclass appending to `transcript` before raising, or re-entrancy. Neither
+  occurs today (all five subclasses and both call sites checked exhaustively), but a
+  wrong-entry pop on a public ABC is corruption worse than the bug it fixes. Now an
+  identity-guarded pop (`is`, not `==` — protobuf compares by value), with the false arm
+  covered honestly by a subclass that appends a sentinel before raising.
+- **Adversarial check imported from the TypeScript SDK session** (they found their own guard
+  provably dead at one of six call sites): deleted the empty-`message_id` guard and ran the
+  suite. Went red with exactly one failure, so the guard is live. Their structural risk did
+  not transfer — `recordAnomaly` has six call sites, `apply_envelope` has one.
+- **Files touched:** `src/macp_sdk/base_projection.py`, `tests/conftest.py`,
+  `tests/unit/test_base_projection.py`, `ASSUMPTIONS.md`, `PROGRESS.md`, plan.
+- **Checks:** `make lint`, `make typecheck`, `make test-all` green. **679 passed**
+  (666 baseline + 13 new), coverage 87.83% (gate 85%), `base_projection.py` 100% —
+  proven differentially by deselecting the new classes, not taken from the summary line.
+- **Ship decision:** **accumulate**, do not ship alone. Per the plan's shipping table PR A is
+  phases 0+1+2; Phase 1 alone would ship a user-visible `transcript` behaviour change with
+  zero CHANGELOG narrative, and Phase 2 *is* the release narrative for the second,
+  independent bug (replay inflation across seven append sites).
+- **Next:** Phase 2.
+
+### Phase 2 — 2026-08-31
+
+- **Verdict:** GAPS (1 blocking, 4 minor) → closed → green. Verifier tier: **Opus** — tests
+  and release notes only, no one-way door.
+- **Tests are load-bearing, proven not assumed.** The gate neutered the Phase 1 dedup guard
+  and re-ran: **8 of 8** new tests failed. So no Phase 2 test fell into the id-reuse trap
+  (`make_envelope` mints a fresh uuid4 per call, so two calls would have silently turned a
+  redelivery test into a distinctness test that passes while proving nothing). Tree restored
+  byte-identically, verified by md5.
+- **Blast radius verified by execution, not by reading the plan.** The gate ran a real
+  double-apply and diffed every accessor. Changed: `evaluations` 2→4, `objections` 1→2,
+  `review_evaluations()` 1→2, `qualifying_evaluations()` 1→2, `accepts`/`rejections`/
+  `updates`/`completions`/`failures` 1→2, `transcript` 3→6. Unchanged:
+  `has_blocking_objection()`, `is_accepted()`, `accepted_proposal()`, `is_retryable()`,
+  `latest_progress()`, `progress_of()`, plus `is_terminally_rejected()`,
+  `has_terminal_rejection()`, `is_completed()`, `is_failed()`, `vote_totals()`.
+  **Zero false claims in the CHANGELOG body.**
+- **"Seven sites" confirmed exact, not an undercount** — full `.append(` inventory re-run
+  across `src/macp_sdk/`; `handoff.py` and `quorum.py` have zero.
+- **G1 (blocking):** the `## Unreleased` preamble read "No SDK API changes" while the bullet
+  four lines below described `apply_envelope` no-opping on redelivery — self-refuting on the
+  same screen. Narrowed to "plus one projection behaviour fix — no API *signature* changes."
+- **G2 — a defect in THIS PLAN, not in the executor's work.** Phase 2 criterion 1 prescribed
+  `assert len(qualifying_evaluations()) == 0`, which **cannot fail**: with a single `REVIEW`
+  evaluation that accessor filters `!= "REVIEW"` and returns `[]` however many times the
+  envelope is applied. It read like coverage of an accessor the CHANGELOG names as affected
+  while pinning nothing. Criterion corrected in the plan; the test now feeds a second
+  non-`REVIEW` evaluation and asserts `== 1`. The fixer confirmed the *new* assertion is
+  independently load-bearing by running the sequence standalone against a neutered guard
+  (returned 2, not 1) rather than letting it ride on an earlier assertion.
+- **G4:** this CHANGELOG entry is PR A's *only* user-facing artifact (Phase 1 docs are
+  deliberately deferred to Phase 5), so two contract boundaries had no user-visible signal
+  anywhere: empty `message_id` is never deduped, and a failed apply rolls back so the caller
+  can retry. Both added, with the rollback's honest limit stated.
+- **G3:** the class-docstring trap table listed a "Distinctness" row no test in that class
+  exercises; now cross-references `test_base_projection.py::TestIdempotentApply::
+  test_distinct_message_ids_both_applied`.
+- **Files touched:** `tests/unit/test_decision_projection.py`,
+  `tests/unit/test_proposal_projection.py`, `tests/unit/test_task_projection.py`,
+  `CHANGELOG.md`, `PROGRESS.md`, plan. **Zero `src/` changes** — the mechanism shipped in
+  Phase 1; this phase proves it and narrates it.
+- **Checks:** `make lint`, `make typecheck`, `make test-all` green. **687 passed**
+  (679 + 8), coverage 87.83% (gate 85%).
+- **Ship decision:** **ship now as PR A (phases 0+1+2).** The gate confirmed nothing in PR A
+  depends on B or C — no anomaly surface, no cardinality change — so the hard sequencing
+  interlock is satisfied.
+- **Next:** Phase 3 (inert `ProjectionAnomaly` surface).
