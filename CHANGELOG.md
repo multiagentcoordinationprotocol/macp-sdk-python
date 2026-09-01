@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased
+## [0.8.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.7.0...v0.8.0) (2026-08-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* the first accepted Vote or ballot per sender now stands and later ones are discarded. Callers that relied on re-sending to change a vote no longer can. Discarded messages surface in projection.anomalies.
+
+### Features
+
+* add ProjectionAnomaly to the projection API ([#47](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/47)) ([5a4b7a6](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/5a4b7a6183a1f0f99e07a6437ff2fe71b33c8ba7))
+* first accepted vote or ballot stands ([#48](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/48)) ([e22b2e4](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/e22b2e4251ffa95628d5a89aaf6ffad674791883))
+
+
+### Bug Fixes
+
+* make projection apply idempotent on message_id ([#45](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/45)) ([070f6f5](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/070f6f57a72193ea2900d15e9eefde5b20d4bc64))
+
 
 Test-suite and CI/CD hardening, a projection replay-inflation fix, a new
 projection-anomaly surface, and a **breaking change to vote/ballot
@@ -158,23 +174,6 @@ change it.
 - All GitHub Actions SHA-pinned with version comments; `.github/dependabot.yml`
   added (github-actions + pip weekly, `macp-proto` excluded — absorption is
   manual).
-
-## [0.8.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.7.0...v0.8.0) (2026-08-31)
-
-
-### ⚠ BREAKING CHANGES
-
-* the first accepted Vote or ballot per sender now stands and later ones are discarded. Callers that relied on re-sending to change a vote no longer can. Discarded messages surface in projection.anomalies.
-
-### Features
-
-* add ProjectionAnomaly to the projection API ([#47](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/47)) ([5a4b7a6](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/5a4b7a6183a1f0f99e07a6437ff2fe71b33c8ba7))
-* first accepted vote or ballot stands ([#48](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/48)) ([e22b2e4](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/e22b2e4251ffa95628d5a89aaf6ffad674791883))
-
-
-### Bug Fixes
-
-* make projection apply idempotent on message_id ([#45](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/45)) ([070f6f5](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/070f6f57a72193ea2900d15e9eefde5b20d4bc64))
 
 ## [0.7.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.6.0...v0.7.0) (2026-08-30)
 
