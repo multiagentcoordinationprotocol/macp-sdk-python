@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from macp.v1 import core_pb2
 
 from macp_sdk.auth import AuthConfig
+from macp_sdk.client import MacpClient
 from macp_sdk.envelope import (
     build_envelope,
     build_progress_payload,
     build_signal_payload,
     serialize_message,
 )
+from macp_sdk.errors import MacpSessionError
 
 
 def _sent_envelope(mock_client: MagicMock):
@@ -142,3 +145,62 @@ class TestSendProgress:
         assert payload.total == 8.0
         assert payload.message == "halfway"
         assert payload.target_message_id == "msg-xyz"
+
+
+class TestSendProgressScopePairing:
+    """RFC-MACP-0001 §6 makes ``Progress`` tri-state: ambient (``session_id``
+    and ``mode`` both empty) or session-scoped (both non-empty), never mixed.
+    macp-runtime rejects the mixed shape with ``INVALID_ENVELOPE`` as of
+    PR #137; ``send_progress`` fails fast with a message naming the mismatch.
+
+    These exercise the real ``MacpClient.send_progress`` (the helpers above
+    only reproduce its envelope-building logic), so they lock the guard in
+    place rather than a copy of it.
+    """
+
+    SID = "550e8400-e29b-41d4-a716-446655440000"
+
+    @staticmethod
+    def _client() -> MacpClient:
+        auth = AuthConfig.for_bearer("tok", expected_sender="alice")
+        client = MacpClient(target="localhost:0", allow_insecure=True, auth=auth)
+        client.stub = MagicMock()
+        return client
+
+    def test_session_id_without_mode_raises_without_sending(self):
+        client = self._client()
+        with pytest.raises(MacpSessionError, match="but mode is empty"):
+            client.send_progress(session_id=self.SID, progress_token="t1", progress=1.0, total=4.0)
+        client.stub.Send.assert_not_called()
+
+    def test_mode_without_session_id_raises_without_sending(self):
+        client = self._client()
+        with pytest.raises(MacpSessionError, match="but session_id is empty"):
+            client.send_progress(
+                mode="macp.mode.task.v1", progress_token="t1", progress=1.0, total=4.0
+            )
+        client.stub.Send.assert_not_called()
+
+    def test_ambient_form_is_accepted(self):
+        client = self._client()
+        client.send = MagicMock()  # type: ignore[method-assign]
+        client.send_progress(progress_token="t1", progress=1.0, total=4.0)
+        env = client.send.call_args.args[0]
+        assert env.message_type == "Progress"
+        assert env.session_id == ""
+        assert env.mode == ""
+
+    def test_session_scoped_form_is_accepted(self):
+        client = self._client()
+        client.send = MagicMock()  # type: ignore[method-assign]
+        client.send_progress(
+            session_id=self.SID,
+            mode="macp.mode.task.v1",
+            progress_token="t1",
+            progress=1.0,
+            total=4.0,
+        )
+        env = client.send.call_args.args[0]
+        assert env.message_type == "Progress"
+        assert env.session_id == self.SID
+        assert env.mode == "macp.mode.task.v1"

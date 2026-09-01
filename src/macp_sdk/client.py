@@ -24,6 +24,7 @@ from .errors import (
     MacpSessionError,
     MacpTransportError,
 )
+from .validation import validate_progress_scope
 
 # Public typing alias for inline stream-error callbacks. Parity with
 # typescript-sdk's ``InlineErrorCallback``. Receives the protobuf
@@ -962,10 +963,18 @@ class MacpClient:
     ) -> envelope_pb2.Ack:
         """Send a progress update.
 
-        When ``session_id`` and ``mode`` are empty, the progress is treated
-        as an *ambient* progress message routed through the signal broadcast
-        path.
+        Per RFC-MACP-0001 §6, ``Progress`` is legal in exactly two shapes:
+
+        * *ambient* -- ``session_id`` and ``mode`` both empty, routed through
+          the signal broadcast path; or
+        * *session-scoped* -- both non-empty.
+
+        Supplying exactly one of the two raises ``MacpSessionError`` naming
+        the mismatched field. The runtime rejects that mixed envelope with
+        ``INVALID_ENVELOPE``, so this only surfaces the failure earlier and
+        more clearly.
         """
+        validate_progress_scope(session_id, mode)
         auth_cfg = self._require_auth(auth)
         payload = build_progress_payload(
             progress_token=progress_token,
