@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from macp_sdk.errors import MacpSessionError
 from macp_sdk.policy import (
     AbstentionRules,
     CommitmentRules,
@@ -183,16 +186,63 @@ class TestBuildQuorumPolicy:
         desc = build_quorum_policy(
             "qp-2",
             "Custom quorum",
-            threshold=QuorumThreshold(type="percentage", value=0.75),
+            threshold=QuorumThreshold(type="percentage", value=75),
             abstention=AbstentionRules(counts_toward_quorum=True, interpretation="implicit_reject"),
             commitment=CommitmentRules(authority="any_participant"),
         )
         rules = json.loads(desc.rules)
         assert rules["threshold"]["type"] == "percentage"
-        assert rules["threshold"]["value"] == 0.75
+        assert rules["threshold"]["value"] == 75
         assert rules["abstention"]["counts_toward_quorum"] is True
         assert rules["abstention"]["interpretation"] == "implicit_reject"
         assert rules["commitment"]["authority"] == "any_participant"
+
+
+class TestQuorumThresholdIntegrality:
+    """build_quorum_policy rejects a non-integer threshold value (#50).
+
+    The canonical quorum-rules.schema.json declares 'value' as an integer
+    for every threshold type, and macp-sdk-typescript already throws on a
+    fractional percentage. Python must match, for all three threshold
+    types, not just 'percentage'.
+    """
+
+    @pytest.mark.parametrize("threshold_type", ["n_of_m", "percentage", "weighted"])
+    def test_fractional_value_rejected(self, threshold_type):
+        with pytest.raises(MacpSessionError, match="integer"):
+            build_quorum_policy(
+                "q", "d", threshold=QuorumThreshold(type=threshold_type, value=0.75)
+            )
+
+    @pytest.mark.parametrize("threshold_type", ["n_of_m", "percentage", "weighted"])
+    def test_bool_value_rejected(self, threshold_type):
+        # isinstance(True, int) is True in Python -- value=True must not
+        # silently mean 1.
+        with pytest.raises(MacpSessionError, match="integer"):
+            build_quorum_policy(
+                "q", "d", threshold=QuorumThreshold(type=threshold_type, value=True)
+            )
+
+    @pytest.mark.parametrize("value", [0, 3, 75, 100])
+    def test_integer_values_still_accepted(self, value):
+        desc = build_quorum_policy(
+            "q", "d", threshold=QuorumThreshold(type="percentage", value=value)
+        )
+        rules = json.loads(desc.rules)
+        assert rules["threshold"]["value"] == value
+        assert isinstance(rules["threshold"]["value"], int)
+
+    def test_accepting_cases_unchanged_json_bytes(self):
+        # Byte-identical to the descriptor produced before this validation
+        # was added -- the check must reject bad input, not alter good input.
+        desc = build_quorum_policy("q", "d", threshold=QuorumThreshold(type="n_of_m", value=3))
+        assert json.loads(desc.rules)["threshold"] == {"type": "n_of_m", "value": 3}
+
+    def test_existing_range_checks_unchanged(self):
+        with pytest.raises(MacpSessionError):
+            build_quorum_policy("q", "d", threshold=QuorumThreshold(type="n_of_m", value=-1))
+        with pytest.raises(MacpSessionError):
+            build_quorum_policy("q", "d", threshold=QuorumThreshold(type="percentage", value=150))
 
 
 # ── Proposal mode ────────────────────────────────────────────────────

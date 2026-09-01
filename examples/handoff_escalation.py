@@ -1,21 +1,28 @@
 """Handoff mode example: transferring responsibility between agents.
 
 Demonstrates: offer, add_context, accept_handoff, commit.
-Requires a running MACP runtime on localhost:50051.
+Requires a running MACP runtime, defaulting to localhost:50051 (override
+with MACP_RUNTIME_TARGET).
 """
+
+import os
 
 from macp_sdk import AuthConfig, MacpClient
 from macp_sdk.handoff import HandoffSession
 
+# --- Per-agent auth configs ---
+owner_a_auth = AuthConfig.for_dev_agent("owner-a")
+owner_b_auth = AuthConfig.for_dev_agent("owner-b")
+
 # --- Create client ---
 client = MacpClient(
-    target="127.0.0.1:50051",
+    target=os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051"),
     allow_insecure=True,  # local dev only; production requires TLS (RFC-0006 §3)
-    auth=AuthConfig.for_dev_agent("owner-a"),
+    auth=owner_a_auth,
 )
 
 # --- Start handoff session ---
-session = HandoffSession(client, auth=AuthConfig.for_dev_agent("owner-a"))
+session = HandoffSession(client, auth=owner_a_auth)
 session.start(
     intent="transfer service-xyz ownership",
     participants=["owner-a", "owner-b"],
@@ -38,7 +45,7 @@ session.add_context(
 )
 
 # --- Owner-B accepts ---
-session.accept_handoff("h1", sender="owner-b")
+session.accept_handoff("h1", sender="owner-b", auth=owner_b_auth)
 
 # --- Commit the handoff ---
 proj = session.handoff_projection

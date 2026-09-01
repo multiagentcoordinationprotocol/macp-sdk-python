@@ -57,29 +57,44 @@ Per-message authorization, the configurable acceptance criterion (`all_parties` 
 from macp_sdk import AuthConfig, MacpClient
 from macp_sdk.proposal import ProposalSession
 
-client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=AuthConfig.for_dev_agent("coordinator"))
-session = ProposalSession(client)
+# Per-agent auth configs
+coordinator_auth = AuthConfig.for_dev_agent("coordinator")
+buyer_auth = AuthConfig.for_dev_agent("buyer")
+seller_auth = AuthConfig.for_dev_agent("seller")
+
+client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=coordinator_auth)
+# The coordinator is a neutral convener, not a negotiating party, so it is
+# deliberately left out of `participants`. Proposal mode's default
+# acceptance criterion is `all_parties` (runtime: proposal.rs's convergence
+# rule), which requires every declared participant to accept the same live
+# proposal before commit is possible -- a non-voting coordinator in
+# `participants` would make convergence unreachable. The initiator retains
+# Commitment authority regardless of participant membership (RFC-MACP-0007 §2).
+session = ProposalSession(client, auth=coordinator_auth)
 session.start(
     intent="negotiate service contract terms",
-    participants=["coordinator", "buyer", "seller"],
+    participants=["buyer", "seller"],
     ttl_ms=120_000,
 )
 
 # Seller's initial offer
-session.propose("p1", "Standard Package", summary="$100k/year, basic SLA", sender="seller")
+session.propose(
+    "p1", "Standard Package", summary="$100k/year, basic SLA", sender="seller", auth=seller_auth
+)
 
 # Buyer counter-proposes
 session.counter_propose(
     "p2", "p1", "Enhanced Package",
     summary="$80k/year, premium SLA, 24/7 support",
     sender="buyer",
+    auth=buyer_auth,
 )
 
 # Seller accepts the counter
-session.accept("p2", reason="terms acceptable", sender="seller")
+session.accept("p2", reason="terms acceptable", sender="seller", auth=seller_auth)
 
 # Buyer confirms
-session.accept("p2", reason="agreed", sender="buyer")
+session.accept("p2", reason="agreed", sender="buyer", auth=buyer_auth)
 
 # Commit the agreement
 proj = session.proposal_projection
@@ -126,18 +141,31 @@ proj.is_committed               # True after Commitment
 ## Real-world scenario: multi-round negotiation
 
 ```python
+# Per-agent auth configs
+vendor_auth = AuthConfig.for_dev_agent("vendor")
+client_auth = AuthConfig.for_dev_agent("client")
+
 # Round 1: Initial offers
-session.propose("p1", "Plan A", summary="$50k, 6-month term", sender="vendor")
+session.propose("p1", "Plan A", summary="$50k, 6-month term", sender="vendor", auth=vendor_auth)
 
 # Round 2: Counter
-session.counter_propose("p2", "p1", "Plan A Revised", summary="$45k, 12-month term", sender="client")
+session.counter_propose(
+    "p2", "p1", "Plan A Revised", summary="$45k, 12-month term", sender="client", auth=client_auth
+)
 
 # Round 3: Final counter
-session.counter_propose("p3", "p2", "Plan A Final", summary="$47k, 12-month, quarterly reviews", sender="vendor")
+session.counter_propose(
+    "p3",
+    "p2",
+    "Plan A Final",
+    summary="$47k, 12-month, quarterly reviews",
+    sender="vendor",
+    auth=vendor_auth,
+)
 
 # Both accept the final version
-session.accept("p3", sender="client")
-session.accept("p3", sender="vendor")
+session.accept("p3", sender="client", auth=client_auth)
+session.accept("p3", sender="vendor", auth=vendor_auth)
 
 # At this point, proj.accepted_proposal() == "p3"
 ```

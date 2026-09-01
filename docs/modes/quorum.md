@@ -43,7 +43,7 @@ Commitment → RESOLVED
 - `required_approvals` must be > 0 and ≤ participant count
 - Each participant casts at most **one ballot** — the first ballot stands and later ballots from the same sender are discarded (see ["First ballot stands"](#first-ballot-stands) below)
 
-> **`threshold` is the approval bar, not a participation quorum (RFC-MACP-0012 §4.2).** When you override `required_approvals` with a bound policy via `build_quorum_policy(threshold=QuorumThreshold(...))`, the `threshold.value` is an **integer**: an approval *count* for `type="n_of_m"` / `"weighted"`, and an integer *percentage 0-100* for `type="percentage"`. There is no separate participation quorum in schema_version ≤ 2. The SDK range-checks these at build time (a fractional `0.75` or a `percentage` over `100` raises `MacpSessionError`), matching the runtime's schema so a bad descriptor fails immediately instead of at `RegisterPolicy`.
+> **`threshold` is the approval bar, not a participation quorum (RFC-MACP-0012 §4.2).** When you override `required_approvals` with a bound policy via `build_quorum_policy(threshold=QuorumThreshold(...))`, the `threshold.value` is an **integer**: an approval *count* for `type="n_of_m"` / `"weighted"`, and an integer *percentage 0-100* for `type="percentage"`. There is no separate participation quorum in schema_version ≤ 2. `build_quorum_policy` rejects a non-integer value (e.g. a fractional `0.75`), a negative value, and a `percentage` value over `100` — all with `MacpSessionError` — matching the runtime's schema so a bad descriptor fails immediately instead of round-tripping through `RegisterPolicy`.
 - Commitment is eligible when:
     - Approvals ≥ `required_approvals` (threshold reached), OR
     - Remaining possible approvals cannot reach threshold (mathematically unreachable)
@@ -58,8 +58,16 @@ Per-message authorization and the runtime's commitment-readiness check (threshol
 from macp_sdk import AuthConfig, MacpClient
 from macp_sdk.quorum import QuorumSession
 
-client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=AuthConfig.for_dev_agent("coordinator"))
-session = QuorumSession(client)
+# Per-agent auth configs
+coordinator_auth = AuthConfig.for_dev_agent("coordinator")
+alice_auth = AuthConfig.for_dev_agent("alice")
+bob_auth = AuthConfig.for_dev_agent("bob")
+carol_auth = AuthConfig.for_dev_agent("carol")
+dave_auth = AuthConfig.for_dev_agent("dave")
+eve_auth = AuthConfig.for_dev_agent("eve")
+
+client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=coordinator_auth)
+session = QuorumSession(client, auth=coordinator_auth)
 session.start(
     intent="approve security policy update",
     participants=["coordinator", "alice", "bob", "carol", "dave", "eve"],
@@ -76,16 +84,20 @@ session.request_approval(
 )
 
 # Participants vote over time
-session.approve("r1", reason="long overdue improvement", sender="alice")
-session.reject("r1", reason="too aggressive timeline", sender="bob")
-session.approve("r1", reason="security best practice", sender="carol")
-session.abstain("r1", reason="not in my domain", sender="dave")
-session.approve("r1", reason="agreed", sender="eve")
+session.approve("r1", reason="long overdue improvement", sender="alice", auth=alice_auth)
+session.reject("r1", reason="too aggressive timeline", sender="bob", auth=bob_auth)
+session.approve("r1", reason="security best practice", sender="carol", auth=carol_auth)
+session.abstain("r1", reason="not in my domain", sender="dave", auth=dave_auth)
+session.approve("r1", reason="agreed", sender="eve", auth=eve_auth)
 
 # Check and commit
 proj = session.quorum_projection
 request_id = "r1"
-total_eligible = 5  # all participants except coordinator
+# Every participant in the SessionStart list is an eligible ballot caster.
+# RFC-MACP-0011 §2.1: the coordinator is eligible only because it appears in
+# `participants` -- the coordinator role itself confers nothing.
+participants = ["coordinator", "alice", "bob", "carol", "dave", "eve"]
+total_eligible = len(participants)  # 6
 
 if proj.has_quorum(request_id):
     session.commit(
@@ -130,7 +142,7 @@ proj.abstention_count(request_id)                  # 1
 
 # Threshold logic
 proj.has_quorum(request_id)                                  # True (3 >= 3)
-proj.is_threshold_unreachable(request_id, total_eligible=5)  # False
+proj.is_threshold_unreachable(request_id, total_eligible=6)  # False
 proj.commitment_ready(request_id)               # has_quorum(request_id) and phase != "Committed"
 proj.threshold(request_id)                      # 3 (0 if the request hasn't arrived yet)
 proj.voted_senders(request_id)                  # ["alice", "bob", "carol", "dave", "eve"]

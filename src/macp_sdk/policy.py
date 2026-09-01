@@ -155,7 +155,8 @@ class QuorumThreshold:
     ``quorum-rules.schema.json``: an approval count for ``n_of_m`` /
     ``weighted``, and an integer percentage 0-100 for ``percentage``. A
     fractional value (e.g. ``0.75``) is rejected by the runtime's schema
-    validation, so this is typed ``int`` and range-checked at build time.
+    validation, so this is typed ``int`` and ``build_quorum_policy`` rejects
+    a non-integer or out-of-range value at build time.
     """
 
     type: str = "n_of_m"
@@ -185,7 +186,21 @@ def build_quorum_policy(
 
     # Match the canonical schema's constraints before the runtime does, so a
     # bad descriptor fails immediately client-side instead of round-tripping
-    # to an INVALID_POLICY_DEFINITION from RegisterPolicy.
+    # to an INVALID_POLICY_DEFINITION from RegisterPolicy. Order matters:
+    # type first (a float or bool reaching the range checks below would
+    # compare fine numerically but produce a confusing message), then >= 0,
+    # then the percentage-specific <= 100 cap.
+    #
+    # bool is checked explicitly because isinstance(True, int) is True in
+    # Python -- QuorumThreshold(value=True) must not silently mean 1.
+    if isinstance(t.value, bool) or not isinstance(t.value, int):
+        raise MacpSessionError(
+            "quorum threshold value must be an integer (e.g. 75 for 75%), got "
+            f"{t.value!r}. The canonical quorum-rules schema declares "
+            "'value' as an integer for every threshold type; a fractional "
+            "value like 0.75 would produce a schema-invalid descriptor that "
+            "the runtime rejects at RegisterPolicy with worse diagnostics."
+        )
     if t.value < 0:
         raise MacpSessionError(f"quorum threshold value must be >= 0, got {t.value}")
     if t.type == "percentage" and t.value > 100:

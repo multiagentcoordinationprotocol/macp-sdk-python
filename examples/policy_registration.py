@@ -1,9 +1,11 @@
 """Example: register a governance policy, then run a policy-governed decision session.
 
-Requires a running MACP Rust runtime on localhost:50051.
-Start the runtime with:
+Requires a running MACP Rust runtime, defaulting to localhost:50051
+(override with MACP_RUNTIME_TARGET). Start the runtime with:
     MACP_ALLOW_INSECURE=1 cargo run
 """
+
+import os
 
 from macp_sdk import (
     AuthConfig,
@@ -19,7 +21,7 @@ from macp_sdk import (
 
 def main() -> None:
     client = MacpClient(
-        target="127.0.0.1:50051",
+        target=os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051"),
         allow_insecure=True,  # local dev only; production requires TLS (RFC-0006 §3)
         auth=AuthConfig.for_dev_agent("coordinator"),
     )
@@ -69,7 +71,7 @@ def main() -> None:
 
         # ── Retrieve by ID ───────────────────────────────────────
         got = client.get_policy("policy.deploy.majority-veto")
-        print("retrieved:", got.descriptor.policy_id, got.descriptor.description)
+        print("retrieved:", got.policy_descriptor.policy_id, got.policy_descriptor.description)
 
         # ── Run a session with this policy ───────────────────────
         session = DecisionSession(

@@ -1,21 +1,28 @@
 """Task mode example: planner delegates work to a worker agent.
 
 Demonstrates: request, accept_task, update, complete, commit.
-Requires a running MACP runtime on localhost:50051.
+Requires a running MACP runtime, defaulting to localhost:50051 (override
+with MACP_RUNTIME_TARGET).
 """
+
+import os
 
 from macp_sdk import AuthConfig, MacpClient
 from macp_sdk.task import TaskSession
 
+# --- Per-agent auth configs ---
+planner_auth = AuthConfig.for_dev_agent("planner")
+worker_auth = AuthConfig.for_dev_agent("worker")
+
 # --- Create client ---
 client = MacpClient(
-    target="127.0.0.1:50051",
+    target=os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051"),
     allow_insecure=True,  # local dev only; production requires TLS (RFC-0006 §3)
-    auth=AuthConfig.for_dev_agent("planner"),
+    auth=planner_auth,
 )
 
 # --- Start task session ---
-session = TaskSession(client, auth=AuthConfig.for_dev_agent("planner"))
+session = TaskSession(client, auth=planner_auth)
 session.start(
     intent="analyze Q4 sales data",
     participants=["planner", "worker"],
@@ -31,19 +38,25 @@ session.request_task(
 )
 
 # --- Worker accepts ---
-session.accept_task("t1", sender="worker")
+session.accept_task("t1", sender="worker", auth=worker_auth)
 
 # --- Worker reports progress ---
-session.update_task("t1", status="running", progress=0.5, message="50% complete", sender="worker")
+session.update_task(
+    "t1", status="running", progress=0.5, message="50% complete", sender="worker", auth=worker_auth
+)
 
 # --- Worker completes ---
 session.complete_task(
-    "t1", output=b"Q4 revenue: $2.3M", summary="Analysis complete", sender="worker"
+    "t1",
+    output=b"Q4 revenue: $2.3M",
+    summary="Analysis complete",
+    sender="worker",
+    auth=worker_auth,
 )
 
 # --- Planner commits the outcome ---
 proj = session.task_projection
-if proj.is_completed():
+if proj.is_completed("t1"):
     session.commit(
         action="task.completed",
         authority_scope="data-analysis",

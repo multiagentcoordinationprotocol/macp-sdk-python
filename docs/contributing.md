@@ -46,6 +46,13 @@ probes the target (`MACP_RUNTIME_TARGET`, default `127.0.0.1:50051`) and
 auto-skips the whole directory when no runtime is reachable, so a bare
 `pytest tests/` is always safe to run.
 
+`examples/*.py` are executed, not just compiled — `tests/integration/test_examples_run.py`
+runs each one as a subprocess against a live runtime and asserts exit 0
+(`tests/unit/test_examples_smoke.py` only checks that they parse). Run
+`make test-integration` before touching anything under `examples/`. A new
+example file must be classified in that test's `RUN` or `EXCLUDED` list —
+its `test_coverage_parity` case fails otherwise.
+
 The fixture drift gate (`make verify-fixtures`) diffs this repo's vendored
 conformance fixtures against the canonical copies in the spec repo, in both
 directions — a canonical file missing or differing locally fails as `DRIFT`,
@@ -85,23 +92,54 @@ To move the pin:
    ```
 4. If anything breaks, fix the SDK (or report the proto regression upstream).
 5. Once green, update the pin in `pyproject.toml` (`macp-proto>=…,<…`) and this doc.
-6. Note the upgrade in `CHANGELOG.md`.
+6. Describe the upgrade in the commit body (`chore(deps): …` or `fix: …` if
+   it changes behavior) — release-please copies it into `CHANGELOG.md` when
+   the release PR is cut. Don't hand-edit `CHANGELOG.md` (see Release
+   process below).
 
 The CI job `proto-drift` (see `.github/workflows/proto-drift.yml`, Q-16) runs the conformance suite against `macp-proto>=0.1.0` resolved from PyPI daily and opens an issue if it breaks — don't wait for that to notice a problem, but treat its failure as an action item.
 
 ## Release process
 
-1. Bump `version` in `pyproject.toml` (and the `client_version` default in `src/macp_sdk/client.py` if it's a minor).
-2. Append a dated entry to `CHANGELOG.md` describing the change.
-3. `git commit` the bump + changelog on `main`.
-4. `git tag vX.Y.Z` and `git push --tags`.
-5. The `publish.yml` workflow runs the shared `checks.yml` gate (lint,
-   typecheck, unit matrix, conformance), verifies the tag matches the
-   pyproject version, builds, `twine check`s, and uploads to PyPI via trusted
-   publishing. The `publish` job must stay in `publish.yml` under the `pypi`
-   environment — the PyPI trusted-publisher config pins the workflow filename
-   and environment name.
-6. PyPI publishes are immutable — double-check the tag before pushing.
+**Releases are automated by `release-please` — do not bump the version or
+push a tag by hand.**
+
+1. Merge conventional-commit PRs to `main` as usual (`fix:`, `feat:`,
+   `feat!:`/`fix!:` for breaking changes, `docs:`, `chore:`, `ci:`, `test:`,
+   …). **Write a good commit body, not just a one-line subject** —
+   release-please copies the commit body straight into `CHANGELOG.md`, so
+   the body is the changelog entry. This is the *only* place changelog prose
+   comes from; there is no separate step to write one.
+2. `release-please.yml` (`.github/workflows/release-please.yml`) runs on
+   every push to `main`. It opens or updates a standing **release PR** that
+   bumps `pyproject.toml` + `.release-please-manifest.json` and rewrites
+   `CHANGELOG.md` from the conventional-commit history since the last
+   release. `bump-minor-pre-major: true` in `release-please-config.json`
+   means a `feat!`/`fix!` bumps the minor version pre-1.0 (this is why
+   0.7.0 → 0.8.0 was a `feat!`, not a major bump).
+3. Merging the release PR bumps the version, tags `vX.Y.Z`, and creates a
+   GitHub Release — all in one merge. Do this when the accumulated changes
+   are ready to ship; there is no separate "cut a release" step.
+4. The Release event (created with a GitHub App token, not `GITHUB_TOKEN`,
+   which is why it actually fires `publish.yml`) triggers `publish.yml`. It
+   re-runs the full `checks.yml` gate (lint, typecheck, unit matrix,
+   conformance), verifies the tag matches the `pyproject.toml` version,
+   builds, `twine check`s, and uploads to PyPI via trusted publishing
+   (OIDC) — no token or manual `twine upload` involved. The `publish` job
+   must stay in `publish.yml` under the `pypi` environment — the PyPI
+   trusted-publisher config pins the repo, the workflow filename, and the
+   environment name; renaming any of the three silently breaks publishing.
+5. PyPI publishes are immutable, but `skip-existing: true` makes re-running
+   `publish.yml` for an already-published version a safe no-op.
+
+**Never hand-edit `CHANGELOG.md`.** release-please owns the top of the
+file — it inserts each new `## [X.Y.Z]` section there from the commit
+history since the last release. A hand-written section left at the top
+(e.g. an `## Unreleased` block) does not get consumed or merged by
+release-please; it just sits above every future generated section,
+permanently mislabeling already-released work as unreleased. If a change
+needs prose richer than a one-line commit subject, put that prose in the
+commit body — that is what release-please will carry into the changelog.
 
 ## CI layout
 

@@ -1,9 +1,11 @@
+import os
+
 from macp_sdk import AuthConfig, DecisionSession, MacpClient
 
 
 def main() -> None:
     client = MacpClient(
-        target="127.0.0.1:50051",
+        target=os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051"),
         allow_insecure=True,  # local dev only; production requires TLS (RFC-0006 §3)
         auth=AuthConfig.for_dev_agent("coordinator"),
     )
