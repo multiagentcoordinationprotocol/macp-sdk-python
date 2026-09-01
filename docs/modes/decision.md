@@ -52,13 +52,18 @@ Per-message authorization (who can send Proposal/Evaluation/Vote/Commitment) and
 ```python
 from macp_sdk import AuthConfig, MacpClient, DecisionSession
 
+# Per-agent auth configs
+coordinator_auth = AuthConfig.for_dev_agent("coordinator")
+alice_auth = AuthConfig.for_dev_agent("alice")
+bob_auth = AuthConfig.for_dev_agent("bob")
+
 client = MacpClient(
     target="127.0.0.1:50051",
     allow_insecure=True,  # local dev; production uses TLS by default
-    auth=AuthConfig.for_dev_agent("coordinator"),
+    auth=coordinator_auth,
 )
 
-session = DecisionSession(client)
+session = DecisionSession(client, auth=coordinator_auth)
 session.start(
     intent="pick a deployment plan",
     participants=["coordinator", "alice", "bob"],
@@ -70,15 +75,21 @@ session.propose("p1", "deploy v2.1", rationale="tests passed, low risk")
 session.propose("p2", "deploy v3.0-beta", rationale="new features ready")
 
 # Evaluations
-session.evaluate("p1", "APPROVE", confidence=0.9, reason="stable release", sender="alice")
-session.evaluate("p2", "REVIEW", confidence=0.6, reason="needs more testing", sender="alice")
+session.evaluate(
+    "p1", "APPROVE", confidence=0.9, reason="stable release", sender="alice", auth=alice_auth
+)
+session.evaluate(
+    "p2", "REVIEW", confidence=0.6, reason="needs more testing", sender="alice", auth=alice_auth
+)
 
 # Objections
-session.raise_objection("p2", reason="beta not validated in staging", severity="high", sender="bob")
+session.raise_objection(
+    "p2", reason="beta not validated in staging", severity="high", sender="bob", auth=bob_auth
+)
 
 # Votes
-session.vote("p1", "approve", reason="safe choice", sender="alice")
-session.vote("p1", "approve", reason="agreed", sender="bob")
+session.vote("p1", "approve", reason="safe choice", sender="alice", auth=alice_auth)
+session.vote("p1", "approve", reason="agreed", sender="bob", auth=bob_auth)
 
 # Check projection and commit
 proj = session.decision_projection
@@ -135,6 +146,10 @@ proj.transcript                   # list[Envelope] — accepted history as fed, 
 Three AI agents evaluate a security incident and decide on a response:
 
 ```python
+threat_analyzer_auth = AuthConfig.for_dev_agent("threat-analyzer")
+impact_assessor_auth = AuthConfig.for_dev_agent("impact-assessor")
+response_planner_auth = AuthConfig.for_dev_agent("response-planner")
+
 session = DecisionSession(client, auth=coordinator_auth)
 session.start(
     intent="respond to security alert SEC-2025-0042",
@@ -143,17 +158,29 @@ session.start(
 )
 
 # Each agent proposes a response
-session.propose("p1", "isolate affected hosts", rationale="contain lateral movement", sender="threat-analyzer")
-session.propose("p2", "patch and monitor", rationale="known CVE, patch available", sender="response-planner")
+session.propose(
+    "p1", "isolate affected hosts", rationale="contain lateral movement",
+    sender="threat-analyzer", auth=threat_analyzer_auth,
+)
+session.propose(
+    "p2", "patch and monitor", rationale="known CVE, patch available",
+    sender="response-planner", auth=response_planner_auth,
+)
 
 # Agents evaluate each other's proposals
-session.evaluate("p1", "APPROVE", confidence=0.85, reason="stops spread", sender="impact-assessor")
-session.evaluate("p2", "BLOCK", confidence=0.3, reason="too slow for active exploit", sender="threat-analyzer")
+session.evaluate(
+    "p1", "APPROVE", confidence=0.85, reason="stops spread",
+    sender="impact-assessor", auth=impact_assessor_auth,
+)
+session.evaluate(
+    "p2", "BLOCK", confidence=0.3, reason="too slow for active exploit",
+    sender="threat-analyzer", auth=threat_analyzer_auth,
+)
 
 # Agents vote
-session.vote("p1", "approve", sender="threat-analyzer")
-session.vote("p1", "approve", sender="impact-assessor")
-session.vote("p1", "approve", sender="response-planner")
+session.vote("p1", "approve", sender="threat-analyzer", auth=threat_analyzer_auth)
+session.vote("p1", "approve", sender="impact-assessor", auth=impact_assessor_auth)
+session.vote("p1", "approve", sender="response-planner", auth=response_planner_auth)
 
 # Commit the consensus
 session.commit(

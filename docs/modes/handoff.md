@@ -56,8 +56,12 @@ Per-message authorization (only the target can `Accept`/`Decline`) and commitmen
 from macp_sdk import AuthConfig, MacpClient
 from macp_sdk.handoff import HandoffSession
 
-client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=AuthConfig.for_dev_agent("owner-a"))
-session = HandoffSession(client)
+# Per-agent auth configs
+owner_a_auth = AuthConfig.for_dev_agent("owner-a")
+owner_b_auth = AuthConfig.for_dev_agent("owner-b")
+
+client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=owner_a_auth)
+session = HandoffSession(client, auth=owner_a_auth)
 session.start(
     intent="transfer service-xyz oncall to owner-b",
     participants=["owner-a", "owner-b"],
@@ -80,7 +84,7 @@ session.add_context(
 )
 
 # Owner-B accepts
-session.accept_handoff("h1", sender="owner-b")
+session.accept_handoff("h1", sender="owner-b", auth=owner_b_auth)
 
 # Owner-A commits the transfer
 proj = session.handoff_projection
@@ -121,12 +125,14 @@ proj.phase                       # "Pending" | "OfferPending" | "Accepted" | "De
 ## Handling declines and re-offers
 
 ```python
+owner_c_auth = AuthConfig.for_dev_agent("owner-c")
+
 # First target declines
-session.decline("h1", reason="on vacation", sender="owner-b")
+session.decline("h1", reason="on vacation", sender="owner-b", auth=owner_b_auth)
 
 # Offer to a different target
 session.offer("h2", "owner-c", scope="service-xyz-oncall", reason="owner-b unavailable")
-session.accept_handoff("h2", sender="owner-c")
+session.accept_handoff("h2", sender="owner-c", auth=owner_c_auth)
 
 # Commit with the second target
 session.commit(

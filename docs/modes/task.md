@@ -94,8 +94,12 @@ session.start(
 from macp_sdk import AuthConfig, MacpClient
 from macp_sdk.task import TaskSession
 
-client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=AuthConfig.for_dev_agent("planner"))
-session = TaskSession(client)
+# Per-agent auth configs
+planner_auth = AuthConfig.for_dev_agent("planner")
+analyst_auth = AuthConfig.for_dev_agent("analyst-agent")
+
+client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=planner_auth)
+session = TaskSession(client, auth=planner_auth)
 session.start(
     intent="analyze Q4 sales data",
     participants=["planner", "analyst-agent"],
@@ -112,11 +116,17 @@ session.request_task(
 )
 
 # Worker accepts
-session.accept_task("t1", sender="analyst-agent")
+session.accept_task("t1", sender="analyst-agent", auth=analyst_auth)
 
 # Worker reports progress
-session.update_task("t1", status="running", progress=0.3, message="Loading datasets...", sender="analyst-agent")
-session.update_task("t1", status="running", progress=0.7, message="Computing trends...", sender="analyst-agent")
+session.update_task(
+    "t1", status="running", progress=0.3, message="Loading datasets...",
+    sender="analyst-agent", auth=analyst_auth,
+)
+session.update_task(
+    "t1", status="running", progress=0.7, message="Computing trends...",
+    sender="analyst-agent", auth=analyst_auth,
+)
 
 # Worker completes
 session.complete_task(
@@ -124,11 +134,12 @@ session.complete_task(
     output=b'{"revenue": "$2.3M", "growth": "12%", "top_product": "Widget Pro"}',
     summary="Q4 revenue up 12% YoY, driven by Widget Pro",
     sender="analyst-agent",
+    auth=analyst_auth,
 )
 
 # Requester commits the outcome
 proj = session.task_projection
-if proj.is_completed():
+if proj.is_completed("t1"):
     session.commit(
         action="task.completed",
         authority_scope="data-analysis",
@@ -140,6 +151,7 @@ if proj.is_completed():
 
 ```python
 proj = session.task_projection
+task_id = "t1"
 
 # Task metadata
 proj.task                    # TaskRequestRecord or None
@@ -148,7 +160,7 @@ proj.task.requested_assignee # "analyst-agent"
 
 # Assignment
 proj.active_assignee         # "analyst-agent" or None
-proj.is_accepted()           # True after TaskAccept
+proj.is_accepted(task_id)    # True after TaskAccept
 
 # Progress
 proj.updates                 # list[TaskUpdateRecord]
@@ -156,8 +168,8 @@ proj.latest_progress()       # 0.7 (last reported)
 
 # Terminal report
 proj.terminal_report         # TaskCompleteRecord | TaskFailRecord | None
-proj.is_completed()          # True if TaskComplete received
-proj.is_failed()             # True if TaskFail received
+proj.is_completed(task_id)   # True if TaskComplete received
+proj.is_failed(task_id)      # True if TaskFail received
 
 # Rejections (before acceptance)
 proj.rejections              # list[TaskRejectRecord]
@@ -169,7 +181,7 @@ proj.phase                   # "Pending" | "Requested" | "InProgress" | "Complet
 ## Handling task failures
 
 ```python
-if proj.is_failed():
+if proj.is_failed(task_id):
     report = proj.terminal_report
     print(f"Task failed: {report.error_code} — {report.reason}")
     if report.retryable:
