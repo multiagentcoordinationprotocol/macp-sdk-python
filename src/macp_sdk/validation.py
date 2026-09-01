@@ -122,6 +122,42 @@ def validate_signal_type(signal_type: str, data: bytes | None = None) -> None:
         raise MacpSessionError("signal_type must be non-empty when data is present")
 
 
+def validate_progress_scope(session_id: str, mode: str) -> None:
+    """Validate the ``Progress`` scope pairing (RFC-MACP-0001 §6).
+
+    ``Progress`` is legal in exactly two shapes -- *ambient* (``session_id``
+    and ``mode`` both empty) or *session-scoped* (both non-empty). An envelope
+    with exactly one of the two empty is a mixed shape that the runtime
+    rejects with ``INVALID_ENVELOPE``; raising here names the mismatched field
+    instead.
+
+    Unlike Signals, ``Progress`` is *not* required to be ambient -- this is a
+    tri-state rule, so neither field may be inferred from the other.
+
+    The emptiness test deliberately mirrors the runtime's
+    ``validate_envelope_shape`` **exactly**, including its asymmetry:
+    ``session_id`` is compared raw while ``mode`` is stripped first. Mirroring
+    rather than normalising is the only choice under which the SDK neither
+    accepts a shape the runtime rejects nor rejects one it accepts.
+    Concretely, a whitespace-only ``mode`` alongside an empty ``session_id``
+    is ambient to the runtime, so it stays ambient here.
+    """
+    session_id_empty = session_id == ""
+    mode_empty = mode.strip() == ""
+    if session_id_empty == mode_empty:
+        return
+    detail = (
+        f"mode is {mode!r} but session_id is empty"
+        if session_id_empty
+        else f"session_id is {session_id!r} but mode is empty"
+    )
+    raise MacpSessionError(
+        "Progress must be either ambient (session_id and mode both empty) or "
+        f"session-scoped (both non-empty), but {detail} (RFC-MACP-0001 §6). "
+        "Pass both fields for a session-scoped Progress, or neither for an ambient one."
+    )
+
+
 def validate_ttl_ms(ttl_ms: int) -> None:
     """Validate that *ttl_ms* is in [1, 86_400_000]."""
     if ttl_ms < 1 or ttl_ms > _MAX_TTL_MS:

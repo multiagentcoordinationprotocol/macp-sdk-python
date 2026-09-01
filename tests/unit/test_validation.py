@@ -7,6 +7,8 @@ every branch.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from macp_sdk.errors import MacpSessionError
@@ -15,6 +17,7 @@ from macp_sdk.validation import (
     validate_confidence,
     validate_participant_count,
     validate_participants,
+    validate_progress_scope,
     validate_recommendation,
     validate_required_field,
     validate_session_id,
@@ -205,3 +208,48 @@ class TestSessionStartComposite:
                 mode_version="",
                 configuration_version="c",
             )
+
+
+class TestValidateProgressScope:
+    """RFC-MACP-0001 §6 tri-state rule for ``Progress`` (spec PR #91, issue #55).
+
+    Mirrors macp-runtime's ``validate_envelope_shape`` (PR #137).
+    """
+
+    SID = "550e8400-e29b-41d4-a716-446655440000"
+
+    def test_accepts_ambient_form(self):
+        validate_progress_scope("", "")
+
+    def test_accepts_session_scoped_form(self):
+        validate_progress_scope(self.SID, "macp.mode.task.v1")
+
+    def test_rejects_session_id_without_mode(self):
+        with pytest.raises(MacpSessionError, match="but mode is empty"):
+            validate_progress_scope(self.SID, "")
+
+    def test_rejects_mode_without_session_id(self):
+        with pytest.raises(MacpSessionError, match="but session_id is empty"):
+            validate_progress_scope("", "macp.mode.task.v1")
+
+    def test_error_names_the_offending_values(self):
+        with pytest.raises(MacpSessionError, match=self.SID):
+            validate_progress_scope(self.SID, "")
+        with pytest.raises(MacpSessionError, match=re.escape("macp.mode.task.v1")):
+            validate_progress_scope("", "macp.mode.task.v1")
+
+    # The runtime compares ``session_id.is_empty()`` against
+    # ``mode.trim().is_empty()``. That asymmetry is mirrored, not normalised,
+    # so the SDK's verdict matches the runtime's on every input.
+    def test_whitespace_only_mode_is_empty_like_the_runtime(self):
+        validate_progress_scope("", "   ")
+        with pytest.raises(MacpSessionError):
+            validate_progress_scope(self.SID, "   ")
+
+    def test_session_id_is_not_stripped_like_the_runtime(self):
+        # A whitespace-only session_id is non-empty to the runtime, so pairing
+        # it with a real mode passes the shape check (it fails later, on
+        # session lookup -- not this rule's concern).
+        validate_progress_scope("   ", "macp.mode.task.v1")
+        with pytest.raises(MacpSessionError):
+            validate_progress_scope("   ", "")
