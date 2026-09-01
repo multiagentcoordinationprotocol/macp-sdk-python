@@ -2,8 +2,9 @@
 
 Several examples create a ``MacpClient`` at module top level, so importing
 them would attempt network I/O — ``compile()`` catches syntax rot (renamed
-APIs won't be caught here, but the examples at least stay parseable and are
-exercised for real against a runtime in the docs/release flow).
+APIs won't be caught here). The examples are exercised for real against a
+live runtime by ``tests/integration/test_examples_run.py``, which runs each
+one as a subprocess and asserts exit 0.
 """
 
 from __future__ import annotations

@@ -1,21 +1,31 @@
 """Quorum mode example: N-of-M threshold approval.
 
 Demonstrates: request_approval, approve, reject, abstain, commit.
-Requires a running MACP runtime on localhost:50051.
+Requires a running MACP runtime, defaulting to localhost:50051 (override
+with MACP_RUNTIME_TARGET).
 """
+
+import os
 
 from macp_sdk import AuthConfig, MacpClient
 from macp_sdk.quorum import QuorumSession
 
+# --- Per-agent auth configs ---
+coordinator_auth = AuthConfig.for_dev_agent("coordinator")
+alice_auth = AuthConfig.for_dev_agent("alice")
+bob_auth = AuthConfig.for_dev_agent("bob")
+carol_auth = AuthConfig.for_dev_agent("carol")
+dave_auth = AuthConfig.for_dev_agent("dave")
+
 # --- Create client ---
 client = MacpClient(
-    target="127.0.0.1:50051",
+    target=os.environ.get("MACP_RUNTIME_TARGET", "127.0.0.1:50051"),
     allow_insecure=True,  # local dev only; production requires TLS (RFC-0006 §3)
-    auth=AuthConfig.for_dev_agent("coordinator"),
+    auth=coordinator_auth,
 )
 
 # --- Start quorum session ---
-session = QuorumSession(client, auth=AuthConfig.for_dev_agent("coordinator"))
+session = QuorumSession(client, auth=coordinator_auth)
 session.start(
     intent="approve security policy update",
     participants=["coordinator", "alice", "bob", "carol", "dave"],
@@ -31,10 +41,10 @@ session.request_approval(
 )
 
 # --- Participants vote ---
-session.approve("r1", reason="good improvement", sender="alice")
-session.reject("r1", reason="too aggressive timeline", sender="bob")
-session.approve("r1", reason="long overdue", sender="carol")
-session.approve("r1", reason="agreed", sender="dave")
+session.approve("r1", reason="good improvement", sender="alice", auth=alice_auth)
+session.reject("r1", reason="too aggressive timeline", sender="bob", auth=bob_auth)
+session.approve("r1", reason="long overdue", sender="carol", auth=carol_auth)
+session.approve("r1", reason="agreed", sender="dave", auth=dave_auth)
 
 # --- Check threshold ---
 proj = session.quorum_projection

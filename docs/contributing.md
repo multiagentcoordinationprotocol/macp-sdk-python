@@ -46,6 +46,13 @@ probes the target (`MACP_RUNTIME_TARGET`, default `127.0.0.1:50051`) and
 auto-skips the whole directory when no runtime is reachable, so a bare
 `pytest tests/` is always safe to run.
 
+`examples/*.py` are executed, not just compiled — `tests/integration/test_examples_run.py`
+runs each one as a subprocess against a live runtime and asserts exit 0
+(`tests/unit/test_examples_smoke.py` only checks that they parse). Run
+`make test-integration` before touching anything under `examples/`. A new
+example file must be classified in that test's `RUN` or `EXCLUDED` list —
+its `test_coverage_parity` case fails otherwise.
+
 The fixture drift gate (`make verify-fixtures`) diffs this repo's vendored
 conformance fixtures against the canonical copies in the spec repo, in both
 directions — a canonical file missing or differing locally fails as `DRIFT`,
