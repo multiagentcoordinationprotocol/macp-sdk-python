@@ -18,6 +18,7 @@ from google.protobuf import symbol_database
 from google.protobuf.descriptor import FieldDescriptor
 from macp.v1 import envelope_pb2
 
+from macp_sdk import errors
 from macp_sdk.envelope import new_message_id, now_unix_ms, serialize_message
 from macp_sdk.handoff import HandoffProjection
 from macp_sdk.projections import DecisionProjection
@@ -295,3 +296,67 @@ def test_fixtures_validate_against_vendored_schema(name: str, fixture: dict):
     with open(schema_path) as f:
         schema = json.load(f)
     jsonschema.validate(instance=_strip_editorial_keys(fixture), schema=schema)
+
+
+# ── Reject-path fixture hygiene ──────────────────────────────────────
+#
+# Rejection is runtime-side: replaying a reject message against an
+# in-process projection cannot produce the runtime's NACK, so this SDK is
+# deliberately not an oracle for the rejection *decision*. macp-runtime's
+# suite is (`tests/conformance_loader.rs` asserts the error and matches
+# `expected_error_code`), and that asymmetry is correct -- only a runtime
+# rejects.
+#
+# What this SDK can pin is that the reject half of the corpus stays
+# well-formed: a canonical NACK code, and a payload_type this SDK can
+# still build. Without this, a reject fixture whose payload_type rots is
+# invisible here -- the replay loop above skips non-accept messages, so
+# nothing else in this file ever looks at them.
+#
+# Mirrors macp-sdk-typescript's "conformance: reject-path fixtures"
+# block, which this SDK had no counterpart to.
+CANONICAL_ERROR_CODES = frozenset(
+    {
+        errors.UNSUPPORTED_PROTOCOL_VERSION,
+        errors.INVALID_ENVELOPE,
+        errors.SESSION_ALREADY_EXISTS,
+        errors.SESSION_NOT_FOUND,
+        errors.SESSION_NOT_OPEN,
+        errors.MODE_NOT_SUPPORTED,
+        errors.FORBIDDEN,
+        errors.UNAUTHENTICATED,
+        errors.DUPLICATE_MESSAGE,
+        errors.PAYLOAD_TOO_LARGE,
+        errors.RATE_LIMITED,
+        errors.INTERNAL_ERROR,
+        errors.POLICY_DENIED,
+        errors.INVALID_SESSION_ID,
+        errors.UNKNOWN_POLICY_VERSION,
+        errors.INVALID_POLICY_DEFINITION,
+    }
+)
+
+
+@pytest.mark.conformance
+@pytest.mark.parametrize("name,fixture", FIXTURES, ids=FIXTURE_IDS)
+def test_reject_messages_are_well_formed(name: str, fixture: dict):
+    """Every ``expect: reject`` message carries a canonical NACK code and a
+    ``payload_type`` this SDK can still build."""
+    rejected = [m for m in fixture["messages"] if m.get("expect") == "reject"]
+    if not rejected:
+        pytest.skip(f"{name} has no reject-path messages")
+
+    for msg in rejected:
+        code = msg.get("expected_error_code")
+        assert code, (
+            f"{name}: {msg['message_type']} from {msg['sender']} is a reject "
+            "message with no expected_error_code"
+        )
+        assert code in CANONICAL_ERROR_CODES, (
+            f"{name}: {code!r} is not a canonical NACK code "
+            f"(expected one of {sorted(CANONICAL_ERROR_CODES)})"
+        )
+        assert msg["payload_type"] in PAYLOAD_BUILDERS, (
+            f"{name}: reject message {msg['message_type']} carries "
+            f"payload_type {msg['payload_type']!r}, which this SDK cannot build"
+        )
