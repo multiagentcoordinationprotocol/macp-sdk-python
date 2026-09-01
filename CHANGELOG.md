@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.8.0...v0.9.0) (2026-09-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* ``MacpClient.send_progress()`` now raises ``MacpSessionError`` when exactly one of ``session_id``/``mode`` is supplied. Such calls used to succeed against a runtime that had the symmetric gap; as of macp-runtime PR #137 they are rejected with ``INVALID_ENVELOPE``. Pass both fields for a session-scoped Progress, or neither for an ambient one.
+
+### Bug Fixes
+
+* reject mixed ambient/session-scoped Progress envelopes ([#56](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/56)) ([2e5f310](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/2e5f3108a11ac4742fafdb1449c1eda4f6ba0839))
+
 ## [0.8.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.7.0...v0.8.0) (2026-08-31)
 
 
