@@ -23,6 +23,13 @@ class CommitmentRules:
 
     authority: str = "initiator_only"
     designated_roles: list[str] = field(default_factory=list)
+    # RFC-MACP-0012 §4.1, Decision mode only. Under schema_version 1 and 2,
+    # this flag has two independent roles: gating a vote-authorized commitment
+    # on quorum, and deciding whether an empty tally blocks a positive
+    # commitment. Under schema_version 3 and above the second role is gone
+    # (empty tallies already fail closed), so setting this true over an
+    # effective participation floor of zero gates nothing and is equivalent to
+    # false ("Vacuous participation floor").
     require_vote_quorum: bool = False
     # RFC-MACP-0012 schema_version 2, Decision mode only: when True, a
     # reject-majority resolves the session with a committed *negative* outcome
@@ -38,6 +45,19 @@ def _commitment_dict(c: CommitmentRules) -> dict[str, object]:
     # ``allow_decline_over_approval`` field so it does not leak into the still
     # version-1 quorum/proposal/task/handoff commitment schemas. Decision emits
     # that field itself in ``build_decision_policy``.
+    #
+    # ``authority: "designated_role"`` with an empty (or unset) ``designated_roles``
+    # names no one, so no sender could ever satisfy it. All five rule schemas
+    # now reject this combination at admission (spec PR #121); previously only
+    # decision-rules.schema.json enforced it, so a caller building a
+    # quorum/proposal/task/handoff policy this way got no client-side signal.
+    # Validated once, here, so every mode builder gets it uniformly.
+    if c.authority == "designated_role" and not c.designated_roles:
+        raise MacpSessionError(
+            "commitment.authority is 'designated_role' but designated_roles is "
+            "empty -- this names no one, so no sender could ever satisfy it. "
+            "Pass at least one role/participant id in designated_roles."
+        )
     return {
         "authority": c.authority,
         "designated_roles": c.designated_roles,
@@ -81,6 +101,12 @@ class EvaluationRules:
     required_before_voting: bool = False
 
 
+_DECISION_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+_DECISION_ALGORITHMS = frozenset(
+    {"none", "majority", "supermajority", "unanimous", "weighted", "plurality"}
+)
+
+
 def build_decision_policy(
     policy_id: str,
     description: str,
@@ -89,12 +115,69 @@ def build_decision_policy(
     objection_handling: ObjectionHandlingRules | None = None,
     evaluation: EvaluationRules | None = None,
     commitment: CommitmentRules | None = None,
+    schema_version: int = 2,
 ) -> policy_pb2.PolicyDescriptor:
-    """Build a PolicyDescriptor for Decision mode governance."""
+    """Build a PolicyDescriptor for Decision mode governance.
+
+    ``schema_version`` selects the RFC-MACP-0012 rule semantics the runtime
+    evaluates this policy under (validated, never re-validated, at
+    admission — RFC-MACP-0012 §8 item 4):
+
+    - ``1``/``2``: an empty decisive tally is fail-*open* (satisfies the
+      voting requirement).
+    - ``3``: an empty decisive tally is fail-*closed* for every algorithm
+      except ``"none"`` (RFC-MACP-0012 §4.1, adopted in spec PR #99).
+
+    Defaults to ``2`` to keep existing callers' semantics unchanged; this is
+    a deliberate default, not an oversight — pass ``schema_version=3``
+    explicitly to opt into fail-closed empty tallies.
+    """
+    if schema_version not in _DECISION_SCHEMA_VERSIONS:
+        raise MacpSessionError(
+            f"schema_version must be one of {sorted(_DECISION_SCHEMA_VERSIONS)}, "
+            f"got {schema_version!r}"
+        )
     v = voting or VotingRules()
     o = objection_handling or ObjectionHandlingRules()
     e = evaluation or EvaluationRules()
     c = commitment or CommitmentRules()
+
+    # Match decision-rules.schema.json before the runtime does (same rationale
+    # as build_quorum_policy's threshold checks below): a bad descriptor fails
+    # immediately client-side instead of round-tripping to RegisterPolicy.
+    if v.algorithm not in _DECISION_ALGORITHMS:
+        raise MacpSessionError(
+            f"voting algorithm must be one of {sorted(_DECISION_ALGORITHMS)}, got {v.algorithm!r}"
+        )
+    if not (0 < v.threshold <= 1):
+        raise MacpSessionError(f"voting threshold must be > 0 and <= 1, got {v.threshold!r}")
+    if v.algorithm == "majority" and v.threshold < 0.5:
+        raise MacpSessionError(
+            f"'majority' requires threshold >= 0.5 (an even split approves), got {v.threshold!r}"
+        )
+    if v.algorithm == "supermajority" and v.threshold <= 0.5:
+        raise MacpSessionError(
+            "'supermajority' requires threshold > 0.5 -- the field's own "
+            f"default of 0.5 is a bare majority wearing the name, got {v.threshold!r}. "
+            "Pass an explicit threshold (e.g. 0.67) for supermajority."
+        )
+    if v.algorithm == "weighted" and not v.weights:
+        raise MacpSessionError("'weighted' algorithm requires a non-empty 'weights' map")
+    # The weighted electorate is meaningful only when non-empty and strictly
+    # positive-valued -- enforced unconditionally, at every algorithm, not
+    # only 'weighted' (decision-rules.schema.json: minProperties 1,
+    # additionalProperties.exclusiveMinimum 0). A weight-0 participant is
+    # expressed by omission from this map, never by an explicit 0.
+    if v.weights is not None:
+        if not v.weights:
+            raise MacpSessionError("'weights', if provided, must be non-empty")
+        for participant, weight in v.weights.items():
+            if weight <= 0:
+                raise MacpSessionError(
+                    f"weights['{participant}'] must be > 0, got {weight!r} -- a "
+                    "weight-0 observer is expressed by omission from the map, "
+                    "not by an explicit 0"
+                )
 
     voting_section: dict[str, object] = {
         "algorithm": v.algorithm,
@@ -138,7 +221,7 @@ def build_decision_policy(
         mode="macp.mode.decision.v1",
         description=description,
         rules=json.dumps(rules).encode(),
-        schema_version=2,
+        schema_version=schema_version,
     )
 
 
@@ -151,16 +234,24 @@ class QuorumThreshold:
 
     ``threshold`` is strictly the **approval bar** — the number/percentage of
     approvals required to commit. There is no separate participation quorum in
-    schema_version <= 2. ``value`` is an **integer** in the canonical
-    ``quorum-rules.schema.json``: an approval count for ``n_of_m`` /
-    ``weighted``, and an integer percentage 0-100 for ``percentage``. A
-    fractional value (e.g. ``0.75``) is rejected by the runtime's schema
-    validation, so this is typed ``int`` and ``build_quorum_policy`` rejects
-    a non-integer or out-of-range value at build time.
+    schema_version <= 3. ``value`` is an **integer** in the canonical
+    ``quorum-rules.schema.json``: an approval count for ``n_of_m``, and an
+    integer percentage 1-100 for ``percentage`` (rounded up to an effective
+    approval count). ``value`` must be strictly greater than 0 — a zero
+    approval bar is trivially satisfied by any ballot set, so a
+    restrictive-looking quorum policy would approve everything; the schema
+    enforces ``exclusiveMinimum: 0`` and ``build_quorum_policy`` mirrors that
+    at build time. A fractional value (e.g. ``0.75``) is likewise rejected by
+    the runtime's schema validation, so this is typed ``int``.
+
+    The ``"weighted"`` identifier some earlier drafts mentioned for this field
+    is **reserved** — it was removed from the canonical schema without ever
+    having defined semantics (no weights vocabulary, no electorate rule, no
+    termination arithmetic) and must not be used.
     """
 
     type: str = "n_of_m"
-    value: int = 0
+    value: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,7 +279,7 @@ def build_quorum_policy(
     # bad descriptor fails immediately client-side instead of round-tripping
     # to an INVALID_POLICY_DEFINITION from RegisterPolicy. Order matters:
     # type first (a float or bool reaching the range checks below would
-    # compare fine numerically but produce a confusing message), then >= 0,
+    # compare fine numerically but produce a confusing message), then > 0,
     # then the percentage-specific <= 100 cap.
     #
     # bool is checked explicitly because isinstance(True, int) is True in
@@ -201,11 +292,21 @@ def build_quorum_policy(
             "value like 0.75 would produce a schema-invalid descriptor that "
             "the runtime rejects at RegisterPolicy with worse diagnostics."
         )
-    if t.value < 0:
-        raise MacpSessionError(f"quorum threshold value must be >= 0, got {t.value}")
+    if t.value <= 0:
+        raise MacpSessionError(
+            f"quorum threshold value must be > 0, got {t.value}. A zero approval "
+            "bar is trivially satisfied by any ballot set, so the canonical "
+            "quorum-rules schema declares 'value' with exclusiveMinimum 0."
+        )
     if t.type == "percentage" and t.value > 100:
         raise MacpSessionError(
-            f"quorum threshold value must be 0-100 for type 'percentage', got {t.value}"
+            f"quorum threshold value must be 1-100 for type 'percentage', got {t.value}"
+        )
+    if t.type not in ("n_of_m", "percentage"):
+        raise MacpSessionError(
+            f"quorum threshold type must be 'n_of_m' or 'percentage', got {t.type!r}. "
+            "'weighted' is reserved -- it was removed from the canonical schema "
+            "without ever having defined semantics and must not be used."
         )
 
     rules: dict[str, object] = {

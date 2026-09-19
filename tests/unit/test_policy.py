@@ -114,6 +114,24 @@ class TestBuildDecisionPolicy:
         assert rules["commitment"]["allow_decline_over_approval"] is True
         assert rules["objection_handling"]["critical_objection_action"] == "finalize_decline"
 
+    def test_schema_version_3_opt_in(self):
+        """RFC-MACP-0012 schema_version 3 (spec PR #99): fail-closed empty
+        tallies. Not the default -- must be requested explicitly."""
+        desc = build_decision_policy("pol-v3", "fail-closed", schema_version=3)
+        assert desc.schema_version == 3
+
+    def test_schema_version_default_stays_2(self):
+        desc = build_decision_policy("pol-default", "default version")
+        assert desc.schema_version == 2
+
+    def test_schema_version_1_still_supported(self):
+        desc = build_decision_policy("pol-v1", "legacy", schema_version=1)
+        assert desc.schema_version == 1
+
+    def test_schema_version_invalid_rejected(self):
+        with pytest.raises(MacpSessionError, match="schema_version"):
+            build_decision_policy("pol-bad", "bad version", schema_version=4)
+
     def test_custom_commitment_with_roles(self):
         desc = build_decision_policy(
             "pol-5",
@@ -164,6 +182,101 @@ class TestBuildDecisionPolicy:
         assert rules_1 == rules_2
 
 
+class TestDecisionVotingValidation:
+    """decision-rules.schema.json tightenings (spec PR #99 / #101): a bad
+    descriptor should fail client-side, matching build_quorum_policy's
+    existing pre-validation of threshold values (issue #61 comment)."""
+
+    def test_invalid_algorithm_rejected(self):
+        with pytest.raises(MacpSessionError, match="algorithm"):
+            build_decision_policy("q", "d", voting=VotingRules(algorithm="consensus"))
+
+    @pytest.mark.parametrize("threshold", [0, -0.1, 1.1])
+    def test_threshold_out_of_bounds_rejected(self, threshold):
+        with pytest.raises(MacpSessionError, match="threshold"):
+            build_decision_policy("q", "d", voting=VotingRules(threshold=threshold))
+
+    def test_majority_below_half_rejected(self):
+        with pytest.raises(MacpSessionError, match="majority"):
+            build_decision_policy("q", "d", voting=VotingRules(algorithm="majority", threshold=0.4))
+
+    def test_majority_at_half_accepted(self):
+        desc = build_decision_policy(
+            "q", "d", voting=VotingRules(algorithm="majority", threshold=0.5)
+        )
+        assert json.loads(desc.rules)["voting"]["threshold"] == 0.5
+
+    def test_supermajority_default_threshold_rejected(self):
+        # threshold defaults to 0.5, which is a bare majority wearing the
+        # supermajority name (schema requires exclusiveMinimum 0.5).
+        with pytest.raises(MacpSessionError, match="supermajority"):
+            build_decision_policy("q", "d", voting=VotingRules(algorithm="supermajority"))
+
+    def test_supermajority_above_half_accepted(self):
+        desc = build_decision_policy(
+            "q", "d", voting=VotingRules(algorithm="supermajority", threshold=0.67)
+        )
+        assert json.loads(desc.rules)["voting"]["threshold"] == 0.67
+
+    def test_weighted_without_weights_rejected(self):
+        with pytest.raises(MacpSessionError, match="weighted"):
+            build_decision_policy("q", "d", voting=VotingRules(algorithm="weighted"))
+
+    def test_weighted_with_empty_weights_rejected(self):
+        with pytest.raises(MacpSessionError, match="non-empty"):
+            build_decision_policy("q", "d", voting=VotingRules(algorithm="weighted", weights={}))
+
+    def test_empty_weights_rejected_even_off_weighted_algorithm(self):
+        # The non-empty check on 'weights' applies whenever the map is
+        # supplied at all, independent of the 'weighted algorithm requires
+        # weights' check above (which only fires for algorithm='weighted').
+        with pytest.raises(MacpSessionError, match="non-empty"):
+            build_decision_policy("q", "d", voting=VotingRules(algorithm="none", weights={}))
+
+    @pytest.mark.parametrize("algorithm", ["none", "majority", "unanimous", "plurality"])
+    def test_zero_weight_rejected_at_every_algorithm(self, algorithm):
+        # The electorate rule (weights minProperties 1, values exclusiveMinimum
+        # 0) is normative at every schema_version and every algorithm, not
+        # only 'weighted' -- a weight-0 observer is omitted, not zeroed.
+        with pytest.raises(MacpSessionError, match="weights"):
+            build_decision_policy(
+                "q",
+                "d",
+                voting=VotingRules(algorithm=algorithm, threshold=1.0, weights={"a": 0}),
+            )
+
+    def test_designated_role_without_roles_rejected(self):
+        with pytest.raises(MacpSessionError, match="designated_role"):
+            build_decision_policy("q", "d", commitment=CommitmentRules(authority="designated_role"))
+
+
+class TestSharedDesignatedRoleValidation:
+    """authority='designated_role' with empty designated_roles names no one
+    (spec PR #121) -- validated once in _commitment_dict, shared by all five
+    mode builders."""
+
+    def test_quorum_rejects_empty_designated_roles(self):
+        with pytest.raises(MacpSessionError, match="designated_role"):
+            build_quorum_policy("q", "d", commitment=CommitmentRules(authority="designated_role"))
+
+    def test_proposal_rejects_empty_designated_roles(self):
+        with pytest.raises(MacpSessionError, match="designated_role"):
+            build_proposal_policy("q", "d", commitment=CommitmentRules(authority="designated_role"))
+
+    def test_task_rejects_empty_designated_roles(self):
+        with pytest.raises(MacpSessionError, match="designated_role"):
+            build_task_policy("q", "d", commitment=CommitmentRules(authority="designated_role"))
+
+    def test_handoff_rejects_empty_designated_roles(self):
+        with pytest.raises(MacpSessionError, match="designated_role"):
+            build_handoff_policy("q", "d", commitment=CommitmentRules(authority="designated_role"))
+
+    def test_non_designated_role_authority_unaffected(self):
+        # Default authority never triggers the check, regardless of roles.
+        desc = build_quorum_policy("q", "d", commitment=CommitmentRules())
+        assert json.loads(desc.rules)["commitment"]["designated_roles"] == []
+
+
 # ── Quorum mode ──────────────────────────────────────────────────────
 
 
@@ -175,7 +288,7 @@ class TestBuildQuorumPolicy:
         rules = json.loads(desc.rules)
         # threshold — matches Runtime QuorumThreshold defaults
         assert rules["threshold"]["type"] == "n_of_m"
-        assert rules["threshold"]["value"] == 0
+        assert rules["threshold"]["value"] == 1
         # abstention — matches Runtime AbstentionRules defaults
         assert rules["abstention"]["counts_toward_quorum"] is False
         assert rules["abstention"]["interpretation"] == "neutral"
@@ -223,7 +336,7 @@ class TestQuorumThresholdIntegrality:
                 "q", "d", threshold=QuorumThreshold(type=threshold_type, value=True)
             )
 
-    @pytest.mark.parametrize("value", [0, 3, 75, 100])
+    @pytest.mark.parametrize("value", [1, 3, 75, 100])
     def test_integer_values_still_accepted(self, value):
         desc = build_quorum_policy(
             "q", "d", threshold=QuorumThreshold(type="percentage", value=value)
@@ -243,6 +356,24 @@ class TestQuorumThresholdIntegrality:
             build_quorum_policy("q", "d", threshold=QuorumThreshold(type="n_of_m", value=-1))
         with pytest.raises(MacpSessionError):
             build_quorum_policy("q", "d", threshold=QuorumThreshold(type="percentage", value=150))
+
+    def test_zero_value_rejected(self):
+        # quorum-rules.schema.json declares 'value' with exclusiveMinimum 0
+        # (spec PR #99): a zero approval bar is trivially satisfied by any
+        # ballot set, so a restrictive-looking quorum policy approves
+        # everything.
+        with pytest.raises(MacpSessionError, match="> 0"):
+            build_quorum_policy("q", "d", threshold=QuorumThreshold(type="n_of_m", value=0))
+
+    def test_weighted_type_rejected(self):
+        # 'weighted' was removed from the canonical quorum-rules schema
+        # (reserved, no defined semantics) -- must not be silently accepted.
+        with pytest.raises(MacpSessionError, match="reserved"):
+            build_quorum_policy("q", "d", threshold=QuorumThreshold(type="weighted", value=1))
+
+    def test_unknown_type_rejected(self):
+        with pytest.raises(MacpSessionError, match="n_of_m"):
+            build_quorum_policy("q", "d", threshold=QuorumThreshold(type="bogus", value=1))
 
 
 # ── Proposal mode ────────────────────────────────────────────────────
