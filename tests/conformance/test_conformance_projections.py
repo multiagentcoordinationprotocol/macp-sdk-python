@@ -19,6 +19,8 @@ from google.protobuf.descriptor import FieldDescriptor
 from macp.v1 import envelope_pb2
 
 from macp_sdk import errors
+from macp_sdk.base_projection import BaseProjection
+from macp_sdk.constants import MODE_MULTI_ROUND
 from macp_sdk.envelope import new_message_id, now_unix_ms, serialize_message
 from macp_sdk.handoff import HandoffProjection
 from macp_sdk.projections import DecisionProjection
@@ -26,6 +28,26 @@ from macp_sdk.proposal import ProposalProjection
 from macp_sdk.proto_registry import CORE_MAP, MODE_MAP, ProtoRegistry
 from macp_sdk.quorum import QuorumProjection
 from macp_sdk.task import TaskProjection
+
+
+class MultiRoundReplayProjection(BaseProjection):
+    """Replay projection for the ``ext.multi_round.v1`` extension mode.
+
+    The mode has no first-class SDK projection; the multi_round fixtures
+    assert only transcript length, commitment presence, and resolution
+    scalars -- all handled generically by ``BaseProjection`` -- so a
+    transcript-only subclass gives them real conformance assertions instead
+    of a skip. Mirrors macp-sdk-typescript's ``MultiRoundReplayProjection``
+    (tests/conformance/conformance.test.ts).
+    """
+
+    MODE = MODE_MULTI_ROUND
+
+    def _apply_mode_message(self, envelope: envelope_pb2.Envelope) -> None:
+        # Transcript-only: the fixtures carry no expected_mode_state for
+        # multi_round, so there is no per-message state to track.
+        pass
+
 
 FIXTURES_DIR = Path(__file__).parent
 
@@ -67,6 +89,7 @@ MODE_PROJECTIONS: dict[str, type] = {
     "macp.mode.task.v1": TaskProjection,
     "macp.mode.handoff.v1": HandoffProjection,
     "macp.mode.quorum.v1": QuorumProjection,
+    MODE_MULTI_ROUND: MultiRoundReplayProjection,
 }
 
 
@@ -139,10 +162,7 @@ def test_projection_replay(name: str, fixture: dict, caplog: pytest.LogCaptureFi
     mode = fixture["mode"]
     projection_cls = MODE_PROJECTIONS.get(mode)
     if projection_cls is None:
-        pytest.skip(
-            f"No projection for mode {mode} — "
-            "multi_round is an extension mode; SDK projection not yet implemented"
-        )
+        pytest.skip(f"No projection registered for mode {mode}")
 
     projection = projection_cls()
     session_id = "conformance-session"
