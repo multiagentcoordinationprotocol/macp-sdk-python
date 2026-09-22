@@ -116,7 +116,7 @@ def build_decision_policy(
     objection_handling: ObjectionHandlingRules | None = None,
     evaluation: EvaluationRules | None = None,
     commitment: CommitmentRules | None = None,
-    schema_version: int = 2,
+    schema_version: int = 3,
 ) -> policy_pb2.PolicyDescriptor:
     """Build a PolicyDescriptor for Decision mode governance.
 
@@ -129,9 +129,18 @@ def build_decision_policy(
     - ``3``: an empty decisive tally is fail-*closed* for every algorithm
       except ``"none"`` (RFC-MACP-0012 §4.1, adopted in spec PR #99).
 
-    Defaults to ``2`` to keep existing callers' semantics unchanged; this is
-    a deliberate default, not an oversight — pass ``schema_version=3``
-    explicitly to opt into fail-closed empty tallies.
+    Defaults to ``3`` (issue #65): RFC-MACP-0012's authoring guidance is that
+    new non-``"none"`` policies SHOULD declare ``schema_version: 3``, and the
+    old default of ``2`` was fail-*open* on an empty tally for exactly the
+    callers who opted into a binding algorithm (``majority``, ``unanimous``,
+    etc.) -- silently satisfying a vote that received zero ballots, which
+    contradicts what asking for a binding algorithm means. RFC-MACP-0012 §8
+    makes the choice reversible and non-retroactive: a stored policy always
+    evaluates under its own declared version forever, so this default change
+    carries no migration risk for existing registered policies -- it only
+    changes what new callers who don't pass ``schema_version`` explicitly get
+    going forward. Pass ``schema_version=1`` or ``2`` explicitly to keep
+    fail-open empty-tally semantics.
     """
     if schema_version not in _DECISION_SCHEMA_VERSIONS:
         raise MacpSessionError(
