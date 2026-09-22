@@ -42,9 +42,11 @@ class CommitmentRules:
 
 def _commitment_dict(c: CommitmentRules) -> dict[str, object]:
     # Shared by all five mode builders — intentionally excludes the Decision-only
-    # ``allow_decline_over_approval`` field so it does not leak into the still
-    # version-1 quorum/proposal/task/handoff commitment schemas. Decision emits
-    # that field itself in ``build_decision_policy``.
+    # ``require_vote_quorum`` and ``allow_decline_over_approval`` fields so they
+    # do not leak into the still version-1 quorum/proposal/task/handoff
+    # commitment schemas, which declare only {authority, designated_roles} and
+    # are closed with ``additionalProperties: false`` (issue #67). Decision
+    # emits both fields itself in ``build_decision_policy``.
     #
     # ``authority: "designated_role"`` with an empty (or unset) ``designated_roles``
     # names no one, so no sender could ever satisfy it. All five rule schemas
@@ -61,7 +63,6 @@ def _commitment_dict(c: CommitmentRules) -> dict[str, object]:
     return {
         "authority": c.authority,
         "designated_roles": c.designated_roles,
-        "require_vote_quorum": c.require_vote_quorum,
     }
 
 
@@ -115,7 +116,7 @@ def build_decision_policy(
     objection_handling: ObjectionHandlingRules | None = None,
     evaluation: EvaluationRules | None = None,
     commitment: CommitmentRules | None = None,
-    schema_version: int = 2,
+    schema_version: int = 3,
 ) -> policy_pb2.PolicyDescriptor:
     """Build a PolicyDescriptor for Decision mode governance.
 
@@ -128,9 +129,18 @@ def build_decision_policy(
     - ``3``: an empty decisive tally is fail-*closed* for every algorithm
       except ``"none"`` (RFC-MACP-0012 §4.1, adopted in spec PR #99).
 
-    Defaults to ``2`` to keep existing callers' semantics unchanged; this is
-    a deliberate default, not an oversight — pass ``schema_version=3``
-    explicitly to opt into fail-closed empty tallies.
+    Defaults to ``3`` (issue #65): RFC-MACP-0012's authoring guidance is that
+    new non-``"none"`` policies SHOULD declare ``schema_version: 3``, and the
+    old default of ``2`` was fail-*open* on an empty tally for exactly the
+    callers who opted into a binding algorithm (``majority``, ``unanimous``,
+    etc.) -- silently satisfying a vote that received zero ballots, which
+    contradicts what asking for a binding algorithm means. RFC-MACP-0012 §8
+    makes the choice reversible and non-retroactive: a stored policy always
+    evaluates under its own declared version forever, so this default change
+    carries no migration risk for existing registered policies -- it only
+    changes what new callers who don't pass ``schema_version`` explicitly get
+    going forward. Pass ``schema_version=1`` or ``2`` explicitly to keep
+    fail-open empty-tally semantics.
     """
     if schema_version not in _DECISION_SCHEMA_VERSIONS:
         raise MacpSessionError(
@@ -197,9 +207,12 @@ def build_decision_policy(
     if v.weights is not None:
         voting_section["weights"] = v.weights
 
-    # Decision-only: extend the shared commitment rules with the schema_version 2
-    # decline-over-approval switch without polluting the other four builders.
+    # Decision-only: extend the shared commitment rules with the fields
+    # decision-rules.schema.json declares that the other four modes' commitment
+    # schemas don't (require_vote_quorum, allow_decline_over_approval) — see
+    # ``_commitment_dict`` note (issue #67).
     commitment_section = _commitment_dict(c)
+    commitment_section["require_vote_quorum"] = c.require_vote_quorum
     commitment_section["allow_decline_over_approval"] = c.allow_decline_over_approval
 
     rules: dict[str, object] = {

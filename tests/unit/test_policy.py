@@ -35,9 +35,9 @@ class TestBuildDecisionPolicy:
         desc = build_decision_policy("pol-1", "A test policy")
         assert desc.policy_id == "pol-1"
         assert desc.mode == "macp.mode.decision.v1"
-        # RFC-MACP-0012 schema_version 2 (adds decline-over-approval + the
-        # critical objection action). Only Decision is bumped.
-        assert desc.schema_version == 2
+        # RFC-MACP-0012 schema_version 3 default (issue #65): fail-closed empty
+        # tallies for binding algorithms. Only Decision is bumped.
+        assert desc.schema_version == 3
         rules = json.loads(desc.rules)
         # Voting — matches Runtime VotingRules defaults
         assert rules["voting"]["algorithm"] == "none"
@@ -102,27 +102,41 @@ class TestBuildDecisionPolicy:
         assert rules["evaluation"]["required_before_voting"] is True
 
     def test_schema_version_2_fields(self):
-        """RFC-MACP-0012 schema_version 2: negative committed outcomes."""
+        """RFC-MACP-0012 schema_version 2: negative committed outcomes.
+
+        Explicit ``schema_version=2`` (issue #65 moved the default to 3) --
+        these fields are version-agnostic in the builder, but the docstring's
+        claim is specifically about v2 semantics, so pin the version being
+        tested rather than relying on whatever the default happens to be.
+        """
         desc = build_decision_policy(
             "pol-neg",
             "decline over approval",
             objection_handling=ObjectionHandlingRules(critical_objection_action="finalize_decline"),
             commitment=CommitmentRules(allow_decline_over_approval=True),
+            schema_version=2,
         )
         assert desc.schema_version == 2
         rules = json.loads(desc.rules)
         assert rules["commitment"]["allow_decline_over_approval"] is True
         assert rules["objection_handling"]["critical_objection_action"] == "finalize_decline"
 
-    def test_schema_version_3_opt_in(self):
+    def test_schema_version_3_explicit(self):
         """RFC-MACP-0012 schema_version 3 (spec PR #99): fail-closed empty
-        tallies. Not the default -- must be requested explicitly."""
+        tallies. Also the default since issue #65 -- passing it explicitly
+        still works and is the recommended way to make the choice visible at
+        the call site."""
         desc = build_decision_policy("pol-v3", "fail-closed", schema_version=3)
         assert desc.schema_version == 3
 
-    def test_schema_version_default_stays_2(self):
+    def test_schema_version_default_is_3(self):
+        """Issue #65: the default flipped from 2 to 3 -- RFC-MACP-0012's
+        authoring guidance for new non-'none' policies, and the old default
+        was fail-open on an empty tally for callers who asked for a binding
+        algorithm. Not retroactive: a stored policy always evaluates under
+        its own recorded schema_version (RFC-MACP-0012 §8)."""
         desc = build_decision_policy("pol-default", "default version")
-        assert desc.schema_version == 2
+        assert desc.schema_version == 3
 
     def test_schema_version_1_still_supported(self):
         desc = build_decision_policy("pol-v1", "legacy", schema_version=1)
@@ -469,9 +483,11 @@ class TestCommitmentRulesShared:
     def _assert_commitment(self, rules: dict, authority: str, roles: list[str]) -> None:
         assert rules["commitment"]["authority"] == authority
         assert rules["commitment"]["designated_roles"] == roles
-        assert rules["commitment"]["require_vote_quorum"] is False
-        # The schema_version 2 decline switch is Decision-only and must NOT leak
-        # into the still version-1 quorum/proposal/task/handoff commitment rules.
+        # require_vote_quorum and allow_decline_over_approval are Decision-only
+        # (decision-rules.schema.json declares them; the other four modes'
+        # commitment schemas declare only {authority, designated_roles} and are
+        # closed with additionalProperties: false) — must NOT leak in here.
+        assert "require_vote_quorum" not in rules["commitment"]
         assert "allow_decline_over_approval" not in rules["commitment"]
 
     def test_non_decision_modes_stay_schema_version_1(self):
