@@ -483,9 +483,11 @@ class TestCommitmentRulesShared:
     def _assert_commitment(self, rules: dict, authority: str, roles: list[str]) -> None:
         assert rules["commitment"]["authority"] == authority
         assert rules["commitment"]["designated_roles"] == roles
-        assert rules["commitment"]["require_vote_quorum"] is False
-        # The schema_version 2 decline switch is Decision-only and must NOT leak
-        # into the still version-1 quorum/proposal/task/handoff commitment rules.
+        # require_vote_quorum and allow_decline_over_approval are Decision-only
+        # (decision-rules.schema.json declares them; the other four modes'
+        # commitment schemas declare only {authority, designated_roles} and are
+        # closed with additionalProperties: false) — must NOT leak in here.
+        assert "require_vote_quorum" not in rules["commitment"]
         assert "allow_decline_over_approval" not in rules["commitment"]
 
     def test_non_decision_modes_stay_schema_version_1(self):

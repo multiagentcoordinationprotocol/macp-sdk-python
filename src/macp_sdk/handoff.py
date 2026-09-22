@@ -29,9 +29,10 @@ class HandoffRecord:
     declined_by: str | None
     # True when the acceptance was an implicit accept synthesized by the
     # runtime (RFC-MACP-0010 §5.1) rather than an explicit client HandoffAccept.
-    # Runtime v0.5.0 defines but does not yet emit these; the SDK surfaces the
-    # field so histories that contain them replay correctly. Client-submitted
-    # accepts are always ``implicit=False`` (the runtime rejects a forged True).
+    # Runtime >= 0.8.0 emits these automatically for every session (no
+    # server-side opt-in exists) when an offer's implicit_accept_timeout_ms
+    # elapses unactioned. Client-submitted accepts are always
+    # ``implicit=False`` (the runtime rejects a forged True).
     implicit: bool = False
 
 
@@ -135,10 +136,9 @@ class HandoffProjection(BaseProjection):
         """True if *handoff_id* was accepted by a runtime implicit accept.
 
         Distinguishes a timeout-driven implicit accept (RFC-MACP-0010 §5.1)
-        from an explicit client ``HandoffAccept``. Runtime v0.5.0 does not yet
-        emit implicit accepts, so this returns False for all live sessions
-        today; it exists so histories/replays that carry them surface the
-        distinction.
+        from an explicit client ``HandoffAccept``. Runtime >= 0.8.0 emits
+        these automatically for every session once an offer's
+        ``implicit_accept_timeout_ms`` elapses unactioned.
         """
         handoff = self.handoffs.get(handoff_id)
         return handoff is not None and handoff.status == "accepted" and handoff.implicit
