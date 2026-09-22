@@ -151,6 +151,14 @@ class ProtoRegistry:
     def _decode_json_first_then_proto(
         self, type_name: str, payload: bytes
     ) -> dict[str, Any] | None:
+        # issue #69: this always attempts a real JSON parse first -- it does
+        # not sniff the leading byte (0x7B vs. 0x0A) to pick a branch. That
+        # matters because a first-byte shortcut would not generalize to
+        # leading whitespace before legacy JSON (insignificant per the JSON
+        # grammar, and stripped transparently by json.loads); parse-then-
+        # fallback handles it for free. A non-string ``value`` inside valid
+        # JSON is likewise accepted uninterpreted -- this layer decodes, it
+        # doesn't validate business-level shape.
         if not payload:
             return None
         try:

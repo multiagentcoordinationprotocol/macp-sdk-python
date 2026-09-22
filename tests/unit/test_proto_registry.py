@@ -184,6 +184,31 @@ class TestMultiRoundContribute:
     def test_decode_empty_returns_none(self, registry: ProtoRegistry):
         assert registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", b"") is None
 
+    def test_decode_legacy_json_with_leading_whitespace(self, registry: ProtoRegistry):
+        # issue #69: confirms this SDK does NOT use a first-byte shortcut
+        # (0x7B vs 0x0A) to pick JSON vs. proto -- ``_decode_json_first_then_proto``
+        # always attempts ``json.loads`` first, and the JSON spec (and Python's
+        # parser) treat leading whitespace as insignificant, so this decodes
+        # identically to the no-whitespace case rather than falling through to
+        # proto (which would fail to parse and raise).
+        legacy = b"   " + json.dumps({"value": "opt_a"}).encode("utf-8")
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
+        assert decoded == {"encoding": "json", "json": {"value": "opt_a"}}
+
+    @pytest.mark.parametrize("non_string_value", [42, {"nested": "object"}, ["a", "list"], None])
+    def test_decode_legacy_json_with_non_string_value_passes_through(
+        self, registry: ProtoRegistry, non_string_value: object
+    ):
+        # issue #69: the registry is a generic decode adapter with no
+        # ``Contribute``-specific schema of its own -- it hands back whatever
+        # JSON was present under ``value`` uninterpreted (no type coercion, no
+        # rejection). A non-string ``value`` here is a currently-open
+        # cross-SDK/runtime acceptance question (should the *runtime* reject
+        # this at admission?), not a decode-layer concern.
+        legacy = json.dumps({"value": non_string_value}).encode("utf-8")
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
+        assert decoded == {"encoding": "json", "json": {"value": non_string_value}}
+
 
 class TestTryDecodeUtf8:
     def test_empty_payload_returns_none(self):
