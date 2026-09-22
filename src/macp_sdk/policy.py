@@ -42,9 +42,11 @@ class CommitmentRules:
 
 def _commitment_dict(c: CommitmentRules) -> dict[str, object]:
     # Shared by all five mode builders — intentionally excludes the Decision-only
-    # ``allow_decline_over_approval`` field so it does not leak into the still
-    # version-1 quorum/proposal/task/handoff commitment schemas. Decision emits
-    # that field itself in ``build_decision_policy``.
+    # ``require_vote_quorum`` and ``allow_decline_over_approval`` fields so they
+    # do not leak into the still version-1 quorum/proposal/task/handoff
+    # commitment schemas, which declare only {authority, designated_roles} and
+    # are closed with ``additionalProperties: false`` (issue #67). Decision
+    # emits both fields itself in ``build_decision_policy``.
     #
     # ``authority: "designated_role"`` with an empty (or unset) ``designated_roles``
     # names no one, so no sender could ever satisfy it. All five rule schemas
@@ -61,7 +63,6 @@ def _commitment_dict(c: CommitmentRules) -> dict[str, object]:
     return {
         "authority": c.authority,
         "designated_roles": c.designated_roles,
-        "require_vote_quorum": c.require_vote_quorum,
     }
 
 
@@ -197,9 +198,12 @@ def build_decision_policy(
     if v.weights is not None:
         voting_section["weights"] = v.weights
 
-    # Decision-only: extend the shared commitment rules with the schema_version 2
-    # decline-over-approval switch without polluting the other four builders.
+    # Decision-only: extend the shared commitment rules with the fields
+    # decision-rules.schema.json declares that the other four modes' commitment
+    # schemas don't (require_vote_quorum, allow_decline_over_approval) — see
+    # ``_commitment_dict`` note (issue #67).
     commitment_section = _commitment_dict(c)
+    commitment_section["require_vote_quorum"] = c.require_vote_quorum
     commitment_section["allow_decline_over_approval"] = c.allow_decline_over_approval
 
     rules: dict[str, object] = {
