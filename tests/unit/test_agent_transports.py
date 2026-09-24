@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from macp.v1 import envelope_pb2
 
 from macp_sdk.agent.transports import (
@@ -13,6 +14,8 @@ from macp_sdk.agent.transports import (
 )
 from macp_sdk.constants import MODE_DECISION
 from macp_sdk.envelope import new_message_id, now_unix_ms
+from macp_sdk.errors import MacpTransportError
+from macp_sdk.retry import RetryPolicy
 
 
 def _make_envelope(
@@ -167,6 +170,108 @@ class TestGrpcTransportAdapter:
         adapter.stop()
 
         assert adapter._stopped is True
+
+    def test_retries_transient_not_found_from_subscribe(self):
+        """#75: a NOT_FOUND from the initial subscribe (the target session's
+        SessionStart hasn't reached the runtime yet) is a normal startup
+        race, retried with backoff instead of raised immediately."""
+        mock_client = MagicMock()
+        first_stream = MagicMock()
+        second_stream = MagicMock()
+
+        def _not_found_once():
+            raise MacpTransportError("Session 'target-session' not found", code="NOT_FOUND")
+            yield  # pragma: no cover - makes this a generator function
+
+        first_stream.responses.side_effect = _not_found_once
+        second_stream.responses.return_value = iter([_make_envelope(session_id="target-session")])
+        mock_client.open_stream.side_effect = [first_stream, second_stream]
+
+        adapter = GrpcTransportAdapter(
+            mock_client,
+            "target-session",
+            subscribe_retry=RetryPolicy(max_retries=2, backoff_base=0.0, backoff_max=0.0),
+        )
+        messages = list(adapter.start())
+
+        assert len(messages) == 1
+        first_stream.send_subscribe.assert_called_once_with("target-session")
+        second_stream.send_subscribe.assert_called_once_with("target-session")
+        first_stream.close.assert_called_once()
+        second_stream.close.assert_called_once()
+
+    def test_non_not_found_transport_error_raised_immediately(self):
+        """Only NOT_FOUND is treated as a transient startup race; any other
+        transport failure must still fail fast, with no retry."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+
+        def _unavailable():
+            raise MacpTransportError("boom", code="UNAVAILABLE")
+            yield  # pragma: no cover
+
+        mock_stream.responses.side_effect = _unavailable
+        mock_client.open_stream.return_value = mock_stream
+
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+
+        with pytest.raises(MacpTransportError, match="boom"):
+            list(adapter.start())
+
+        mock_client.open_stream.assert_called_once()
+
+    def test_raises_after_subscribe_retries_exhausted(self):
+        """A session that is permanently missing must still fail once the
+        bounded retry window is exhausted, not retry forever."""
+        mock_client = MagicMock()
+        streams: list[MagicMock] = []
+
+        def _not_found():
+            raise MacpTransportError("still missing", code="NOT_FOUND")
+            yield  # pragma: no cover
+
+        def _new_stream(*_args, **_kwargs):
+            stream = MagicMock()
+            stream.responses.side_effect = _not_found
+            streams.append(stream)
+            return stream
+
+        mock_client.open_stream.side_effect = _new_stream
+
+        adapter = GrpcTransportAdapter(
+            mock_client,
+            "target-session",
+            subscribe_retry=RetryPolicy(max_retries=2, backoff_base=0.0, backoff_max=0.0),
+        )
+
+        with pytest.raises(MacpTransportError, match="still missing"):
+            list(adapter.start())
+
+        assert mock_client.open_stream.call_count == 3  # initial attempt + 2 retries
+        for stream in streams:
+            stream.close.assert_called_once()
+
+    def test_not_found_after_envelope_seen_is_not_retried(self):
+        """NOT_FOUND is only transient at startup — once an envelope has
+        been delivered the session demonstrably exists, so a later
+        NOT_FOUND (e.g. it expired mid-stream) is raised as-is."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        env = _make_envelope(session_id="target-session")
+
+        def _envelope_then_not_found():
+            yield env
+            raise MacpTransportError("session expired mid-stream", code="NOT_FOUND")
+
+        mock_stream.responses.side_effect = _envelope_then_not_found
+        mock_client.open_stream.return_value = mock_stream
+
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+
+        with pytest.raises(MacpTransportError, match="session expired mid-stream"):
+            list(adapter.start())
+
+        mock_client.open_stream.assert_called_once()
 
 
 class TestHttpTransportAdapter:

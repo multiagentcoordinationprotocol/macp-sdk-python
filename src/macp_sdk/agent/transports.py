@@ -16,6 +16,8 @@ from typing import Any, Protocol
 from .._logging import logger
 from ..auth import AuthConfig
 from ..client import MacpClient
+from ..errors import MacpTransportError
+from ..retry import RetryPolicy
 from .types import IncomingMessage
 
 
@@ -41,6 +43,7 @@ class GrpcTransportAdapter:
         *,
         auth: AuthConfig | None = None,
         timeout: float | None = None,
+        subscribe_retry: RetryPolicy | None = None,
     ) -> None:
         self._client = client
         self._session_id = session_id
@@ -48,26 +51,63 @@ class GrpcTransportAdapter:
         self._timeout = timeout
         self._stream: Any = None
         self._stopped = False
+        self._subscribe_retry = subscribe_retry or RetryPolicy()
 
     def start(self) -> Iterator[IncomingMessage]:
-        """Open a stream and yield messages for the target session."""
-        self._stream = self._client.open_stream(auth=self._auth, timeout=self._timeout)
-        try:
-            # RFC-MACP-0006-A1: Subscribe to the session with history replay.
-            # The runtime replays accepted envelopes then switches to live
-            # broadcast, ensuring non-initiator agents receive SessionStart +
-            # Proposal regardless of spawn order or connection timing.
-            self._stream.send_subscribe(self._session_id)
+        """Open a stream and yield messages for the target session.
 
-            for envelope in self._stream.responses():
-                if self._stopped:
-                    break
-                if envelope.session_id != self._session_id:
-                    continue
-                yield _envelope_to_message(envelope)
-        finally:
-            if self._stream is not None:
-                self._stream.close()
+        A subscribe issued before a sibling participant's ``SessionStart``
+        has reached the runtime is a normal startup race, not a fatal
+        error — the runtime returns a transient ``NOT_FOUND`` for a session
+        it hasn't created yet (#75). That specific case is retried with
+        backoff (``subscribe_retry``) before giving up; once any envelope
+        has been delivered the session demonstrably exists, so a later
+        ``NOT_FOUND`` is raised immediately instead of retried.
+        """
+        attempt = 0
+        received_any = False
+        while True:
+            if self._stopped:
+                return
+            self._stream = self._client.open_stream(auth=self._auth, timeout=self._timeout)
+            try:
+                # RFC-MACP-0006-A1: Subscribe to the session with history replay.
+                # The runtime replays accepted envelopes then switches to live
+                # broadcast, ensuring non-initiator agents receive SessionStart +
+                # Proposal regardless of spawn order or connection timing.
+                self._stream.send_subscribe(self._session_id)
+
+                for envelope in self._stream.responses():
+                    received_any = True
+                    if self._stopped:
+                        return
+                    if envelope.session_id != self._session_id:
+                        continue
+                    yield _envelope_to_message(envelope)
+                return
+            except MacpTransportError as exc:
+                retry = self._subscribe_retry
+                if (
+                    received_any
+                    or self._stopped
+                    or exc.code != "NOT_FOUND"
+                    or attempt >= retry.max_retries
+                ):
+                    raise
+                delay = min(retry.backoff_base * (2**attempt), retry.backoff_max)
+                logger.debug(
+                    "session %r not found yet (subscribe attempt %d/%d), retrying in %.2fs",
+                    self._session_id,
+                    attempt + 1,
+                    retry.max_retries,
+                    delay,
+                )
+                attempt += 1
+                time.sleep(delay)
+            finally:
+                if self._stream is not None:
+                    self._stream.close()
+                    self._stream = None
 
     def stop(self) -> None:
         self._stopped = True
