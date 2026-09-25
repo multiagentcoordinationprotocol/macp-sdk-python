@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.10.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.9.1...v0.10.0) (2026-09-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **policy:** build_decision_policy's default schema_version is now 3 (was 2). A call that omits schema_version and uses a binding voting algorithm now fails closed on an empty decisive tally instead of silently sealing on zero ballots. Pass schema_version=1 or schema_version=2 explicitly to keep the old fail-open behavior.
+
+### Features
+
+* **policy:** flip Decision-policy schema_version default from 2 to 3 ([#74](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/74)) ([d08f214](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/d08f2143954d01581d51b6c8266f831acaadae48))
+* **policy:** support schema_version 3, enforce schema tightenings client-side ([1c5bc26](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1c5bc2658b00d116facf9404f67875c85bb83bf1))
+
+
+### Bug Fixes
+
+* **agent:** retry transient NOT_FOUND from the initial subscribe ([#76](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/76)) ([8b554ca](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/8b554ca19afd2e2b6e826fc09e7c2b0277817eb0)), closes [#75](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/75)
+* **handoff:** update stale implicit-accept docstrings, add live integration test ([#70](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/70)) ([#71](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/71)) ([110f250](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/110f250366ac08b7874bf896c10f9f85c9ff9ca8))
+* **policy:** stop emitting require_vote_quorum for non-decision commitment schemas ([#72](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/72)) ([5dd9e37](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/5dd9e37e075d5369d9f12ba22371721072acbaa0))
+* **proto_registry:** stop misdecoding canonical Contribute payloads as legacy JSON ([#77](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/77)) ([3403034](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/3403034d0bc6608e19bc3ec8ddb33b5499963467))
+
 ## [0.9.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.9.0...v0.9.1) (2026-09-06)
 
 
