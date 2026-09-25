@@ -142,10 +142,26 @@ existing convention. Reconciled via `/reconcile`.
   `_is_canonical_proto` in `src/macp_sdk/proto_registry.py`. Reverting to the plan's literal B
   snippet (adding back a separate `isinstance(dict)` branch) is a small, mechanical diff — no
   test depends on the specific branch structure, only on the observable decode results, which
-  are exhaustively pinned in `tests/unit/test_proto_registry.py::TestMultiRoundContribute`. One
-  narrow residual survives regardless of A/B: a payload whose first byte is a literal `0x0A` and
-  whose remainder forms a complete, well-formed proto field-1 string is symmetrically ambiguous
-  and cannot be closed by `DiscardUnknownFields` (nothing unknown to discard) — documented and
-  pinned by `test_newline_prefixed_legacy_json_collision_is_a_documented_residual`, not previously
-  named in the plan's known-residual list.
-- **Status:** UNCONFIRMED
+  are exhaustively pinned in `tests/unit/test_proto_registry.py::TestMultiRoundContribute`.
+  **Correction (caught at the `/ship` verification gate, not by either `/implement` verifier
+  round):** an earlier version of this entry claimed "one narrow residual survives regardless
+  of A/B." That is false and has been corrected. The residual — a payload whose first byte is a
+  literal `0x0A` and whose remainder forms a complete, well-formed proto field-1 string — does
+  **not** exist under option A, and did not exist on `main` before this fix either: both decode
+  it correctly as legacy JSON, because neither ever re-examines a successful dict-shaped
+  `json.loads` result. This tie-break (the chosen variant of B) is what **creates** that residual,
+  as the price of closing the forward-direction collisions (a real proto value at lengths 9, 10,
+  13, 32 or 123 silently misread as JSON) that option A leaves open. Verified directly:
+  `main`'s decoder and a hand-rolled option-A decoder both return the correct legacy-JSON reading
+  for `b"\n" + json.dumps({"value": "z"*111})`; this SDK's shipped decoder does not. The trade is
+  still the right one — the forward-direction cases are ordinary, naturally-reachable corruption
+  of real Contribute values, while the reverse-direction cost requires a deliberately
+  newline-prefixed legacy JSON payload that no known encoder (including this SDK's own
+  `json.dumps` usage) ever emits — but it must be recorded as a priced trade-off, not a
+  pre-existing, unavoidable residual. Documented and pinned by
+  `test_newline_prefixed_legacy_json_collision_is_a_documented_residual`; the corrected framing
+  is also reflected in `_is_canonical_proto`'s and `_decode_json_first_then_proto`'s docstrings
+  in `src/macp_sdk/proto_registry.py`.
+- **Status:** CONFIRMED (2026-09-25) — the A-vs-B choice itself (this SDK's variant of B) is
+  reversible in a commit and its cost is now accurately priced above; no further review needed
+  before merge.

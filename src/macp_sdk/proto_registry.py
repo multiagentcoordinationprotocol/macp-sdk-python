@@ -233,13 +233,20 @@ class ProtoRegistry:
         its docstring's claim "a proto payload never parses as a JSON
         object" (``:55-56``) is therefore false, not merely imprecise.
 
-        There is also a residual on the *reverse* direction -- legacy JSON
-        misread as proto -- that the tie-break cannot close, because it has
-        no unknown field to discard: a payload starting with a literal
-        ``0x0A`` whose remainder happens to form a complete, well-formed
-        proto field-1 string. See ``_is_canonical_proto``'s own docstring
-        for that case; it is the symmetric counterpart of the length-123
-        case above, just genuinely irreducible rather than resolved.
+        The tie-break also has a cost on the *reverse* direction -- legacy
+        JSON misread as proto -- that it introduces rather than merely fails
+        to close: without any tie-break (this file's pre-fix behavior, and
+        still the behavior under a bare ``isinstance(parsed, dict)`` guard),
+        a payload starting with a literal ``0x0A`` followed by real legacy
+        JSON always decoded correctly, because nothing re-examined a
+        successful dict parse. This tie-break creates the one case where
+        that stops holding: when the remainder also happens to form a
+        complete, well-formed proto field-1 string, so there is no unknown
+        field left for ``DiscardUnknownFields`` to expose a mismatch on. See
+        ``_is_canonical_proto``'s own docstring for that case and why it is
+        the right trade regardless; it is the symmetric counterpart of the
+        length-123 case above, just genuinely irreducible once the
+        tie-break is adopted, rather than resolved.
 
         One structural asymmetry is worth naming: whitespace *before* legacy
         JSON is handled for free, because ``json.loads`` skips leading
@@ -278,27 +285,39 @@ class ProtoRegistry:
         (verified: every JSON-whitespace-prefixed legacy payload up to
         length 300 that isn't a genuine one-field collision).
 
-        One narrow, irreducible residual remains, and it is *not* closed by
-        this check because there is nothing unknown to discard: a payload
-        whose first byte is a literal ``0x0A`` (``\\n``) -- which is
-        legacy-JSON-valid, insignificant leading whitespace, but is also
-        proto field 1's own tag byte -- where the remaining bytes happen to
-        form a complete, well-formed field-1 string with no leftover. Such
-        a byte string is genuinely, symmetrically ambiguous: it is
-        simultaneously a legal JSON reading and the canonical proto
-        encoding of some (possibly nonsensical) string, and no JSON-first
-        strategy can tell which one was intended. This is the mirror image
-        of the *forward*-direction collision at value length 123 (whose
-        length byte is ``0x7B`` = ``{``, so a genuine proto value can also
-        parse as a JSON object) -- both are the same class of dual-valid
-        byte string, entered from opposite directions, but they do **not**
-        both survive this check: the forward case *is* resolved (the proto
-        bytes have no unknown fields to begin with, so the round-trip
-        matches and proto correctly wins -- see
+        Choosing to run this tie-break at all has a narrow, priced cost, and
+        it is important not to describe it as a pre-existing bug this check
+        merely fails to close: without any canonicality check (this file's
+        behavior before this fix, and still the behavior under a bare
+        ``isinstance(parsed, dict)`` guard with no tie-break), a payload
+        whose first byte is a literal ``0x0A`` (``\\n``) -- legacy-JSON-valid,
+        insignificant leading whitespace -- followed by real legacy JSON
+        decodes *correctly* as that JSON, every time, because nothing ever
+        re-examines a successful dict-shaped parse. Adding this
+        canonicality tie-break is what creates the one case where that
+        stops being true: when the remaining bytes *also* happen to form a
+        complete, well-formed proto field-1 string with no leftover (the
+        leading ``0x0A`` doubles as field 1's own tag byte, so there is
+        nothing unknown for ``DiscardUnknownFields`` to strip and expose as
+        a mismatch). That byte string is genuinely, symmetrically
+        ambiguous -- simultaneously a legal JSON reading and the canonical
+        proto encoding of some (possibly nonsensical) string -- and once
+        the tie-break is in place, no cheap additional check resolves it
+        without reintroducing the tie-break's own blind spot. It is the
+        mirror image of the *forward*-direction collision at value length
+        123 (whose length byte is ``0x7B`` = ``{``, so a genuine proto
+        value can also parse as a JSON object), but the two do **not**
+        trade symmetrically: the forward case is a real, naturally-reachable
+        corruption of an ordinary proto-encoded value that this tie-break
+        *fixes* (see
         ``test_canonical_proto_length_123_collision_is_resolved_toward_proto``),
-        while this reverse case is the one that cannot be, for the reason
-        above. See ``TestMultiRoundContribute`` for characterization tests
-        pinning both outcomes.
+        while the reverse case this tie-break *creates* requires a
+        deliberately newline-prefixed legacy JSON payload that no known
+        encoder (including this SDK's own) emits. That asymmetry -- fixing
+        an ordinary corruption at the cost of an adversarial one -- is why
+        the tie-break is still the right call, not a wash. See
+        ``TestMultiRoundContribute`` for characterization tests pinning both
+        outcomes.
         """
         try:
             cls = self._db.GetSymbol(type_name)

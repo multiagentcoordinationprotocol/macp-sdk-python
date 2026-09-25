@@ -311,29 +311,51 @@ class TestMultiRoundContribute:
         decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
         assert decoded == {"encoding": "json", "json": {"value": value}}
 
+    @pytest.mark.parametrize(
+        ("extra_whitespace", "value_length"),
+        [
+            (b"", 111),
+            (b"\r", 0),
+            (b" ", 19),
+        ],
+        ids=["newline-only", "newline-then-cr-empty-value", "newline-then-space-len19"],
+    )
     def test_newline_prefixed_legacy_json_collision_is_a_documented_residual(
-        self, registry: ProtoRegistry
+        self, registry: ProtoRegistry, extra_whitespace: bytes, value_length: int
     ):
         # issue #69: unlike other JSON whitespace bytes, a literal 0x0A
         # (``\n``) prefix is *itself* proto field 1's tag byte -- there is
         # no unknown field for ``DiscardUnknownFields`` to strip, because
         # the remaining bytes here form a complete, well-formed field-1
-        # string with nothing left over. This specific (prefix, length)
-        # combination is therefore genuinely, symmetrically ambiguous: it
-        # is simultaneously valid JSON (``{"value": "z"*111}``) and the
-        # exact canonical proto encoding of some string. No JSON-first
-        # strategy can tell these apart from the bytes alone -- this
-        # mirrors the already-known forward-direction residual (a real
-        # Contribute value of length 123 collides because its length byte
-        # is ``0x7B`` = ``{``), just entered from the opposite direction.
+        # string with nothing left over. This is a *family* of colliding
+        # (extra-whitespace, length) combinations, not a single one -- any
+        # amount of additional JSON whitespace after the leading ``\n``
+        # (itself insignificant to the JSON parser) shifts which length
+        # collides, since it is the total byte count from the ``\n`` to the
+        # end that must match a complete field-1 string. Three representative
+        # members are pinned here (found by exhaustive sweep, not guessed):
+        # no extra whitespace at length 111, an extra ``\r`` at length 0, and
+        # an extra space at length 19. Each is genuinely, symmetrically
+        # ambiguous: simultaneously valid JSON and the exact canonical proto
+        # encoding of some (possibly nonsensical) string. No JSON-first
+        # strategy can tell these apart from the bytes alone -- this mirrors
+        # the forward-direction collision this SDK's fix resolves (a real
+        # Contribute value of length 123 collides because its length byte is
+        # ``0x7B`` = ``{``), just entered from the opposite direction.
+        # Unlike that one, THIS case is not a pre-existing bug the fix fails
+        # to close -- it is a cost the canonicality tie-break *introduces*:
+        # without it (this file's pre-fix behavior, and still the behavior
+        # under a bare ``isinstance(dict)`` guard with no tie-break), every
+        # one of these exact payloads decoded correctly as legacy JSON,
+        # because nothing ever re-examined a successful dict-shaped parse.
         # Characterized here, not fixed, so a future change to this
         # behavior is a conscious act, not a silent regression. A real
         # legacy-JSON sender would need to deliberately prefix with a
         # literal newline byte for this to matter -- ``json.dumps`` never
         # emits one, and the SDK's own pinned whitespace test
         # (``test_decode_legacy_json_with_leading_whitespace``) uses spaces.
-        value = "z" * 111
-        legacy = b"\n" + json.dumps({"value": value}).encode("utf-8")
+        value = "z" * value_length
+        legacy = b"\n" + extra_whitespace + json.dumps({"value": value}).encode("utf-8")
         decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
         assert decoded != {"encoding": "json", "json": {"value": value}}
         assert decoded == {"value": legacy[2:].decode("utf-8")}
