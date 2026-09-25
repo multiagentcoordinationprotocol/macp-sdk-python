@@ -12,7 +12,7 @@ from macp_sdk.agent.transports import (
     HttpTransportAdapter,
     _envelope_to_message,
 )
-from macp_sdk.constants import MODE_DECISION
+from macp_sdk.constants import MODE_DECISION, MODE_MULTI_ROUND
 from macp_sdk.envelope import new_message_id, now_unix_ms
 from macp_sdk.errors import MacpTransportError
 from macp_sdk.retry import RetryPolicy
@@ -80,6 +80,38 @@ class TestEnvelopeToMessage:
         )
         msg = _envelope_to_message(env)
         assert msg.payload == {}
+        assert msg.proposal_id is None
+
+    @pytest.mark.parametrize(
+        "non_dict_json_payload",
+        [b"null", b"0", b'"x"', b"[]", b"true"],
+        ids=["null", "zero", "string", "empty-array", "true"],
+    )
+    def test_contribute_non_dict_json_payload_does_not_raise(self, non_dict_json_payload: bytes):
+        # issue #69: none of these bytes are a canonical proto encoding of
+        # ContributePayload, so ProtoRegistry.decode_known_payload returns
+        # the legacy JSON wrapper for each (see
+        # tests/unit/test_proto_registry.py::TestMultiRoundContribute::
+        # test_decode_non_dict_json_still_returns_safe_wrapper). This pins
+        # the caller-side contract that matters: _envelope_to_message must
+        # come back with a dict `payload` -- never raise -- so that
+        # `payload_dict.get("proposal_id")` a few lines below never sees a
+        # non-dict. A decoder that instead raised DecodeError on these bytes
+        # would surface an uncaught AttributeError here, because
+        # `except Exception:`'s recovery path (transports.py) re-parses the
+        # same bytes as JSON and succeeds with a non-dict result.
+        env = envelope_pb2.Envelope(
+            macp_version="1.0",
+            mode=MODE_MULTI_ROUND,
+            message_type="Contribute",
+            message_id=new_message_id(),
+            session_id="s1",
+            sender="agent-d",
+            timestamp_unix_ms=now_unix_ms(),
+            payload=non_dict_json_payload,
+        )
+        msg = _envelope_to_message(env)
+        assert isinstance(msg.payload, dict)
         assert msg.proposal_id is None
 
 

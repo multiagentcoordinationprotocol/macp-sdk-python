@@ -141,10 +141,9 @@ class ProtoRegistry:
         if mode == MODE_MULTI_ROUND and message_type == "Contribute":
             # RFC-MACP contract: multi_round Contribute accepts legacy JSON
             # (``{"value": "..."}``) *permanently* and tries it first, so
-            # pre-proto histories/replays decode byte-identically. Proto
-            # (``ContributePayload``) is the new canonical encoding; its
-            # serialized bytes are not valid JSON, so the JSON attempt fails
-            # loudly and we fall through to proto.
+            # pre-proto histories/replays decode byte-identically. See
+            # ``_decode_json_first_then_proto`` for why a canonical-proto
+            # tie-break is required on top of that (issue #69).
             return self._decode_json_first_then_proto(type_name, payload)
         return self.decode_message(type_name, payload)
 
@@ -159,15 +158,70 @@ class ProtoRegistry:
         # fallback handles it for free. A non-string ``value`` inside valid
         # JSON is likewise accepted uninterpreted -- this layer decodes, it
         # doesn't validate business-level shape.
+        #
+        # A successful JSON parse is NOT proof the bytes are legacy JSON:
+        # the canonical proto tag byte (0x0A) is JSON whitespace, so for
+        # certain payload *lengths* the length varint (or, when the varint
+        # is itself whitespace, the value's own leading byte) becomes the
+        # JSON parser's first significant character, and canonical proto
+        # bytes can parse as a JSON number/string/array/object. See
+        # ``_is_canonical_proto`` for the tie-break this requires, and for
+        # the narrow, symmetric residual it cannot close.
         if not payload:
             return None
         try:
             parsed = json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
             return self.decode_message(type_name, payload)
+        if self._is_canonical_proto(type_name, payload):
+            return self.decode_message(type_name, payload)
         # Legacy JSON payload — keep the ``{"encoding": "json", "json": ...}``
         # shape that existing consumers of decoded dicts already handle.
         return {"encoding": "json", "json": parsed}
+
+    def _is_canonical_proto(self, type_name: str, payload: bytes) -> bool:
+        """True iff *payload* is the exact canonical proto encoding of *type_name*.
+
+        Used to break the JSON/proto ambiguity in
+        ``_decode_json_first_then_proto``: bytes that both parse as JSON
+        *and* round-trip byte-identically through the proto message, with
+        no unknown fields, are treated as proto, not JSON.
+
+        ``DiscardUnknownFields`` matters: the Python protobuf runtime
+        preserves unknown fields verbatim through
+        ``ParseFromString``/``SerializeToString`` by default, so a plain
+        round-trip check is *not* proof of canonicality -- it is also true
+        for arbitrary well-formed-but-foreign byte strings that merely
+        happen to parse as *some* valid protobuf wire format. Dropping
+        unknown fields first closes that false-positive class entirely
+        (verified: every JSON-whitespace-prefixed legacy payload up to
+        length 300 that isn't a genuine one-field collision).
+
+        One narrow, irreducible residual remains, and it is *not* closed by
+        this check because there is nothing unknown to discard: a payload
+        whose first byte is a literal ``0x0A`` (``\\n``) -- which is
+        legacy-JSON-valid, insignificant leading whitespace, but is also
+        proto field 1's own tag byte -- where the remaining bytes happen to
+        form a complete, well-formed field-1 string with no leftover. Such
+        a byte string is genuinely, symmetrically ambiguous: it is
+        simultaneously a legal JSON reading and the canonical proto
+        encoding of some (possibly nonsensical) string, and no JSON-first
+        strategy can tell which one was intended. This mirrors the
+        already-accepted forward-direction residual (a real Contribute
+        value of length 123, whose length byte is ``0x7B`` = ``{``, can
+        parse as a JSON object) -- both are the same class of dual-valid
+        byte string, just entered from opposite directions. See
+        ``TestMultiRoundContribute`` for characterization tests pinning
+        both.
+        """
+        try:
+            cls = self._db.GetSymbol(type_name)
+            msg = cls()
+            msg.ParseFromString(payload)
+            msg.DiscardUnknownFields()
+            return msg.SerializeToString() == payload
+        except Exception:
+            return False
 
     @staticmethod
     def _try_decode_utf8(payload: bytes) -> dict[str, Any] | None:

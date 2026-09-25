@@ -209,6 +209,152 @@ class TestMultiRoundContribute:
         decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
         assert decoded == {"encoding": "json", "json": {"value": non_string_value}}
 
+    @pytest.mark.parametrize("value_length", list(range(1, 128)))
+    @pytest.mark.parametrize(
+        "value_shape",
+        [
+            "digits_nonzero",
+            "digits_zero",
+            "leading_nonzero_digit",
+            "json_object_shaped",
+            "json_value_key_shaped",
+        ],
+    )
+    def test_canonical_proto_round_trips_at_every_collision_length(
+        self, registry: ProtoRegistry, value_length: int, value_shape: str
+    ):
+        # issue #69: the canonical proto tag byte (0x0A) is JSON whitespace,
+        # so for specific payload *lengths* the length varint -- or, when the
+        # varint is itself whitespace, the value's own leading byte -- becomes
+        # the first significant character a JSON parser sees. Before the
+        # ``_is_canonical_proto`` tie-break, a canonical ``ContributePayload``
+        # at one of those lengths silently mis-decoded as a JSON number,
+        # string, array, or object instead of the real string value. This
+        # sweeps every length from 1 to 127 (the two-byte varint boundary --
+        # length >= 128 is immune, since its first byte is not a valid UTF-8
+        # start byte and the JSON attempt never gets that far) across five
+        # value shapes chosen to hit both known collision mechanisms:
+        # a significant length byte (34, 45, 48, 49-57, 91) and a whitespace
+        # length byte that hands the opening character to the value itself
+        # (9, 10, 13, 32, and the value-supplied ``{`` at 123).
+        if value_shape == "digits_nonzero":
+            value = "9" * value_length
+        elif value_shape == "digits_zero":
+            value = "0" * value_length
+        elif value_shape == "leading_nonzero_digit":
+            value = "1" + "2" * (value_length - 1)
+        elif value_shape == "json_object_shaped":
+            if value_length < 8:
+                pytest.skip('shape needs >= 8 bytes for {"a":"..."}')
+            value = '{"a":"' + "x" * (value_length - 8) + '"}'
+        else:
+            if value_length < 11:
+                pytest.skip('shape needs >= 11 bytes for "value":"...."}')
+            value = '"value":"' + "x" * (value_length - 11) + '"}'
+        assert len(value) == value_length
+
+        wire = registry.encode_known_payload(MODE_MULTI_ROUND, "Contribute", {"value": value})
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", wire)
+        assert decoded == {"value": value}
+
+    @pytest.mark.parametrize(
+        "non_dict_json_payload",
+        [b"null", b"0", b'"x"', b"[]", b"true"],
+        ids=["null", "zero", "string", "empty-array", "true"],
+    )
+    def test_decode_non_dict_json_still_returns_safe_wrapper(
+        self, registry: ProtoRegistry, non_dict_json_payload: bytes
+    ):
+        # issue #69: none of these bytes are a canonical proto encoding of
+        # ContributePayload (each fails to round-trip through
+        # ``_is_canonical_proto``), so they must keep decoding as the legacy
+        # JSON wrapper -- exactly as they did before the collision fix. A
+        # decoder that instead routed non-canonical-but-valid JSON through
+        # ``decode_message`` would raise ``DecodeError`` here, which the sole
+        # in-repo caller (``agent/transports.py``) does not safely absorb --
+        # see ``tests/unit/test_agent_transports.py`` for that regression
+        # test.
+        decoded = registry.decode_known_payload(
+            MODE_MULTI_ROUND, "Contribute", non_dict_json_payload
+        )
+        assert decoded == {
+            "encoding": "json",
+            "json": json.loads(non_dict_json_payload),
+        }
+
+    @pytest.mark.parametrize(
+        ("prefix", "value_length"),
+        [
+            (b"\t", 29),
+            (b" ", 108),
+            (b"   ", 108),
+        ],
+        ids=["tab-prefix", "single-space-prefix", "three-space-prefix"],
+    )
+    def test_whitespace_prefixed_legacy_json_survives_canonicality_tie_break(
+        self, registry: ProtoRegistry, prefix: bytes, value_length: int
+    ):
+        # issue #69 regression: an earlier version of the canonicality
+        # tie-break (``_is_canonical_proto`` without ``DiscardUnknownFields``)
+        # misclassified these exact (prefix, length) combinations as
+        # canonical proto, because Python's protobuf runtime preserves
+        # unknown fields verbatim through a parse/reserialize round-trip --
+        # a byte-identical round-trip is not proof there are no unknown
+        # fields. These three cases are real bytes that reproduced that
+        # false positive before the fix (a `\t`/` `/`   ` prefix is not
+        # proto field 1's tag byte 0x0A, so the tag byte itself is always
+        # readable as an *unknown* field here). They must decode as legacy
+        # JSON, not silently lose or corrupt the value.
+        value = "z" * value_length
+        legacy = prefix + json.dumps({"value": value}).encode("utf-8")
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
+        assert decoded == {"encoding": "json", "json": {"value": value}}
+
+    def test_newline_prefixed_legacy_json_collision_is_a_documented_residual(
+        self, registry: ProtoRegistry
+    ):
+        # issue #69: unlike other JSON whitespace bytes, a literal 0x0A
+        # (``\n``) prefix is *itself* proto field 1's tag byte -- there is
+        # no unknown field for ``DiscardUnknownFields`` to strip, because
+        # the remaining bytes here form a complete, well-formed field-1
+        # string with nothing left over. This specific (prefix, length)
+        # combination is therefore genuinely, symmetrically ambiguous: it
+        # is simultaneously valid JSON (``{"value": "z"*111}``) and the
+        # exact canonical proto encoding of some string. No JSON-first
+        # strategy can tell these apart from the bytes alone -- this
+        # mirrors the already-known forward-direction residual (a real
+        # Contribute value of length 123 collides because its length byte
+        # is ``0x7B`` = ``{``), just entered from the opposite direction.
+        # Characterized here, not fixed, so a future change to this
+        # behavior is a conscious act, not a silent regression. A real
+        # legacy-JSON sender would need to deliberately prefix with a
+        # literal newline byte for this to matter -- ``json.dumps`` never
+        # emits one, and the SDK's own pinned whitespace test
+        # (``test_decode_legacy_json_with_leading_whitespace``) uses spaces.
+        value = "z" * 111
+        legacy = b"\n" + json.dumps({"value": value}).encode("utf-8")
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy)
+        assert decoded != {"encoding": "json", "json": {"value": value}}
+        assert decoded == {"value": legacy[2:].decode("utf-8")}
+
+    def test_canonical_proto_length_123_collision_is_resolved_toward_proto(
+        self, registry: ProtoRegistry
+    ):
+        # issue #69: the forward-direction counterpart of the residual
+        # above. A genuine Contribute value of length 123 makes the length
+        # varint byte 0x7B = ``{``, so the wire bytes also parse as a JSON
+        # object (``{"value": "xxx...xxx"}``-shaped). Unlike the reverse
+        # residual, this direction *is* fully resolved by the canonicality
+        # tie-break: the wire bytes are the exact canonical proto encoding
+        # (no unknown fields to begin with), so they correctly decode as
+        # the real proto value rather than the coincidental JSON reading.
+        value = '"value":"' + "x" * (123 - 11) + '"}'
+        assert len(value) == 123
+        wire = registry.encode_known_payload(MODE_MULTI_ROUND, "Contribute", {"value": value})
+        assert wire[0:1] == b"\n" and wire[1] == 123
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", wire)
+        assert decoded == {"value": value}
+
 
 class TestTryDecodeUtf8:
     def test_empty_payload_returns_none(self):
