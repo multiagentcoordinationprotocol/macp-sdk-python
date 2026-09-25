@@ -231,8 +231,9 @@ class TestMultiRoundContribute:
         # at one of those lengths silently mis-decoded as a JSON number,
         # string, array, or object instead of the real string value. This
         # sweeps every length from 1 to 127 (the two-byte varint boundary --
-        # length >= 128 is immune, since its first byte is not a valid UTF-8
-        # start byte and the JSON attempt never gets that far) across five
+        # length >= 128 is immune, since the two-byte varint can never decode
+        # as valid UTF-8 -- see ``_decode_json_first_then_proto``'s docstring
+        # for why -- so the JSON attempt never gets that far) across five
         # value shapes chosen to hit both known collision mechanisms:
         # a significant length byte (34, 45, 48, 49-57, 91) and a whitespace
         # length byte that hands the opening character to the value itself
@@ -354,6 +355,67 @@ class TestMultiRoundContribute:
         assert wire[0:1] == b"\n" and wire[1] == 123
         decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", wire)
         assert decoded == {"value": value}
+
+    @pytest.mark.parametrize(
+        "unparseable_payload_factory",
+        [
+            lambda canonical: b"   " + canonical,
+            lambda canonical: b"\n" + canonical,
+            lambda _canonical: b"   ",
+            lambda _canonical: b"not-json-not-proto",
+            lambda _canonical: b"\xff\xfe\xfd",
+        ],
+        ids=[
+            "whitespace-before-canonical-proto",
+            "newline-before-canonical-proto",
+            "whitespace-only",
+            "plain-ascii-text",
+            "invalid-utf8",
+        ],
+    )
+    def test_bytes_that_are_neither_legacy_json_nor_proto_raise_decode_error(
+        self, registry: ProtoRegistry, unparseable_payload_factory
+    ):
+        # issue #69: these are not legacy JSON (JSON parse fails, or -- for
+        # the first two cases -- the *combined* bytes are no longer valid
+        # JSON even though a suffix of them is canonical proto) and not a
+        # valid ContributePayload either, so the fallback to ``decode_message``
+        # correctly surfaces the underlying protobuf parse failure rather
+        # than silently returning something. This pins the negative space:
+        # bytes with no legitimate reading raise, they don't get coerced into
+        # an empty/None result.
+        from google.protobuf.message import DecodeError
+
+        canonical = registry.encode_known_payload(
+            MODE_MULTI_ROUND, "Contribute", {"value": "opt_a"}
+        )
+        payload = unparseable_payload_factory(canonical)
+        with pytest.raises(DecodeError):
+            registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", payload)
+
+    def test_empty_value_round_trip_hole_is_indistinguishable_from_absent(
+        self, registry: ProtoRegistry
+    ):
+        # issue #69, ask 3: proto3 gives ``string value = 1;`` no field
+        # presence, so an *explicitly empty* Contribute value and a
+        # genuinely absent payload serialize identically to zero bytes and
+        # therefore decode identically too (``None``, this file's
+        # "nothing decodable" sentinel). This is a structural limitation of
+        # the wire schema (see ``build_contribute_payload``'s docstring),
+        # not a decode-layer bug, and is not fixed here -- the runtime is
+        # the acceptance gate and rejects empty Contribute payloads outright
+        # (macp-runtime/crates/macp-modes/src/mode/multi_round.rs:67-69).
+        # Legacy JSON has no such hole, which sharpens the asymmetry: it can
+        # say "empty" explicitly.
+        from macp_sdk.envelope import build_contribute_payload
+
+        assert build_contribute_payload("").SerializeToString() == b""
+        assert registry.encode_known_payload(MODE_MULTI_ROUND, "Contribute", {"value": ""}) == b""
+        assert registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", b"") is None
+
+        legacy_empty = json.dumps({"value": ""}).encode("utf-8")
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", legacy_empty)
+        assert decoded == {"encoding": "json", "json": {"value": ""}}
 
 
 class TestTryDecodeUtf8:

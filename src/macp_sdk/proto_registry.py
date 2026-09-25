@@ -150,23 +150,104 @@ class ProtoRegistry:
     def _decode_json_first_then_proto(
         self, type_name: str, payload: bytes
     ) -> dict[str, Any] | None:
-        # issue #69: this always attempts a real JSON parse first -- it does
-        # not sniff the leading byte (0x7B vs. 0x0A) to pick a branch. That
-        # matters because a first-byte shortcut would not generalize to
-        # leading whitespace before legacy JSON (insignificant per the JSON
-        # grammar, and stripped transparently by json.loads); parse-then-
-        # fallback handles it for free. A non-string ``value`` inside valid
-        # JSON is likewise accepted uninterpreted -- this layer decodes, it
-        # doesn't validate business-level shape.
-        #
-        # A successful JSON parse is NOT proof the bytes are legacy JSON:
-        # the canonical proto tag byte (0x0A) is JSON whitespace, so for
-        # certain payload *lengths* the length varint (or, when the varint
-        # is itself whitespace, the value's own leading byte) becomes the
-        # JSON parser's first significant character, and canonical proto
-        # bytes can parse as a JSON number/string/array/object. See
-        # ``_is_canonical_proto`` for the tie-break this requires, and for
-        # the narrow, symmetric residual it cannot close.
+        """Decode a multi_round ``Contribute`` payload, JSON tried first.
+
+        **Empty payload (``b""``) decodes to ``None`` -- deliberately, and this
+        is not an oversight.** There is no decode-layer rejection of an empty
+        Contribute value, and none is added here. The runtime is the sole
+        acceptance gate for this mode and it already rejects empty payloads,
+        precisely because canonical proto3 cannot distinguish an absent
+        ``value`` from an explicit empty string (no field presence on a bare
+        ``string value = 1;`` -- see
+        ``macp-runtime/crates/macp-modes/src/mode/multi_round.rs:67-69``,
+        surfaced as ``MacpError::InvalidPayload`` -> wire code
+        ``INVALID_ENVELOPE`` via
+        ``macp-runtime/crates/macp-core/src/error.rs:66``). That reject *is*
+        the mitigation for the round-trip hole this creates on the encode
+        side (see ``build_contribute_payload``'s docstring) -- adding a
+        decode-layer raise here would duplicate a gate that already exists
+        downstream, on a call whose result no in-repo caller currently reaches unguarded
+        (``agent/transports.py`` only calls this behind an
+        ``if envelope.payload:`` check). ``None`` is also this file's existing
+        "nothing decodable" sentinel, shared with ``_try_decode_utf8``.
+
+        **Why JSON is tried first, and why a byte-identical round-trip alone
+        is not enough to call something proto.** This always attempts a real
+        JSON parse first -- it does not sniff the leading byte (``0x7B`` vs.
+        ``0x0A``) to pick a branch. That matters because a first-byte
+        shortcut does not generalize to leading whitespace before legacy
+        JSON (insignificant per the JSON grammar, and stripped transparently
+        by ``json.loads``); parse-then-fallback handles it for free. A
+        non-string ``value`` inside valid JSON is likewise accepted
+        uninterpreted -- this layer decodes, it doesn't validate
+        business-level shape.
+
+        A successful JSON parse is *not* proof the bytes are legacy JSON,
+        because the canonical proto tag byte for field 1 (``0x0A``) is
+        itself insignificant JSON whitespace. Two distinct mechanisms follow
+        from that, both real and independently reachable from this SDK's own
+        encoder (exhaustively swept, value lengths 1-127):
+
+        1. **The length varint is a significant JSON opener.** When the
+           single-byte length varint is ``-``, a digit, ``"`` or ``[``, the
+           value's own bytes continue that literal as a JSON number, string
+           or array. Concretely: lengths 45 and 49-57 (all-digit values),
+           48 when the value supplies a decimal point, 34 (a quoted
+           string-shaped value), and 91 (an array-shaped value).
+        2. **The length varint is itself JSON whitespace.** JSON whitespace
+           is exactly ``0x09``, ``0x0A``, ``0x0D``, ``0x20`` -- lengths 9,
+           10, 13 and 32 -- which makes *both* leading bytes insignificant
+           and hands the opening character to the **value's own first
+           byte**. An object-shaped value then parses as that JSON object.
+           At length 123 the length varint is ``0x7B`` = ``{`` itself, which
+           is mechanism 2's most naturally-reachable instance: any ordinary
+           123-byte value shaped to complete that opened object (e.g.
+           ``"value":"..."}``, so the full bytes read as ``{"value":"..."}``)
+           collides.
+
+        Every length >= 128 is immune, though not for one uniform reason: the
+        two-byte length varint's first byte is ``0x80 | (length & 0x7F)``
+        (range ``0x80``-``0xFF``) and its second byte is ``length >> 7``
+        (range ``0x01``-``0x7F``, i.e. plain ASCII, never a continuation
+        byte). When the first byte itself falls in ``0x80``-``0xBF`` it is a
+        bare UTF-8 continuation byte and is invalid as a sequence start on
+        its own; when it instead falls in ``0xC0``-``0xFF`` (a byte that
+        *would* open a valid multi-byte UTF-8 sequence), the second byte's
+        exclusively-ASCII range means it can never be a legal continuation
+        byte, so the sequence is still malformed. Either way ``payload.decode
+        ("utf-8")`` raises before either mechanism can apply (verified for
+        every length 128-999).
+
+        ``_is_canonical_proto`` resolves both mechanisms by tie-break rather
+        than by refusing to try JSON: bytes that parse as JSON *and* are the
+        exact canonical proto encoding (no unknown fields once discarded)
+        are treated as proto. Verified exhaustively: this closes every
+        forward-direction case above (mechanisms 1 and 2, including length
+        123 -- see
+        ``test_canonical_proto_length_123_collision_is_resolved_toward_proto``),
+        leaving zero corrupting lengths in 1-127. ``macp-runtime`` has no
+        equivalent tie-break and mis-decodes canonical proto at value
+        lengths 13, 32 and 123 today (mechanism 2 on its own
+        ``parse_contribute_value``,
+        ``macp-runtime/crates/macp-modes/src/mode/multi_round.rs:70-77``);
+        its docstring's claim "a proto payload never parses as a JSON
+        object" (``:55-56``) is therefore false, not merely imprecise.
+
+        There is also a residual on the *reverse* direction -- legacy JSON
+        misread as proto -- that the tie-break cannot close, because it has
+        no unknown field to discard: a payload starting with a literal
+        ``0x0A`` whose remainder happens to form a complete, well-formed
+        proto field-1 string. See ``_is_canonical_proto``'s own docstring
+        for that case; it is the symmetric counterpart of the length-123
+        case above, just genuinely irreducible rather than resolved.
+
+        One structural asymmetry is worth naming: whitespace *before* legacy
+        JSON is handled for free, because ``json.loads`` skips leading
+        whitespace natively. Whitespace before proto bytes is not
+        recoverable the same way -- those bytes are simply not a valid
+        ``ContributePayload``, so they correctly raise rather than silently
+        losing data.
+        """
         if not payload:
             return None
         try:
@@ -206,13 +287,18 @@ class ProtoRegistry:
         a byte string is genuinely, symmetrically ambiguous: it is
         simultaneously a legal JSON reading and the canonical proto
         encoding of some (possibly nonsensical) string, and no JSON-first
-        strategy can tell which one was intended. This mirrors the
-        already-accepted forward-direction residual (a real Contribute
-        value of length 123, whose length byte is ``0x7B`` = ``{``, can
+        strategy can tell which one was intended. This is the mirror image
+        of the *forward*-direction collision at value length 123 (whose
+        length byte is ``0x7B`` = ``{``, so a genuine proto value can also
         parse as a JSON object) -- both are the same class of dual-valid
-        byte string, just entered from opposite directions. See
-        ``TestMultiRoundContribute`` for characterization tests pinning
-        both.
+        byte string, entered from opposite directions, but they do **not**
+        both survive this check: the forward case *is* resolved (the proto
+        bytes have no unknown fields to begin with, so the round-trip
+        matches and proto correctly wins -- see
+        ``test_canonical_proto_length_123_collision_is_resolved_toward_proto``),
+        while this reverse case is the one that cannot be, for the reason
+        above. See ``TestMultiRoundContribute`` for characterization tests
+        pinning both outcomes.
         """
         try:
             cls = self._db.GetSymbol(type_name)
