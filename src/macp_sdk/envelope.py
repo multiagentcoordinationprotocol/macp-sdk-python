@@ -206,6 +206,18 @@ def build_contribute_payload(value: str) -> multi_round_pb2.ContributePayload:
     protobuf wire format. The runtime still permanently accepts legacy JSON
     (``{"value": "..."}``) — see ``ProtoRegistry.decode_known_payload`` — but
     new clients should emit proto via this builder.
+
+    **Round-trip hole: ``value=""`` is indistinguishable from absent.**
+    Canonical proto3 gives ``string value = 1;`` no field presence, so an
+    empty string serializes to zero bytes, identical to never having called
+    this at all — ``build_contribute_payload("").SerializeToString() == b""``.
+    ``ProtoRegistry.decode_known_payload`` therefore decodes an empty
+    Contribute value back as ``None``, the same sentinel it uses for a
+    genuinely absent payload; legacy JSON does not have this hole (it can
+    express ``{"value": ""}`` explicitly). This is a structural, one-way-door
+    limitation of the wire schema, not a decode bug — the runtime is the
+    mitigation, rejecting empty Contribute payloads outright rather than
+    trying to disambiguate them.
     """
     return multi_round_pb2.ContributePayload(value=value)
 

@@ -113,3 +113,55 @@ existing convention. Reconciled via `/reconcile`.
   propagate and leave the anomaly record behind (base-class state, not rolled back).
   Unreachable without a raising filter; not worth code.
 - **Status:** CONFIRMED (2026-09-06)
+
+## Contribute payload canonicality tie-break (option A vs. B)
+- **Plan:** `plans/contribute-payload-decode-non-canonical-inputs.md` (Phase 1)
+- **Assumed:** The plan's Open question 1b flagged this as the real open decision, recommending
+  option B (an `isinstance(dict)` guard plus a separate `_is_canonical_proto` tie-break) over
+  option A (bare `isinstance(dict)`), and asked `/implement` to log the choice as `UNCONFIRMED`.
+- **Chose:** A variant of B, simpler than the plan's literal snippet: `_is_canonical_proto` is
+  called unconditionally after any successful `json.loads` (not gated behind a prior
+  `isinstance(dict)` check), and only its result decides proto-vs-JSON. This closes the same
+  forward-direction residual set as the plan's B (verified: zero corrupting lengths 1-127 across
+  five value shapes) while also making the `transports.py` non-dict-JSON crash risk (plan's
+  Phase 1 Edge cases / criterion 6) moot by construction — a non-dict JSON parse that isn't
+  canonical proto still returns the existing `{"encoding": "json", "json": parsed}` wrapper, so
+  `_envelope_to_message` never raises on `b"null"`/`b"0"`/`b'"x"'`/`b"[]"`/`b"true"`. Also added
+  `msg.DiscardUnknownFields()` inside `_is_canonical_proto` before the round-trip comparison —
+  found necessary during verification (not anticipated by the plan): without it, Python's
+  protobuf runtime's default unknown-field preservation through `ParseFromString`/
+  `SerializeToString` made the check misclassify several whitespace-prefixed legacy-JSON
+  payloads as canonical proto (a false-positive/data-corruption class the plan's Approach section
+  never considered, since it only reasoned about the forward direction).
+- **Alternatives:** Option A alone (rejected — plan itself found this leaves lengths 9, 10, 13,
+  32, 123 corrupting, reachable by ordinary values). The plan's literal B snippet with a separate
+  `isinstance(dict)` branch (rejected as unnecessary extra surface — the unified check is
+  strictly simpler and was verified to cover the same cases, including cases B's literal form
+  does not by itself address, i.e. the `transports.py` crash risk).
+- **Blast radius if wrong:** Contained to `_decode_json_first_then_proto` /
+  `_is_canonical_proto` in `src/macp_sdk/proto_registry.py`. Reverting to the plan's literal B
+  snippet (adding back a separate `isinstance(dict)` branch) is a small, mechanical diff — no
+  test depends on the specific branch structure, only on the observable decode results, which
+  are exhaustively pinned in `tests/unit/test_proto_registry.py::TestMultiRoundContribute`.
+  **Correction (caught at the `/ship` verification gate, not by either `/implement` verifier
+  round):** an earlier version of this entry claimed "one narrow residual survives regardless
+  of A/B." That is false and has been corrected. The residual — a payload whose first byte is a
+  literal `0x0A` and whose remainder forms a complete, well-formed proto field-1 string — does
+  **not** exist under option A, and did not exist on `main` before this fix either: both decode
+  it correctly as legacy JSON, because neither ever re-examines a successful dict-shaped
+  `json.loads` result. This tie-break (the chosen variant of B) is what **creates** that residual,
+  as the price of closing the forward-direction collisions (a real proto value at lengths 9, 10,
+  13, 32 or 123 silently misread as JSON) that option A leaves open. Verified directly:
+  `main`'s decoder and a hand-rolled option-A decoder both return the correct legacy-JSON reading
+  for `b"\n" + json.dumps({"value": "z"*111})`; this SDK's shipped decoder does not. The trade is
+  still the right one — the forward-direction cases are ordinary, naturally-reachable corruption
+  of real Contribute values, while the reverse-direction cost requires a deliberately
+  newline-prefixed legacy JSON payload that no known encoder (including this SDK's own
+  `json.dumps` usage) ever emits — but it must be recorded as a priced trade-off, not a
+  pre-existing, unavoidable residual. Documented and pinned by
+  `test_newline_prefixed_legacy_json_collision_is_a_documented_residual`; the corrected framing
+  is also reflected in `_is_canonical_proto`'s and `_decode_json_first_then_proto`'s docstrings
+  in `src/macp_sdk/proto_registry.py`.
+- **Status:** CONFIRMED (2026-09-25) — the A-vs-B choice itself (this SDK's variant of B) is
+  reversible in a commit and its cost is now accurately priced above; no further review needed
+  before merge.
