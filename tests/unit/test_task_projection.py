@@ -215,6 +215,92 @@ class TestTaskProjection:
         assert p.current_status("ghost") is None
         assert p.phase == "Pending"
 
+    def test_task_update_unknown_task_is_noop(self):
+        """A TaskUpdate for a task_id never seen in a TaskRequest must not
+        fabricate per-task status/progress state, but the update record
+        itself is still kept (matches task.ts's unconditional push) -- a
+        deliberate carve-out, not a residual bug (#78).
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskUpdate",
+                task_pb2.TaskUpdatePayload(
+                    task_id="ghost", status="running", progress=0.5, message="halfway"
+                ),
+                sender="worker",
+            )
+        )
+        assert p.current_status("ghost") is None
+        assert p.progress_of("ghost") == 0.0
+        assert p.phase == "Pending"
+        assert len(p.updates) == 1
+        assert p.latest_progress() == 0.5
+
+    def test_task_complete_unknown_task_is_noop(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskComplete",
+                task_pb2.TaskCompletePayload(
+                    task_id="ghost", assignee="worker", summary="done", output=b"result"
+                ),
+                sender="worker",
+            )
+        )
+        assert p.current_status("ghost") is None
+        assert p.phase == "Pending"
+        assert len(p.completions) == 1
+        assert p.is_completed("ghost") is False
+
+    def test_task_fail_unknown_task_is_noop(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskFail",
+                task_pb2.TaskFailPayload(
+                    task_id="ghost",
+                    assignee="worker",
+                    error_code="TIMEOUT",
+                    reason="too slow",
+                    retryable=True,
+                ),
+                sender="worker",
+            )
+        )
+        assert p.current_status("ghost") is None
+        assert p.phase == "Pending"
+        assert len(p.failures) == 1
+        # is_retryable reads the record list directly, not per-task view
+        # state, so it is a deliberate carve-out, unaffected by the gate.
+        assert p.is_retryable("ghost") is True
+
+    def test_update_known_task_sets_status_and_progress(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskUpdate",
+                task_pb2.TaskUpdatePayload(
+                    task_id="t1", status="running", progress=0.5, message="halfway"
+                ),
+                sender="worker",
+            )
+        )
+        assert p.current_status("t1") == "in_progress"
+        assert p.progress_of("t1") == 0.5
+
     def test_reject_from_non_slot_holder_sets_status_but_keeps_slot(self):
         """A TaskReject(task_id=B) from a sender who does NOT hold the
         session's slot still sets B's status to 'rejected' (gated only on
