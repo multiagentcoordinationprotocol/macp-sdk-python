@@ -21,6 +21,14 @@ from ..projections import DecisionProjection
 from ..proposal import ProposalProjection
 from ..quorum import QuorumProjection
 from ..task import TaskProjection
+from ..validation import (
+    validate_confidence,
+    validate_recommendation,
+    validate_required_field,
+    validate_session_start,
+    validate_severity,
+    validate_vote,
+)
 from .dispatcher import Dispatcher
 from .transports import GrpcTransportAdapter, TransportAdapter, _envelope_to_message
 from .types import (
@@ -137,14 +145,24 @@ class ParticipantActions:
             serialize_message,
         )
 
+        resolved_mode_version = mode_version or DEFAULT_MODE_VERSION
+        resolved_configuration_version = configuration_version or DEFAULT_CONFIGURATION_VERSION
+        validate_session_start(
+            intent=intent,
+            participants=participants,
+            ttl_ms=ttl_ms,
+            mode_version=resolved_mode_version,
+            configuration_version=resolved_configuration_version,
+            allow_empty_participants=self._mode == MODE_DECISION,
+        )
         payload = build_session_start_payload(
             intent=intent,
             participants=participants,
             ttl_ms=ttl_ms,
             context_id=context_id,
             extensions=extensions,
-            mode_version=mode_version or DEFAULT_MODE_VERSION,
-            configuration_version=configuration_version or DEFAULT_CONFIGURATION_VERSION,
+            mode_version=resolved_mode_version,
+            configuration_version=resolved_configuration_version,
             policy_version=policy_version or DEFAULT_POLICY_VERSION,
             max_suspend_ms=max_suspend_ms,
             roots=(
@@ -178,9 +196,12 @@ class ParticipantActions:
             )
         from macp.modes.decision.v1 import decision_pb2
 
+        validate_required_field("proposal_id", proposal_id)
+        normalized_rec = validate_recommendation(recommendation)
+        validate_confidence(confidence)
         payload = decision_pb2.EvaluationPayload(
             proposal_id=proposal_id,
-            recommendation=recommendation.upper(),
+            recommendation=normalized_rec,
             confidence=confidence,
             reason=reason,
         )
@@ -208,9 +229,11 @@ class ParticipantActions:
             )
         from macp.modes.decision.v1 import decision_pb2
 
+        validate_required_field("proposal_id", proposal_id)
+        normalized_vote = validate_vote(vote)
         payload = decision_pb2.VotePayload(
             proposal_id=proposal_id,
-            vote=vote.upper(),
+            vote=normalized_vote,
             reason=reason,
         )
         envelope = build_envelope(
@@ -237,10 +260,12 @@ class ParticipantActions:
             )
         from macp.modes.decision.v1 import decision_pb2
 
+        validate_required_field("proposal_id", proposal_id)
+        normalized_sev = validate_severity(severity)
         payload = decision_pb2.ObjectionPayload(
             proposal_id=proposal_id,
             reason=reason,
-            severity=severity.lower(),
+            severity=normalized_sev,
         )
         envelope = build_envelope(
             mode=self._mode,
@@ -274,6 +299,8 @@ class ParticipantActions:
         if self._mode == MODE_DECISION:
             from macp.modes.decision.v1 import decision_pb2
 
+            validate_required_field("proposal_id", proposal_id)
+            validate_required_field("option", option_or_title)
             payload: Any = decision_pb2.ProposalPayload(
                 proposal_id=proposal_id,
                 option=option_or_title,
@@ -283,6 +310,8 @@ class ParticipantActions:
         elif self._mode == MODE_PROPOSAL:
             from macp.modes.proposal.v1 import proposal_pb2
 
+            validate_required_field("proposal_id", proposal_id)
+            validate_required_field("title", option_or_title)
             payload = proposal_pb2.ProposalPayload(
                 proposal_id=proposal_id,
                 title=option_or_title,

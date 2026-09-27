@@ -14,7 +14,13 @@ from macp_sdk.agent.participant import Participant, ParticipantActions
 from macp_sdk.agent.runner import from_bootstrap
 from macp_sdk.agent.types import IncomingMessage, TerminalResult
 from macp_sdk.auth import AuthConfig
-from macp_sdk.constants import MODE_DECISION, MODE_PROPOSAL, MODE_TASK
+from macp_sdk.constants import (
+    MODE_DECISION,
+    MODE_HANDOFF,
+    MODE_PROPOSAL,
+    MODE_QUORUM,
+    MODE_TASK,
+)
 from macp_sdk.envelope import new_message_id, now_unix_ms, serialize_message
 from macp_sdk.errors import MacpSessionError
 from macp_sdk.projections import DecisionProjection
@@ -329,6 +335,134 @@ class TestParticipantActionsModeGates:
         actions.vote("p1", "APPROVE")
         actions.raise_objection("p1", reason="bad")
         assert client.send.call_count == 3
+
+
+class TestParticipantActionsValidationParity:
+    """Issue #82: ParticipantActions must reject the same malformed input
+    the direct mode-session classes (DecisionSession, ProposalSession,
+    BaseSession.start) already reject, via the same shared validators in
+    macp_sdk.validation."""
+
+    def test_start_session_empty_intent_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_TASK)
+        with pytest.raises(MacpSessionError, match="intent must be non-empty"):
+            actions.start_session("", ["a", "b"], 1000)
+        client.send.assert_not_called()
+
+    def test_start_session_decision_mode_allows_empty_participants(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        actions.start_session("go", [], 1000)
+        client.send.assert_called_once()
+
+    @pytest.mark.parametrize("mode", [MODE_PROPOSAL, MODE_TASK, MODE_HANDOFF, MODE_QUORUM])
+    def test_start_session_non_decision_mode_rejects_empty_participants(self, mode):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=mode)
+        with pytest.raises(MacpSessionError, match="participants must be non-empty"):
+            actions.start_session("go", [], 1000)
+        client.send.assert_not_called()
+
+    def test_vote_wrong_mode_raises_mode_error_not_field_error(self):
+        """The mode guard must fire before field/enum validation -- a
+        non-decision-mode participant calling vote() with malformed input
+        should see the 'no equivalent action' message, not a confusing
+        proposal_id/vote-value message about a concept that mode doesn't
+        have."""
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_TASK)
+        with pytest.raises(MacpSessionError, match="no equivalent action") as exc_info:
+            actions.vote("", "bogus")
+        assert "proposal_id" not in str(exc_info.value)
+        assert "invalid vote" not in str(exc_info.value)
+        client.send.assert_not_called()
+
+    def test_start_session_validates_against_resolved_defaults(self):
+        """mode_version/configuration_version default to None; validation
+        must run against the resolved DEFAULT_* strings, not None -- the
+        common case where a caller omits both must still succeed."""
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        actions.start_session("go", ["a"], 1000)
+        client.send.assert_called_once()
+
+    def test_start_session_invalid_ttl_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="ttl_ms"):
+            actions.start_session("go", ["a"], 0)
+        client.send.assert_not_called()
+
+    def test_evaluate_empty_proposal_id_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="proposal_id must be non-empty"):
+            actions.evaluate("", "APPROVE", confidence=0.9)
+        client.send.assert_not_called()
+
+    def test_evaluate_invalid_recommendation_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="invalid recommendation"):
+            actions.evaluate("p1", "MAYBE", confidence=0.9)
+        client.send.assert_not_called()
+
+    def test_evaluate_invalid_confidence_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match=r"confidence must be in \[0\.0, 1\.0\]"):
+            actions.evaluate("p1", "APPROVE", confidence=1.5)
+        client.send.assert_not_called()
+
+    def test_vote_invalid_value_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="invalid vote"):
+            actions.vote("p1", "MAYBE")
+        client.send.assert_not_called()
+
+    def test_vote_empty_proposal_id_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="proposal_id must be non-empty"):
+            actions.vote("", "APPROVE")
+        client.send.assert_not_called()
+
+    def test_raise_objection_invalid_severity_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="invalid severity"):
+            actions.raise_objection("p1", reason="x", severity="urgent")
+        client.send.assert_not_called()
+
+    def test_propose_decision_mode_empty_proposal_id_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="proposal_id must be non-empty"):
+            actions.propose("", "opt-a")
+        client.send.assert_not_called()
+
+    def test_propose_decision_mode_empty_option_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_DECISION)
+        with pytest.raises(MacpSessionError, match="option must be non-empty"):
+            actions.propose("p1", "")
+        client.send.assert_not_called()
+
+    def test_propose_proposal_mode_empty_title_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_PROPOSAL)
+        with pytest.raises(MacpSessionError, match="title must be non-empty"):
+            actions.propose("p1", "")
+        client.send.assert_not_called()
+
+    def test_propose_proposal_mode_empty_proposal_id_raises(self):
+        client = _make_mock_client()
+        actions = ParticipantActions(client, "s1", None, mode=MODE_PROPOSAL)
+        with pytest.raises(MacpSessionError, match="proposal_id must be non-empty"):
+            actions.propose("", "My Title")
+        client.send.assert_not_called()
 
 
 class _BlockingFakeTransport:
