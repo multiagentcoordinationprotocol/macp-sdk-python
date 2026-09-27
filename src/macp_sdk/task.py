@@ -140,6 +140,9 @@ class TaskProjection(BaseProjection):
         if mt == "TaskUpdate":
             p = task_pb2.TaskUpdatePayload()
             p.ParseFromString(envelope.payload)
+            # The update record is kept unconditionally (task.ts pushes to its
+            # update list outside its `if (task)` guard); only the per-task
+            # status/progress view is gated on the task being known (#78).
             self.updates.append(
                 TaskUpdateRecord(
                     task_id=p.task_id,
@@ -148,8 +151,9 @@ class TaskProjection(BaseProjection):
                     message=p.message,
                 )
             )
-            self._statuses[p.task_id] = "in_progress"
-            self._progress[p.task_id] = p.progress
+            if p.task_id in self.tasks:
+                self._statuses[p.task_id] = "in_progress"
+                self._progress[p.task_id] = p.progress
             return
 
         if mt == "TaskComplete":
@@ -163,9 +167,10 @@ class TaskProjection(BaseProjection):
                     output=p.output,
                 )
             )
-            self._statuses[p.task_id] = "completed"
-            self._progress[p.task_id] = 1.0
-            self.phase = "Completed"
+            if p.task_id in self.tasks:
+                self._statuses[p.task_id] = "completed"
+                self._progress[p.task_id] = 1.0
+                self.phase = "Completed"
             return
 
         if mt == "TaskFail":
@@ -180,8 +185,9 @@ class TaskProjection(BaseProjection):
                     retryable=p.retryable,
                 )
             )
-            self._statuses[p.task_id] = "failed"
-            self.phase = "Failed"
+            if p.task_id in self.tasks:
+                self._statuses[p.task_id] = "failed"
+                self.phase = "Failed"
 
     # -- State query helpers --
 
