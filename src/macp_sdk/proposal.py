@@ -11,6 +11,7 @@ from .base_session import BaseSession
 from .constants import MODE_PROPOSAL
 from .envelope import build_envelope, serialize_message
 from .errors import MacpSessionError
+from .validation import validate_required_field
 
 # ---------------------------------------------------------------------------
 # Projection records
@@ -210,6 +211,8 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
+        validate_required_field("title", title)
         payload = proposal_pb2.ProposalPayload(
             proposal_id=proposal_id,
             title=title,
@@ -237,6 +240,8 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
+        validate_required_field("title", title)
         payload = proposal_pb2.CounterProposalPayload(
             proposal_id=proposal_id,
             supersedes_proposal_id=supersedes_proposal_id,
@@ -261,6 +266,7 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
         payload = proposal_pb2.AcceptPayload(
             proposal_id=proposal_id,
             reason=reason,
@@ -283,6 +289,7 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
         payload = proposal_pb2.RejectPayload(
             proposal_id=proposal_id,
             terminal=terminal,

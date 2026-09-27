@@ -11,6 +11,7 @@ from .base_projection import BaseProjection
 from .base_session import BaseSession
 from .constants import MODE_TASK
 from .envelope import build_envelope, serialize_message
+from .validation import validate_required_field
 
 # ---------------------------------------------------------------------------
 # Projection records
@@ -256,6 +257,7 @@ class TaskSession(BaseSession):
         """Send a TaskRequest envelope. Canonical name across SDKs
         (parity with TypeScript ``requestTask``).
         """
+        validate_required_field("task_id", task_id)
         payload = task_pb2.TaskRequestPayload(
             task_id=task_id,
             title=title,
@@ -291,6 +293,7 @@ class TaskSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("task_id", task_id)
         payload = task_pb2.TaskAcceptPayload(
             task_id=task_id,
             assignee=assignee or self._sender_for(sender, auth=auth),
@@ -314,6 +317,7 @@ class TaskSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("task_id", task_id)
         payload = task_pb2.TaskRejectPayload(
             task_id=task_id,
             assignee=assignee or self._sender_for(sender, auth=auth),
@@ -342,6 +346,7 @@ class TaskSession(BaseSession):
         """Send a TaskUpdate envelope. Canonical name across SDKs
         (parity with TypeScript ``updateTask``).
         """
+        validate_required_field("task_id", task_id)
         payload = task_pb2.TaskUpdatePayload(
             task_id=task_id,
             status=status,
@@ -380,6 +385,7 @@ class TaskSession(BaseSession):
         """Send a TaskComplete envelope. Canonical name across SDKs
         (parity with TypeScript ``completeTask``).
         """
+        validate_required_field("task_id", task_id)
         payload = task_pb2.TaskCompletePayload(
             task_id=task_id,
             assignee=assignee or self._sender_for(sender, auth=auth),
@@ -418,6 +424,7 @@ class TaskSession(BaseSession):
         """Send a TaskFail envelope. Canonical name across SDKs
         (parity with TypeScript ``failTask``).
         """
+        validate_required_field("task_id", task_id)
         payload = task_pb2.TaskFailPayload(
             task_id=task_id,
             assignee=assignee or self._sender_for(sender, auth=auth),

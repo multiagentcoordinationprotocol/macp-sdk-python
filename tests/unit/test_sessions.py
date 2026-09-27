@@ -87,6 +87,41 @@ class TestDecisionSession:
         with pytest.raises(MacpSessionError, match="Maximum 1000"):
             s.start(intent="test", participants=[f"a{i}" for i in range(1001)], ttl_ms=60000)
 
+    def test_start_allows_empty_participants(self, mock_client):
+        # Decision mode's SessionStart legitimately accepts an empty roster
+        # (RFC-MACP-0001 §7.1, RFC-MACP-0007) -- the runtime enforces this
+        # carve-out itself; the SDK must not reject client-side what the
+        # runtime accepts.
+        s = DecisionSession(mock_client, session_id=VALID_SESSION_ID)
+        s.start(intent="test", participants=[], ttl_ms=60000)
+        env = _sent_envelope(mock_client)
+        assert env.message_type == "SessionStart"
+
+    def test_propose_empty_proposal_id_raises(self, mock_client):
+        s = DecisionSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.propose("", "option-a")
+
+    def test_propose_empty_option_raises(self, mock_client):
+        s = DecisionSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="option"):
+            s.propose("p1", "")
+
+    def test_evaluate_empty_proposal_id_raises(self, mock_client):
+        s = DecisionSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.evaluate("", "APPROVE", confidence=0.5, sender="alice", auth=_auth("alice"))
+
+    def test_vote_empty_proposal_id_raises(self, mock_client):
+        s = DecisionSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.vote("", "APPROVE", sender="alice", auth=_auth("alice"))
+
+    def test_raise_objection_empty_proposal_id_raises(self, mock_client):
+        s = DecisionSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.raise_objection("", reason="bad")
+
     def test_commit(self, mock_client):
         s = DecisionSession(mock_client, session_id=VALID_SESSION_ID)
         s.commit(action="deploy", authority_scope="release", reason="approved")
@@ -131,6 +166,36 @@ class TestProposalSession:
         with pytest.raises(MacpSessionError, match="proposal_id must be non-empty"):
             s.withdraw("", sender="alice", auth=_auth("alice"))
 
+    def test_propose_empty_proposal_id_raises(self, mock_client):
+        s = ProposalSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.propose("", "Plan A")
+
+    def test_propose_empty_title_raises(self, mock_client):
+        s = ProposalSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="title"):
+            s.propose("p1", "")
+
+    def test_counter_propose_empty_proposal_id_raises(self, mock_client):
+        s = ProposalSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.counter_propose("", "p1", "Plan B")
+
+    def test_counter_propose_empty_title_raises(self, mock_client):
+        s = ProposalSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="title"):
+            s.counter_propose("p2", "p1", "")
+
+    def test_accept_empty_proposal_id_raises(self, mock_client):
+        s = ProposalSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.accept("", sender="bob", auth=_auth("bob"))
+
+    def test_reject_empty_proposal_id_raises(self, mock_client):
+        s = ProposalSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="proposal_id"):
+            s.reject("", sender="bob", auth=_auth("bob"))
+
 
 class TestTaskSession:
     def test_request_task(self, mock_client):
@@ -145,6 +210,17 @@ class TestTaskSession:
         s.accept_task("t1", sender="worker", auth=_auth("worker"))
         env = _sent_envelope(mock_client)
         assert env.message_type == "TaskAccept"
+
+    def test_reject_task(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        s.reject_task("t1", reason="cannot do this", sender="worker", auth=_auth("worker"))
+        env = _sent_envelope(mock_client)
+        assert env.message_type == "TaskReject"
+
+    def test_reject_task_empty_task_id_raises(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="task_id"):
+            s.reject_task("", sender="worker", auth=_auth("worker"))
 
     def test_update_task(self, mock_client):
         s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
@@ -165,6 +241,31 @@ class TestTaskSession:
         s.fail_task("t1", error_code="ERR", reason="broke", sender="worker", auth=_auth("worker"))
         env = _sent_envelope(mock_client)
         assert env.message_type == "TaskFail"
+
+    def test_request_task_empty_task_id_raises(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="task_id"):
+            s.request_task("", "Analyze")
+
+    def test_accept_task_empty_task_id_raises(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="task_id"):
+            s.accept_task("", sender="worker", auth=_auth("worker"))
+
+    def test_update_task_empty_task_id_raises(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="task_id"):
+            s.update_task("", status="running", sender="worker", auth=_auth("worker"))
+
+    def test_complete_task_empty_task_id_raises(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="task_id"):
+            s.complete_task("", sender="worker", auth=_auth("worker"))
+
+    def test_fail_task_empty_task_id_raises(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="task_id"):
+            s.fail_task("", sender="worker", auth=_auth("worker"))
 
     def test_deprecated_aliases_still_work(self, mock_client):
         """The old un-suffixed names are kept as deprecated aliases for one
@@ -210,6 +311,31 @@ class TestHandoffSession:
         env = _sent_envelope(mock_client)
         assert env.message_type == "HandoffDecline"
 
+    def test_offer_empty_handoff_id_raises(self, mock_client):
+        s = HandoffSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="handoff_id"):
+            s.offer("", "bob")
+
+    def test_offer_empty_target_participant_raises(self, mock_client):
+        s = HandoffSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="target_participant"):
+            s.offer("h1", "")
+
+    def test_add_context_empty_handoff_id_raises(self, mock_client):
+        s = HandoffSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="handoff_id"):
+            s.add_context("", context=b"data")
+
+    def test_accept_handoff_empty_handoff_id_raises(self, mock_client):
+        s = HandoffSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="handoff_id"):
+            s.accept_handoff("", sender="bob", auth=_auth("bob"))
+
+    def test_decline_empty_handoff_id_raises(self, mock_client):
+        s = HandoffSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="handoff_id"):
+            s.decline("", sender="bob", auth=_auth("bob"))
+
 
 class TestQuorumSession:
     def test_request_approval(self, mock_client):
@@ -236,6 +362,26 @@ class TestQuorumSession:
         s.abstain("r1", sender="carol", auth=_auth("carol"))
         env = _sent_envelope(mock_client)
         assert env.message_type == "Abstain"
+
+    def test_request_approval_empty_request_id_raises(self, mock_client):
+        s = QuorumSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="request_id"):
+            s.request_approval("", "deploy", required_approvals=2)
+
+    def test_approve_empty_request_id_raises(self, mock_client):
+        s = QuorumSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="request_id"):
+            s.approve("", sender="alice", auth=_auth("alice"))
+
+    def test_reject_empty_request_id_raises(self, mock_client):
+        s = QuorumSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="request_id"):
+            s.reject("", sender="bob", auth=_auth("bob"))
+
+    def test_abstain_empty_request_id_raises(self, mock_client):
+        s = QuorumSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="request_id"):
+            s.abstain("", sender="carol", auth=_auth("carol"))
 
 
 class TestSessionLifecycleHelpers:

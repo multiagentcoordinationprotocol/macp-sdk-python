@@ -10,6 +10,7 @@ from .base_projection import BaseProjection
 from .base_session import BaseSession
 from .constants import MODE_HANDOFF
 from .envelope import build_envelope, serialize_message
+from .validation import validate_required_field
 
 # ---------------------------------------------------------------------------
 # Projection records
@@ -185,6 +186,8 @@ class HandoffSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("handoff_id", handoff_id)
+        validate_required_field("target_participant", target_participant)
         payload = handoff_pb2.HandoffOfferPayload(
             handoff_id=handoff_id,
             target_participant=target_participant,
@@ -209,6 +212,7 @@ class HandoffSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("handoff_id", handoff_id)
         payload = handoff_pb2.HandoffContextPayload(
             handoff_id=handoff_id,
             content_type=content_type,
@@ -237,6 +241,7 @@ class HandoffSession(BaseSession):
         # rejects a client-submitted True. Client accepts always leave the
         # field at its proto3 default (False). See the regression test in
         # tests/unit/test_handoff.py.
+        validate_required_field("handoff_id", handoff_id)
         payload = handoff_pb2.HandoffAcceptPayload(
             handoff_id=handoff_id,
             accepted_by=accepted_by or self._sender_for(sender, auth=auth),
@@ -260,6 +265,7 @@ class HandoffSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("handoff_id", handoff_id)
         payload = handoff_pb2.HandoffDeclinePayload(
             handoff_id=handoff_id,
             declined_by=declined_by or self._sender_for(sender, auth=auth),

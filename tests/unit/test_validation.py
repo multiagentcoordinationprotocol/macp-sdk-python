@@ -141,6 +141,20 @@ class TestParticipants:
         with pytest.raises(MacpSessionError, match="Maximum 1000"):
             validate_participants([f"p{i}" for i in range(1001)])
 
+    def test_empty_allowed_with_flag(self):
+        # Decision mode's SessionStart legitimately accepts an empty
+        # participants list (RFC-MACP-0001 §7.1, RFC-MACP-0007); this is the
+        # escape hatch validate_session_start uses for it.
+        validate_participants([], allow_empty=True)
+
+    def test_allow_empty_does_not_bypass_duplicate_check(self):
+        with pytest.raises(MacpSessionError, match="duplicate participant: alice"):
+            validate_participants(["alice", "alice"], allow_empty=True)
+
+    def test_allow_empty_does_not_bypass_count_limit(self):
+        with pytest.raises(MacpSessionError, match="Maximum 1000"):
+            validate_participants([f"p{i}" for i in range(1001)], allow_empty=True)
+
 
 class TestSignalType:
     def test_empty_data_tolerated(self):
@@ -208,6 +222,26 @@ class TestSessionStartComposite:
                 mode_version="",
                 configuration_version="c",
             )
+
+    def test_empty_participants_rejected_by_default(self):
+        with pytest.raises(MacpSessionError, match="must be non-empty"):
+            validate_session_start(
+                intent="x",
+                participants=[],
+                ttl_ms=1000,
+                mode_version="m",
+                configuration_version="c",
+            )
+
+    def test_empty_participants_allowed_with_flag(self):
+        validate_session_start(
+            intent="x",
+            participants=[],
+            ttl_ms=1000,
+            mode_version="m",
+            configuration_version="c",
+            allow_empty_participants=True,
+        )
 
 
 class TestValidateProgressScope:

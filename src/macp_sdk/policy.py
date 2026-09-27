@@ -8,6 +8,7 @@ Rust runtime's ``src/policy/rules.rs``.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 
 from macp.v1 import policy_pb2
@@ -182,11 +183,14 @@ def build_decision_policy(
         if not v.weights:
             raise MacpSessionError("'weights', if provided, must be non-empty")
         for participant, weight in v.weights.items():
-            if weight <= 0:
+            if not math.isfinite(weight) or weight <= 0:
                 raise MacpSessionError(
-                    f"weights['{participant}'] must be > 0, got {weight!r} -- a "
-                    "weight-0 observer is expressed by omission from the map, "
-                    "not by an explicit 0"
+                    f"weights['{participant}'] must be a finite number > 0, got "
+                    f"{weight!r} -- a weight-0 observer is expressed by omission "
+                    "from the map, not by an explicit 0, and NaN/inf are not "
+                    "valid weights (the JSON encoding of a policy descriptor's "
+                    "rules must be well-formed JSON, which has no NaN/Infinity "
+                    "literals)"
                 )
 
     voting_section: dict[str, object] = {

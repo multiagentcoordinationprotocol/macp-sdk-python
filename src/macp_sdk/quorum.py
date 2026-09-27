@@ -10,6 +10,7 @@ from .base_projection import ANOMALY_DUPLICATE_BALLOT, BaseProjection
 from .base_session import BaseSession
 from .constants import MODE_QUORUM
 from .envelope import build_envelope, serialize_message
+from .validation import validate_required_field
 
 # ---------------------------------------------------------------------------
 # Projection records
@@ -214,6 +215,7 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("request_id", request_id)
         payload = quorum_pb2.ApprovalRequestPayload(
             request_id=request_id,
             action=action,
@@ -238,6 +240,7 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("request_id", request_id)
         payload = quorum_pb2.ApprovePayload(
             request_id=request_id,
             reason=reason,
@@ -259,6 +262,7 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("request_id", request_id)
         payload = quorum_pb2.RejectPayload(
             request_id=request_id,
             reason=reason,
@@ -280,6 +284,7 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("request_id", request_id)
         payload = quorum_pb2.AbstainPayload(
             request_id=request_id,
             reason=reason,

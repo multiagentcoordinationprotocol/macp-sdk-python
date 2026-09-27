@@ -14,6 +14,7 @@ import pytest
 from macp_sdk.auth import AuthConfig
 from macp_sdk.base_projection import BaseProjection
 from macp_sdk.base_session import BaseSession
+from macp_sdk.constants import MODE_DECISION
 from macp_sdk.errors import MacpIdentityMismatchError, MacpSessionError
 from tests.conftest import VALID_SESSION_ID, make_ack
 
@@ -32,6 +33,25 @@ class _Session(BaseSession):
 
     def _create_projection(self) -> BaseProjection:
         return _Projection()
+
+
+class _DecisionProjection(BaseProjection):
+    MODE = MODE_DECISION
+
+    def _apply_mode_message(self, envelope):  # pragma: no cover - trivial
+        pass
+
+
+class _DecisionModeSession(BaseSession):
+    """A minimal BaseSession subclass whose MODE is MODE_DECISION, to pin
+    ``start()``'s mode-aware empty-participants carve-out without pulling in
+    the full ``DecisionSession`` action surface.
+    """
+
+    MODE = MODE_DECISION
+
+    def _create_projection(self) -> BaseProjection:
+        return _DecisionProjection()
 
 
 def _mock_client(auth: AuthConfig | None = None) -> MagicMock:
@@ -117,6 +137,31 @@ class TestStartAndTracking:
         session.commit(action="done", authority_scope="test", reason="ok")
         assert session.projection.is_committed
         assert session.projection.phase == "Committed"
+
+    def test_empty_intent_rejected(self):
+        session = _Session(_mock_client(), auth=AuthConfig.for_dev_agent("alice"))
+        with pytest.raises(MacpSessionError, match="intent"):
+            session.start(intent="", participants=["alice"], ttl_ms=1000)
+
+    def test_bad_ttl_rejected(self):
+        session = _Session(_mock_client(), auth=AuthConfig.for_dev_agent("alice"))
+        with pytest.raises(MacpSessionError, match="ttl_ms"):
+            session.start(intent="x", participants=["alice"], ttl_ms=0)
+
+    def test_empty_participants_rejected_for_non_decision_mode(self):
+        """The runtime's empty-participants carve-out (RFC-MACP-0001 §7.1,
+        RFC-MACP-0007) is Decision-mode only -- every other standards-track
+        mode re-rejects an insufficient roster in its own on_session_start,
+        so the client-side check stays strict here too.
+        """
+        session = _Session(_mock_client(), auth=AuthConfig.for_dev_agent("alice"))
+        with pytest.raises(MacpSessionError, match="participants"):
+            session.start(intent="x", participants=[], ttl_ms=1000)
+
+    def test_decision_mode_allows_empty_participants(self):
+        session = _DecisionModeSession(_mock_client(), auth=AuthConfig.for_dev_agent("alice"))
+        ack = session.start(intent="x", participants=[], ttl_ms=1000)
+        assert ack.ok
 
 
 class TestLifecycleDelegation:
