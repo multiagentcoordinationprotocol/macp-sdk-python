@@ -15,7 +15,7 @@ from macp_sdk.agent.transports import (
 )
 from macp_sdk.constants import MODE_DECISION, MODE_MULTI_ROUND
 from macp_sdk.envelope import new_message_id, now_unix_ms
-from macp_sdk.errors import MacpTransportError
+from macp_sdk.errors import MacpSdkError, MacpTransportError
 from macp_sdk.retry import RetryPolicy
 
 
@@ -532,6 +532,47 @@ class TestGrpcTransportAdapterCancel:
         assert not thread.is_alive()
         mock_stream.responses.assert_not_called()
         mock_stream.cancel.assert_called_once()
+
+    def test_cancel_between_recheck_and_send_subscribe_is_clean_shutdown(self):
+        """#89: a cancel() landing after the #80 recheck passes but before
+        send_subscribe() runs sets self._stopped (and, on the real
+        MacpStream, self._closed) first -- so send_subscribe() itself then
+        raises MacpSdkError("stream is already closed"), not
+        MacpTransportError. Reproduced deterministically: send_subscribe's
+        own side_effect calls adapter.cancel() before raising the same
+        exception type/message the real MacpStream.send_subscribe would."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+        mock_client.open_stream.return_value = mock_stream
+
+        def _cancel_then_raise_already_closed(*args, **kwargs):
+            adapter.cancel()
+            raise MacpSdkError("stream is already closed")
+
+        mock_stream.send_subscribe.side_effect = _cancel_then_raise_already_closed
+
+        messages = list(adapter.start())  # must not raise
+
+        assert messages == []
+        mock_stream.responses.assert_not_called()
+        assert adapter._stopped is True
+
+    def test_macp_sdk_error_while_running_still_propagates(self):
+        """The #89 fix is gated on self._stopped, not a blanket
+        `except MacpSdkError: return` -- an unrelated MacpSdkError raised
+        while the adapter is not stopped (e.g. a hypothetical caller bug)
+        must still propagate, proving the gate is genuinely conditional."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+        mock_client.open_stream.return_value = mock_stream
+        mock_stream.send_subscribe.side_effect = MacpSdkError("unrelated failure")
+
+        with pytest.raises(MacpSdkError, match="unrelated failure"):
+            list(adapter.start())
+
+        assert adapter._stopped is False
 
 
 class TestHttpTransportAdapter:
