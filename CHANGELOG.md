@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.10.0...v0.10.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **agent:** treat stopped-state MacpSdkError from send_subscribe as clean shutdown ([#91](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/91)) ([fce7959](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/fce7959dbbae8096e8640d29220857f6a3792919))
+
 ## [0.10.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.9.1...v0.10.0) (2026-09-27)
 
 
