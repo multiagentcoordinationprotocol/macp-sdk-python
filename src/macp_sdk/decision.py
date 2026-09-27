@@ -8,13 +8,14 @@ from .base_projection import BaseProjection
 from .base_session import BaseSession
 from .constants import MODE_DECISION
 from .envelope import build_envelope, serialize_message
-from .errors import MacpSessionError
 from .projections import DecisionProjection
-from .validation import validate_required_field
-
-_VALID_VOTES = frozenset({"APPROVE", "REJECT", "ABSTAIN"})
-_VALID_RECOMMENDATIONS = frozenset({"APPROVE", "REVIEW", "BLOCK", "REJECT"})
-_VALID_SEVERITIES = frozenset({"critical", "high", "medium", "low"})
+from .validation import (
+    validate_confidence,
+    validate_recommendation,
+    validate_required_field,
+    validate_severity,
+    validate_vote,
+)
 
 
 class DecisionSession(BaseSession):
@@ -78,14 +79,8 @@ class DecisionSession(BaseSession):
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
         validate_required_field("proposal_id", proposal_id)
-        normalized_rec = recommendation.upper()
-        if normalized_rec not in _VALID_RECOMMENDATIONS:
-            raise MacpSessionError(
-                f"invalid recommendation {recommendation!r}: "
-                "must be one of APPROVE, REVIEW, BLOCK, REJECT"
-            )
-        if not (0.0 <= confidence <= 1.0):
-            raise MacpSessionError(f"confidence must be in [0.0, 1.0], got {confidence}")
+        normalized_rec = validate_recommendation(recommendation)
+        validate_confidence(confidence)
         payload = decision_pb2.EvaluationPayload(
             proposal_id=proposal_id,
             recommendation=normalized_rec,
@@ -111,11 +106,7 @@ class DecisionSession(BaseSession):
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
         validate_required_field("proposal_id", proposal_id)
-        normalized_sev = severity.lower()
-        if normalized_sev not in _VALID_SEVERITIES:
-            raise MacpSessionError(
-                f"invalid severity {severity!r}: must be one of critical, high, medium, low"
-            )
+        normalized_sev = validate_severity(severity)
         payload = decision_pb2.ObjectionPayload(
             proposal_id=proposal_id,
             reason=reason,
@@ -140,11 +131,7 @@ class DecisionSession(BaseSession):
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
         validate_required_field("proposal_id", proposal_id)
-        normalized_vote = vote.upper()
-        if normalized_vote not in _VALID_VOTES:
-            raise MacpSessionError(
-                f"invalid vote value {vote!r}: must be one of APPROVE, REJECT, ABSTAIN"
-            )
+        normalized_vote = validate_vote(vote)
         payload = decision_pb2.VotePayload(
             proposal_id=proposal_id,
             vote=normalized_vote,
