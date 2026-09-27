@@ -1,3 +1,5 @@
+from importlib.metadata import version as _version
+
 from ._logging import configure_logging
 from .auth import AuthConfig
 from .base_projection import (
@@ -36,6 +38,7 @@ from .envelope import (
     new_commitment_id,
     new_message_id,
     new_session_id,
+    now_unix_ms,
     serialize_message,
 )
 from .errors import (
@@ -84,12 +87,32 @@ from .policy import (
     build_quorum_policy,
     build_task_policy,
 )
-from .projections import DecisionProjection
-from .proposal import ProposalProjection, ProposalSession, RejectRecord
+from .projections import (
+    DecisionEvaluationRecord,
+    DecisionObjectionRecord,
+    DecisionProjection,
+    DecisionProposalRecord,
+    DecisionVoteRecord,
+)
+from .proposal import (
+    AcceptRecord,
+    ProposalProjection,
+    ProposalRecord,
+    ProposalSession,
+    RejectRecord,
+)
 from .proto_registry import ProtoRegistry
-from .quorum import QuorumProjection, QuorumSession
+from .quorum import ApprovalRequestRecord, BallotRecord, QuorumProjection, QuorumSession
 from .retry import RetryPolicy, retry_send
-from .task import TaskProjection, TaskSession
+from .task import (
+    TaskCompleteRecord,
+    TaskFailRecord,
+    TaskProjection,
+    TaskRejectRecord,
+    TaskRequestRecord,
+    TaskSession,
+    TaskUpdateRecord,
+)
 from .validation import (
     validate_commitment_hash,
     validate_confidence,
@@ -114,6 +137,8 @@ from .watchers import (
     SessionLifecycleWatcher,
     SignalWatcher,
 )
+
+__version__ = _version("macp-sdk-python")
 
 __all__ = [
     "ANOMALY_DUPLICATE_BALLOT",
@@ -146,14 +171,21 @@ __all__ = [
     "UNKNOWN_POLICY_VERSION",
     "UNSUPPORTED_PROTOCOL_VERSION",
     "AbstentionRules",
+    "AcceptRecord",
     "AckFailure",
+    "ApprovalRequestRecord",
     "AuthConfig",
+    "BallotRecord",
     "BaseProjection",
     "BaseSession",
     "CommitmentRules",
     "CounterProposalRules",
+    "DecisionEvaluationRecord",
+    "DecisionObjectionRecord",
     "DecisionProjection",
+    "DecisionProposalRecord",
     "DecisionSession",
+    "DecisionVoteRecord",
     "EvaluationRules",
     "HandoffAcceptanceRules",
     "HandoffProjection",
@@ -176,6 +208,7 @@ __all__ = [
     "ProjectionAnomaly",
     "ProposalAcceptanceRules",
     "ProposalProjection",
+    "ProposalRecord",
     "ProposalSession",
     "ProtoRegistry",
     "QuorumProjection",
@@ -189,9 +222,14 @@ __all__ = [
     "SessionLifecycleWatcher",
     "SignalWatcher",
     "TaskAssignmentRules",
+    "TaskCompleteRecord",
     "TaskCompletionRules",
+    "TaskFailRecord",
     "TaskProjection",
+    "TaskRejectRecord",
+    "TaskRequestRecord",
     "TaskSession",
+    "TaskUpdateRecord",
     "VotingRules",
     "build_commitment_payload",
     "build_commitment_ref",
@@ -213,6 +251,7 @@ __all__ = [
     "new_commitment_id",
     "new_message_id",
     "new_session_id",
+    "now_unix_ms",
     "retry_send",
     "serialize_message",
     "validate_commitment_hash",
