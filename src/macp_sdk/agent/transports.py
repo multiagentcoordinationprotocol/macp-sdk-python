@@ -121,13 +121,15 @@ class GrpcTransportAdapter:
                     self._delivered += 1
                 return
             except MacpTransportError as exc:
+                if self._stopped:
+                    # An intentional stop()/cancel() (possibly from another
+                    # thread while blocked in responses()) surfaces here as
+                    # a transport error -- e.g. MacpTransportError(code=
+                    # "CANCELLED") per MacpStream.cancel()'s own docs. That's
+                    # an expected clean shutdown, not a failure to propagate.
+                    return
                 retry = self._subscribe_retry
-                if (
-                    received_any
-                    or self._stopped
-                    or exc.code != "NOT_FOUND"
-                    or attempt >= retry.max_retries
-                ):
+                if received_any or exc.code != "NOT_FOUND" or attempt >= retry.max_retries:
                     raise
                 delay = min(retry.backoff_base * (2**attempt), retry.backoff_max)
                 logger.debug(
@@ -148,6 +150,26 @@ class GrpcTransportAdapter:
         self._stopped = True
         if self._stream is not None:
             self._stream.close()
+
+    def cancel(self) -> None:
+        """Immediately abort a blocked stream read, safe to call from
+        another thread.
+
+        Unlike :meth:`stop` (which half-closes via :meth:`MacpStream.close`
+        and is only checked cooperatively between yielded messages -- a
+        read blocked on an idle stream with nothing pending won't return
+        until the next message arrives or the stream ends), this cancels
+        the underlying gRPC call via :meth:`MacpStream.cancel` so a
+        :meth:`start` iterator parked inside a blocked read unblocks right
+        away. Feature-detected by ``Participant.stop()`` via ``getattr``,
+        so a custom :class:`TransportAdapter` without cancellation support
+        just falls back to :meth:`stop`. Idempotent, and safe to call
+        before :meth:`start` has ever run (no-op beyond setting the
+        stopped flag).
+        """
+        self._stopped = True
+        if self._stream is not None:
+            self._stream.cancel()
 
 
 class HttpTransportAdapter:

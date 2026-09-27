@@ -37,6 +37,8 @@ def evaluation_handler(strategy: EvaluationStrategy) -> MessageHandler:
     """
 
     def handler(message: IncomingMessage, ctx: HandlerContext) -> None:
+        if message.message_type != "Proposal":
+            return
         result = strategy.evaluate(message.payload, ctx.session)
         recommendation = result.recommendation.upper()
         if recommendation not in _VALID_RECOMMENDATIONS:
@@ -102,12 +104,14 @@ class VotingStrategy(Protocol):
 def voting_handler(strategy: VotingStrategy) -> MessageHandler:
     """Create a MessageHandler that makes voting decisions using the given strategy.
 
-    When any message arrives, the strategy checks whether it should vote
-    (via ``should_vote()``).  If so, ``decide_vote()`` is called and the
-    decision is logged.
+    Fires only on an ``Evaluation`` message (parity with typescript-sdk's
+    ``votingHandler``, ``strategies.ts:53``) -- if it should vote (via
+    ``should_vote()``), ``decide_vote()`` is called and the decision logged.
     """
 
     def handler(message: IncomingMessage, ctx: HandlerContext) -> None:
+        if message.message_type != "Evaluation":
+            return
         if not strategy.should_vote(ctx.projection):
             return
         decision = strategy.decide_vote(ctx.projection)
@@ -162,7 +166,7 @@ class CommitmentDecision:
     action: str
     authority_scope: str
     reason: str
-    outcome_positive: bool = True
+    outcome_positive: bool | None = None
 
 
 class CommitmentStrategy(Protocol):
@@ -176,17 +180,27 @@ class CommitmentStrategy(Protocol):
 def commitment_handler(strategy: CommitmentStrategy) -> MessageHandler:
     """Create a MessageHandler that makes commitment decisions using the given strategy.
 
-    When any message arrives, the strategy checks whether a commitment
-    should be made (via ``should_commit()``).  If so, ``decide_commitment()``
-    is called and the decision is logged.
+    Fires only on a ``Vote`` message (parity with typescript-sdk's
+    ``commitmentHandler``, ``strategies.ts:116``) -- if a commitment should
+    be made (via ``should_commit()``), ``decide_commitment()`` is called and
+    the decision logged. A decision that leaves ``outcome_positive`` unset
+    gets it inferred from ``action`` (mirroring ``majority_committer``'s own
+    ``infer_outcome_positive`` call and ``build_commitment_payload``'s
+    lower-level default), so a caller-written strategy that forgets to set
+    it doesn't silently commit a wrong-signed ``outcome_positive=True``.
     """
 
-    def handler(_message: IncomingMessage, ctx: HandlerContext) -> None:
-        # commitment decisions are projection-driven; the triggering message
-        # itself isn't read, but the signature must match MessageHandler.
+    def handler(message: IncomingMessage, ctx: HandlerContext) -> None:
+        if message.message_type != "Vote":
+            return
         if not strategy.should_commit(ctx.projection):
             return
         decision = strategy.decide_commitment(ctx.projection)
+        outcome_positive = (
+            decision.outcome_positive
+            if decision.outcome_positive is not None
+            else infer_outcome_positive(decision.action)
+        )
         ctx.log(
             "commitment: action=%s scope=%s reason=%s",
             decision.action,
@@ -197,7 +211,7 @@ def commitment_handler(strategy: CommitmentStrategy) -> MessageHandler:
             decision.action,
             decision.authority_scope,
             reason=decision.reason,
-            outcome_positive=decision.outcome_positive,
+            outcome_positive=outcome_positive,
         )
 
     return handler

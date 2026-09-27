@@ -361,6 +361,85 @@ class TestGrpcTransportAdapterResumeCursor:
         assert adapter.last_sequence == 0
 
 
+class TestGrpcTransportAdapterCancel:
+    """Phase 2 item 2's production implementation: GrpcTransportAdapter.cancel()
+    and start()'s stopped-swallow branch, exercised directly (Participant-level
+    tests in test_agent_participant.py cover the wiring through stop(), but not
+    this class's own cancel()/start() behavior in isolation)."""
+
+    def test_cancel_calls_stream_cancel_and_sets_stopped(self):
+        adapter = GrpcTransportAdapter(MagicMock(), "s1")
+        mock_stream = MagicMock()
+        adapter._stream = mock_stream
+
+        adapter.cancel()
+
+        mock_stream.cancel.assert_called_once()
+        assert adapter._stopped is True
+
+    def test_cancel_before_start_is_safe_noop(self):
+        adapter = GrpcTransportAdapter(MagicMock(), "s1")
+        adapter.cancel()  # no stream yet -- must not raise
+        assert adapter._stopped is True
+
+    def test_cancel_is_idempotent(self):
+        adapter = GrpcTransportAdapter(MagicMock(), "s1")
+        mock_stream = MagicMock()
+        adapter._stream = mock_stream
+
+        adapter.cancel()
+        adapter.cancel()
+
+        assert adapter._stopped is True
+        # Forwards each call; MacpStream.cancel() is itself idempotent.
+        assert mock_stream.cancel.call_count == 2
+
+    def test_start_swallows_transport_error_when_stopped(self):
+        """The new stopped-swallow branch: a MacpTransportError surfacing
+        mid-stream after cancel()/stop() (e.g. CANCELLED from the aborted
+        call) must not propagate -- it's an expected clean shutdown, not a
+        failure."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+
+        def _cancelled_mid_stream():
+            adapter._stopped = True  # simulate cancel() firing from another thread
+            raise MacpTransportError("aborted", code="CANCELLED")
+            yield  # pragma: no cover - makes this a generator function
+
+        mock_stream.responses.side_effect = _cancelled_mid_stream
+        mock_client.open_stream.return_value = mock_stream
+
+        messages = list(adapter.start())  # must not raise
+
+        assert messages == []
+
+    def test_start_swallows_stopped_transport_error_of_any_code(self):
+        """The stopped-swallow branch checks self._stopped, not the error
+        code -- any transport error surfacing after an intentional stop is
+        treated as a clean shutdown, not just CANCELLED specifically.
+        self._stopped is set from inside the responses() side effect
+        (not before calling start()), since start()'s own top-of-loop
+        `if self._stopped: return` would otherwise short-circuit before
+        ever reaching the except block this test targets."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+
+        def _unavailable_after_stop():
+            adapter._stopped = True
+            raise MacpTransportError("boom", code="UNAVAILABLE")
+            yield  # pragma: no cover
+
+        mock_stream.responses.side_effect = _unavailable_after_stop
+        mock_client.open_stream.return_value = mock_stream
+
+        messages = list(adapter.start())  # must not raise
+
+        assert messages == []
+
+
 class TestHttpTransportAdapter:
     def test_stop_sets_flag(self):
         adapter = HttpTransportAdapter(

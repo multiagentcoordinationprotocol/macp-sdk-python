@@ -91,6 +91,18 @@ class TestEvaluationStrategy:
             reason="risky",
         )
 
+    def test_evaluation_handler_ignores_wrong_message_type(self):
+        """Phase 2 item 3: evaluation_handler must not fire on an
+        Evaluation or Vote message -- only Proposal."""
+        strategy = function_evaluator(lambda p, c: EvaluationResult("APPROVE", 0.9, "fine"))
+        handler = evaluation_handler(strategy)
+        ctx = _make_context()
+        handler(_make_message(message_type="Evaluation"), ctx)
+        handler(_make_message(message_type="Vote"), ctx)
+        logs = ctx._test_logs  # type: ignore[attr-defined]
+        assert len(logs) == 0
+        ctx.actions.evaluate.assert_not_called()
+
     def test_evaluation_result_frozen(self):
         r = EvaluationResult("APPROVE", 0.9, "ok")
         try:
@@ -118,7 +130,7 @@ class TestVotingStrategy:
         )
         handler = voting_handler(strategy)
         ctx = _make_context()
-        handler(_make_message(), ctx)
+        handler(_make_message(message_type="Evaluation"), ctx)
         logs = ctx._test_logs  # type: ignore[attr-defined]
         assert len(logs) == 1
         assert "approve" in logs[0]
@@ -135,7 +147,21 @@ class TestVotingStrategy:
         )
         handler = voting_handler(strategy)
         ctx = _make_context()
-        handler(_make_message(), ctx)
+        handler(_make_message(message_type="Evaluation"), ctx)
+        logs = ctx._test_logs  # type: ignore[attr-defined]
+        assert len(logs) == 0
+        ctx.actions.vote.assert_not_called()
+
+    def test_voting_handler_ignores_wrong_message_type(self):
+        """Phase 2 item 3: voting_handler must not fire on a Proposal
+        message, even one that would otherwise pass should_vote()."""
+        strategy = function_voter(
+            should_vote_fn=lambda p: True,
+            decide_fn=lambda p: VoteDecision("approve", "all clear"),
+        )
+        handler = voting_handler(strategy)
+        ctx = _make_context()
+        handler(_make_message(message_type="Proposal"), ctx)
         logs = ctx._test_logs  # type: ignore[attr-defined]
         assert len(logs) == 0
         ctx.actions.vote.assert_not_called()
@@ -168,7 +194,7 @@ class TestCommitmentStrategy:
         )
         handler = commitment_handler(strategy)
         ctx = _make_context()
-        handler(_make_message(), ctx)
+        handler(_make_message(message_type="Vote"), ctx)
         logs = ctx._test_logs  # type: ignore[attr-defined]
         assert len(logs) == 1
         assert "approve" in logs[0]
@@ -187,10 +213,61 @@ class TestCommitmentStrategy:
         )
         handler = commitment_handler(strategy)
         ctx = _make_context()
-        handler(_make_message(), ctx)
+        handler(_make_message(message_type="Vote"), ctx)
         logs = ctx._test_logs  # type: ignore[attr-defined]
         assert len(logs) == 0
         ctx.actions.commit.assert_not_called()
+
+    def test_commitment_handler_ignores_wrong_message_type(self):
+        """Phase 2 item 3: commitment_handler must not fire on a Proposal
+        message, even one that would otherwise pass should_commit()."""
+        strategy = function_committer(
+            should_commit_fn=lambda p: True,
+            decide_fn=lambda p: CommitmentDecision("approve", "full", "done"),
+        )
+        handler = commitment_handler(strategy)
+        ctx = _make_context()
+        handler(_make_message(message_type="Proposal"), ctx)
+        logs = ctx._test_logs  # type: ignore[attr-defined]
+        assert len(logs) == 0
+        ctx.actions.commit.assert_not_called()
+
+    def test_commitment_handler_infers_outcome_positive_when_unset(self):
+        """Phase 2 item 4: a CommitmentDecision that leaves
+        outcome_positive unset must get it inferred from the action name,
+        not silently default to True."""
+        strategy = function_committer(
+            should_commit_fn=lambda p: True,
+            decide_fn=lambda p: CommitmentDecision("task_rejected", "full", "no quorum"),
+        )
+        handler = commitment_handler(strategy)
+        ctx = _make_context()
+        handler(_make_message(message_type="Vote"), ctx)
+        ctx.actions.commit.assert_called_once_with(
+            "task_rejected",
+            "full",
+            reason="no quorum",
+            outcome_positive=False,
+        )
+
+    def test_commitment_handler_respects_explicit_outcome_positive(self):
+        """An explicit outcome_positive=False always wins over inference,
+        even for an action name that would infer True."""
+        strategy = function_committer(
+            should_commit_fn=lambda p: True,
+            decide_fn=lambda p: CommitmentDecision(
+                "approve", "full", "manual override", outcome_positive=False
+            ),
+        )
+        handler = commitment_handler(strategy)
+        ctx = _make_context()
+        handler(_make_message(message_type="Vote"), ctx)
+        ctx.actions.commit.assert_called_once_with(
+            "approve",
+            "full",
+            reason="manual override",
+            outcome_positive=False,
+        )
 
     def test_commitment_decision_frozen(self):
         d = CommitmentDecision("a", "b", "c")
@@ -214,9 +291,13 @@ class TestStrategyComposition:
         vote_h = voting_handler(vote_strategy)
 
         ctx = _make_context()
-        msg = _make_message()
-        eval_h(msg, ctx)
-        vote_h(msg, ctx)
+        # Two distinctly-typed messages: evaluation_handler only fires on
+        # Proposal, voting_handler only fires on Evaluation, so no single
+        # message satisfies both gates (Phase 2 item 3).
+        proposal_msg = _make_message(message_type="Proposal")
+        evaluation_msg = _make_message(message_type="Evaluation")
+        eval_h(proposal_msg, ctx)
+        vote_h(evaluation_msg, ctx)
 
         logs = ctx._test_logs  # type: ignore[attr-defined]
         assert len(logs) == 2
