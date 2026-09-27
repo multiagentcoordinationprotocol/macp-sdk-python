@@ -52,6 +52,36 @@ class GrpcTransportAdapter:
         self._stream: Any = None
         self._stopped = False
         self._subscribe_retry = subscribe_retry or RetryPolicy()
+        # Count of distinct envelopes actually handed to the consumer
+        # (incremented only after each is yielded) — the resume cursor
+        # passed as ``after_sequence`` on the next ``send_subscribe``.
+        # Mirrors typescript-sdk's ``delivered`` counter (transports.ts:58).
+        # Per-adapter-instance, not per-session: a fresh instance (e.g. one
+        # ``Participant.run()`` constructs anew on restart) starts at 0 —
+        # this only carries over across a reconnect that reuses the *same*
+        # adapter instance. The only reconnect path today (the bounded
+        # NOT_FOUND retry in start(), below) never fires after anything has
+        # been delivered, so it does not exercise this counter in practice.
+        # Incrementing after yield (rather than before) means a consumer
+        # that abandons iteration between receiving an envelope and asking
+        # for the next one (e.g. breaking out of a for-loop) leaves this
+        # envelope uncounted — a same-instance restart would then resume one
+        # envelope early (a harmless duplicate; BaseProjection dedups on
+        # message_id), never a gap. Matches typescript-sdk's own counter.
+        self._delivered = 0
+        # A separate, unrelated monotonic counter feeding IncomingMessage.seq
+        # on the gRPC path — not the resume cursor above, and not asserted to
+        # stay equal to it (mirrors typescript-sdk's own ``seq`` field,
+        # transports.ts:57, distinct from its ``delivered`` counter).
+        self._seq = 0
+
+    @property
+    def last_sequence(self) -> int:
+        """Count of distinct envelopes yielded so far (the resume cursor).
+
+        Parity with typescript-sdk's public ``delivered`` getter.
+        """
+        return self._delivered
 
     def start(self) -> Iterator[IncomingMessage]:
         """Open a stream and yield messages for the target session.
@@ -75,7 +105,10 @@ class GrpcTransportAdapter:
                 # The runtime replays accepted envelopes then switches to live
                 # broadcast, ensuring non-initiator agents receive SessionStart +
                 # Proposal regardless of spawn order or connection timing.
-                self._stream.send_subscribe(self._session_id)
+                # after_sequence resumes from self._delivered rather than
+                # always 0, so a reconnect on this same adapter instance
+                # doesn't replay envelopes already handed to the consumer.
+                self._stream.send_subscribe(self._session_id, after_sequence=self._delivered)
 
                 for envelope in self._stream.responses():
                     received_any = True
@@ -83,7 +116,9 @@ class GrpcTransportAdapter:
                         return
                     if envelope.session_id != self._session_id:
                         continue
-                    yield _envelope_to_message(envelope)
+                    self._seq += 1
+                    yield _envelope_to_message(envelope, seq=self._seq)
+                    self._delivered += 1
                 return
             except MacpTransportError as exc:
                 retry = self._subscribe_retry
@@ -155,15 +190,18 @@ class HttpTransportAdapter:
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = json.loads(resp.read().decode())
 
-                if isinstance(data, list):
-                    for item in data:
+                # Accept both a bare JSON array and typescript-sdk's
+                # {"events": [...]} wrapper shape (transports.ts:288-304).
+                events = data.get("events") if isinstance(data, dict) else data
+                if isinstance(events, list):
+                    for item in events:
                         seq = item.get("seq", self._last_seq + 1)
                         if seq > self._last_seq:
                             self._last_seq = seq
                         yield IncomingMessage(
                             message_type=item.get("message_type", ""),
                             sender=item.get("sender", ""),
-                            payload=item.get("payload", {}),
+                            payload=_decode_http_payload(item.get("payload", {})),
                             proposal_id=item.get("proposal_id"),
                             seq=seq,
                         )
@@ -177,7 +215,26 @@ class HttpTransportAdapter:
         self._stopped = True
 
 
-def _envelope_to_message(envelope: Any) -> IncomingMessage:
+def _decode_http_payload(value: Any) -> dict[str, Any]:
+    """Normalize an HTTP-polled event's ``payload`` field to a dict.
+
+    Mirrors typescript-sdk's ``tryParsePayload`` (transports.ts:318-325):
+    a string/bytes payload is JSON-decoded; anything that isn't already a
+    dict, or that fails to decode to one, safely falls back to ``{}`` rather
+    than breaking ``IncomingMessage.payload``'s ``dict[str, Any]`` contract.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, (str, bytes)):
+        try:
+            decoded = json.loads(value)
+        except Exception:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
+def _envelope_to_message(envelope: Any, *, seq: int | None = None) -> IncomingMessage:
     """Convert a protobuf Envelope to an IncomingMessage."""
     from ..proto_registry import ProtoRegistry
 
@@ -207,4 +264,5 @@ def _envelope_to_message(envelope: Any) -> IncomingMessage:
         payload=payload_dict,
         proposal_id=proposal_id,
         raw=envelope,
+        seq=seq,
     )

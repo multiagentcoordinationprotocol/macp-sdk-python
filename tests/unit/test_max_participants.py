@@ -18,6 +18,7 @@ def mock_client():
     mock = MagicMock()
     mock.auth = MagicMock()
     mock.auth.sender = "test"
+    mock.auth.expected_sender = None
     mock.auth.metadata.return_value = []
     ack = MagicMock()
     ack.ok = True

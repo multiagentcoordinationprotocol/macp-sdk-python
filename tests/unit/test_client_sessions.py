@@ -216,6 +216,86 @@ class TestSessionLifecycleWatcher:
         client.watch_sessions.assert_called_once_with(auth=auth)
 
 
+class TestReadOnlyRpcsAcceptAuth:
+    """Phase 3 item 5: initialize/get_manifest/list_modes/list_ext_modes/
+    list_roots didn't accept an ``auth`` parameter at all — a forward-
+    looking completeness fix ahead of the runtime plausibly requiring auth
+    on these RPCs too (WatchSignals already moved that direction in
+    v0.5.0). Passing no ``auth`` must stay a no-op (empty metadata),
+    exactly like every other RPC.
+    """
+
+    def test_initialize_attaches_auth_metadata(self):
+        client, stub = _client_with_stub()
+        stub.Initialize.return_value = core_pb2.InitializeResponse()
+        auth = AuthConfig.for_bearer("tok-explicit")
+
+        client.initialize(auth=auth)
+
+        kwargs = stub.Initialize.call_args.kwargs
+        assert ("authorization", "Bearer tok-explicit") in list(kwargs["metadata"])
+
+    def test_initialize_no_auth_sends_no_metadata(self):
+        client = MacpClient(target="localhost:0", allow_insecure=True)
+        client.stub = MagicMock()
+        client.stub.Initialize.return_value = core_pb2.InitializeResponse()
+
+        client.initialize()
+
+        kwargs = client.stub.Initialize.call_args.kwargs
+        assert list(kwargs["metadata"]) == []
+
+    def test_get_manifest_attaches_auth_metadata(self):
+        client, stub = _client_with_stub()
+        stub.GetManifest.return_value = core_pb2.GetManifestResponse()
+        auth = AuthConfig.for_bearer("tok-explicit")
+
+        client.get_manifest(auth=auth)
+
+        kwargs = stub.GetManifest.call_args.kwargs
+        assert ("authorization", "Bearer tok-explicit") in list(kwargs["metadata"])
+
+    def test_list_modes_attaches_auth_metadata(self):
+        client, stub = _client_with_stub()
+        stub.ListModes.return_value = core_pb2.ListModesResponse()
+        auth = AuthConfig.for_bearer("tok-explicit")
+
+        client.list_modes(auth=auth)
+
+        kwargs = stub.ListModes.call_args.kwargs
+        assert ("authorization", "Bearer tok-explicit") in list(kwargs["metadata"])
+
+    def test_list_ext_modes_attaches_auth_metadata(self):
+        client, stub = _client_with_stub()
+        stub.ListExtModes.return_value = core_pb2.ListExtModesResponse()
+        auth = AuthConfig.for_bearer("tok-explicit")
+
+        client.list_ext_modes(auth=auth)
+
+        kwargs = stub.ListExtModes.call_args.kwargs
+        assert ("authorization", "Bearer tok-explicit") in list(kwargs["metadata"])
+
+    def test_list_roots_attaches_auth_metadata(self):
+        client, stub = _client_with_stub()
+        stub.ListRoots.return_value = core_pb2.ListRootsResponse()
+        auth = AuthConfig.for_bearer("tok-explicit")
+
+        client.list_roots(auth=auth)
+
+        kwargs = stub.ListRoots.call_args.kwargs
+        assert ("authorization", "Bearer tok-explicit") in list(kwargs["metadata"])
+
+    def test_list_roots_no_auth_sends_no_metadata(self):
+        client = MacpClient(target="localhost:0", allow_insecure=True)
+        client.stub = MagicMock()
+        client.stub.ListRoots.return_value = core_pb2.ListRootsResponse()
+
+        client.list_roots()
+
+        kwargs = client.stub.ListRoots.call_args.kwargs
+        assert list(kwargs["metadata"]) == []
+
+
 class TestDefaultCapabilities:
     """SDK-PY-4: the client must advertise every sessions capability it
     actually implements, so runtime diagnostics / policy routing are

@@ -80,6 +80,41 @@ class TestSessionSenderGuardrail:
         with pytest.raises(MacpIdentityMismatchError):
             session.vote("p1", "APPROVE", sender="coordinator", auth=alice_auth)
 
+    def test_fallback_sender_mismatch_raises(self):
+        """The identity guard must also catch a sender_hint/expected_sender
+        mismatch on the FALLBACK path (no explicit ``sender=``), not just the
+        explicit-sender branch — this is the bug Phase 3 item 3 fixes in
+        ``BaseSession._sender_for``.
+        """
+        auth = AuthConfig.for_bearer("tok", sender_hint="a", expected_sender="b")
+        client = _make_mock_client(auth)
+        session = DecisionSession(client, session_id=SESSION_ID, auth=auth)
+        with pytest.raises(MacpIdentityMismatchError) as exc:
+            session.vote("p1", "APPROVE")
+        assert exc.value.expected == "b"
+        assert exc.value.actual == "a"
+        client.send.assert_not_called()
+
+    def test_direct_construction_without_sender_hint_fails_fast(self):
+        """A direct ``AuthConfig(...)`` call (bypassing ``for_bearer``, which
+        derives ``sender_hint`` from ``expected_sender`` automatically)
+        leaves ``sender_hint=None``. Before Phase 3 item 3's fix, the
+        fallback path only checked an *explicit* ``sender=`` against
+        ``expected_sender``, so this misconfiguration silently sent an
+        envelope with ``sender=""``. The fix makes the fallback path
+        unconditional, so this now fails fast client-side instead — the
+        correct behavior, since an empty sender was never going to satisfy
+        the runtime's identity check either (RFC-MACP-0004 §4).
+        """
+        auth = AuthConfig(bearer_token="tok", expected_sender="alice")
+        client = _make_mock_client(auth)
+        session = DecisionSession(client, session_id=SESSION_ID, auth=auth)
+        with pytest.raises(MacpIdentityMismatchError) as exc:
+            session.vote("p1", "APPROVE")
+        assert exc.value.expected == "alice"
+        assert exc.value.actual == ""
+        client.send.assert_not_called()
+
     def test_no_expected_sender_skips_check(self):
         """Dev/test flows without expected_sender keep legacy behaviour."""
         auth = AuthConfig.for_bearer("tok")  # expected_sender=None
@@ -144,4 +179,18 @@ class TestClientSignalGuardrail:
         client.stub = MagicMock()
         with pytest.raises(MacpIdentityMismatchError):
             client.send_progress(progress_token="tok-1", progress=0.5, total=1.0, sender="mallory")
+        client.stub.Send.assert_not_called()
+
+    def test_signal_fallback_mismatch_raises(self):
+        """Same fallback-path guard as the session-level fix above, but for
+        ``MacpClient._resolve_sender`` (Phase 3 item 3's other independent
+        code path — signals/progress, not session actions).
+        """
+        auth = AuthConfig.for_bearer("tok", sender_hint="a", expected_sender="b")
+        client = MacpClient(target="localhost:0", allow_insecure=True, auth=auth)
+        client.stub = MagicMock()
+        with pytest.raises(MacpIdentityMismatchError) as exc:
+            client.send_signal(signal_type="heartbeat")
+        assert exc.value.expected == "b"
+        assert exc.value.actual == "a"
         client.stub.Send.assert_not_called()

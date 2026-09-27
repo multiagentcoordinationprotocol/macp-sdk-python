@@ -22,9 +22,10 @@ from .errors import (
     MacpIdentityMismatchError,
     MacpSdkError,
     MacpSessionError,
+    MacpTimeoutError,
     MacpTransportError,
 )
-from .validation import validate_progress_scope
+from .validation import validate_progress_scope, validate_signal_type
 
 # Public typing alias for inline stream-error callbacks. Parity with
 # typescript-sdk's ``InlineErrorCallback``. Receives the protobuf
@@ -210,8 +211,15 @@ class MacpStream:
         self._requests.put(req)
 
     def read(self, timeout: float | None = None) -> envelope_pb2.Envelope | None:
-        item = self._responses.get(timeout=timeout)
+        try:
+            item = self._responses.get(timeout=timeout)
+        except queue.Empty:
+            raise MacpTimeoutError(f"stream read timed out after {timeout}s") from None
         if item is self._END:
+            # The sentinel is one-shot in the queue — re-push it so end-of-stream
+            # stays durably observable no matter how many times a caller reads
+            # past it (a second read(), or responses() started after close).
+            self._responses.put(self._END)
             return None
         if isinstance(item, grpc.RpcError):
             raise MacpTransportError(
@@ -233,6 +241,30 @@ class MacpStream:
             return
         self._closed = True
         self._requests.put(self._END)
+
+    def cancel(self) -> None:
+        """Forcibly abort the underlying gRPC call.
+
+        Unlike :meth:`close` (which only half-closes the outgoing request
+        side and waits for the server to end the stream on its own),
+        ``cancel`` aborts the call immediately — unblocking a :meth:`read`
+        that is parked on an idle stream with no message pending, instead
+        of waiting indefinitely for the next server message or a server-side
+        stream end. Safe to call more than once, and safe to call alongside
+        :meth:`close`.
+
+        After ``cancel()``, the pump thread observes the abort as a gRPC
+        ``CANCELLED`` error and enqueues it — so the *next* :meth:`read`
+        raises ``MacpTransportError(code="CANCELLED")`` rather than
+        returning ``None`` the way end-of-stream does. A caller that just
+        wants to stop reading (e.g. after ``cancel()`` from another thread)
+        should treat that ``CANCELLED`` error the same as a clean stop,
+        not as an unexpected failure.
+        """
+        if not self._closed:
+            self._closed = True
+            self._requests.put(self._END)
+        self._call.cancel()
 
 
 class MacpClient:
@@ -339,16 +371,18 @@ class MacpClient:
     def _resolve_sender(auth_cfg: AuthConfig, sender: str) -> str:
         """Resolve and validate the envelope sender against auth.expected_sender.
 
-        Raises :class:`MacpIdentityMismatchError` when an explicit ``sender``
-        contradicts ``auth_cfg.expected_sender``. Returns the effective sender
-        string to place on the envelope (possibly the fallback from ``auth_cfg``).
+        Raises :class:`MacpIdentityMismatchError` when the resolved sender —
+        whether explicitly passed or falling back to ``auth_cfg.sender_hint``
+        — contradicts ``auth_cfg.expected_sender``. The check runs against
+        whatever sender is actually resolved, not only the explicit-``sender``
+        branch, so a ``sender_hint``/``expected_sender`` mismatch can't bypass
+        the guard just by omitting ``sender``.
         """
         expected = auth_cfg.expected_sender
-        if sender:
-            if expected is not None and sender != expected:
-                raise MacpIdentityMismatchError(expected=expected, actual=sender)
-            return sender
-        return auth_cfg.sender or ""
+        resolved = sender or auth_cfg.sender or ""
+        if expected is not None and resolved != expected:
+            raise MacpIdentityMismatchError(expected=expected, actual=resolved)
+        return resolved
 
     @staticmethod
     def _failure_from_ack(ack: envelope_pb2.Ack) -> AckFailure:
@@ -368,7 +402,9 @@ class MacpClient:
             reasons=_parse_ack_reasons(ack),
         )
 
-    def initialize(self, *, timeout: float | None = None) -> core_pb2.InitializeResponse:
+    def initialize(
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+    ) -> core_pb2.InitializeResponse:
         request = core_pb2.InitializeRequest(
             supported_protocol_versions=["1.0"],
             client_info=core_pb2.ClientInfo(
@@ -380,7 +416,11 @@ class MacpClient:
             ),
             capabilities=_default_capabilities(),
         )
-        return self.stub.Initialize(request, timeout=timeout or self.default_timeout)
+        return self.stub.Initialize(
+            request,
+            metadata=self._metadata(auth),
+            timeout=timeout or self.default_timeout,
+        )
 
     def send(
         self,
@@ -414,8 +454,11 @@ class MacpClient:
                 )
                 raise MacpAckError(failure) from rpc_err
             if code == grpc.StatusCode.INVALID_ARGUMENT:
-                raise MacpTransportError(rpc_err.details() or "invalid argument") from rpc_err
-            raise MacpTransportError(rpc_err.details() or str(rpc_err)) from rpc_err
+                raise MacpTransportError(
+                    _rpc_details(rpc_err) or "invalid argument",
+                    code=_rpc_status_name(rpc_err),
+                ) from rpc_err
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
         ack = response.ack
         # Duplicate acks are idempotent success — the message was already accepted.
         # This matches TypeScript SDK behaviour and is correct for retry scenarios.
@@ -475,7 +518,7 @@ class MacpClient:
                 timeout=timeout or self.default_timeout,
             )
         except grpc.RpcError as rpc_err:
-            raise MacpTransportError(rpc_err.details() or str(rpc_err)) from rpc_err
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
         ack = response.ack
         if raise_on_nack and not ack.ok:
             raise MacpAckError(self._failure_from_ack(ack))
@@ -512,7 +555,7 @@ class MacpClient:
                 timeout=timeout or self.default_timeout,
             )
         except grpc.RpcError as rpc_err:
-            raise MacpTransportError(rpc_err.details() or str(rpc_err)) from rpc_err
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
         ack = response.ack
         if raise_on_nack and not ack.ok:
             raise MacpAckError(self._failure_from_ack(ack))
@@ -541,35 +584,49 @@ class MacpClient:
                 timeout=timeout or self.default_timeout,
             )
         except grpc.RpcError as rpc_err:
-            raise MacpTransportError(rpc_err.details() or str(rpc_err)) from rpc_err
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
         ack = response.ack
         if raise_on_nack and not ack.ok:
             raise MacpAckError(self._failure_from_ack(ack))
         return ack
 
     def get_manifest(
-        self, agent_id: str = "", *, timeout: float | None = None
+        self,
+        agent_id: str = "",
+        *,
+        auth: AuthConfig | None = None,
+        timeout: float | None = None,
     ) -> core_pb2.GetManifestResponse:
         return self.stub.GetManifest(
             core_pb2.GetManifestRequest(agent_id=agent_id),
+            metadata=self._metadata(auth),
             timeout=timeout or self.default_timeout,
         )
 
-    def list_modes(self, *, timeout: float | None = None) -> core_pb2.ListModesResponse:
+    def list_modes(
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+    ) -> core_pb2.ListModesResponse:
         return self.stub.ListModes(
             core_pb2.ListModesRequest(),
+            metadata=self._metadata(auth),
             timeout=timeout or self.default_timeout,
         )
 
-    def list_ext_modes(self, *, timeout: float | None = None) -> core_pb2.ListExtModesResponse:
+    def list_ext_modes(
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+    ) -> core_pb2.ListExtModesResponse:
         return self.stub.ListExtModes(
             core_pb2.ListExtModesRequest(),
+            metadata=self._metadata(auth),
             timeout=timeout or self.default_timeout,
         )
 
-    def list_roots(self, *, timeout: float | None = None) -> core_pb2.ListRootsResponse:
+    def list_roots(
+        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+    ) -> core_pb2.ListRootsResponse:
         return self.stub.ListRoots(
             core_pb2.ListRootsRequest(),
+            metadata=self._metadata(auth),
             timeout=timeout or self.default_timeout,
         )
 
@@ -931,6 +988,7 @@ class MacpClient:
         timeout: float | None = None,
     ) -> envelope_pb2.Ack:
         """Send an ambient (non-session) signal to the runtime."""
+        validate_signal_type(signal_type, data)
         auth_cfg = self._require_auth(auth)
         payload = build_signal_payload(
             signal_type=signal_type,

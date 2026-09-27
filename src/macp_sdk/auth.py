@@ -7,12 +7,14 @@ from dataclasses import dataclass
 class AuthConfig:
     """Authentication configuration for a MACP client or session.
 
-    The ``expected_sender`` field is a client-side guardrail: when set, any
-    explicit ``sender=`` passed to a session helper must match it, otherwise
-    the SDK raises :class:`MacpIdentityMismatchError` before the envelope
-    reaches the wire. Per RFC-MACP-0004 §4 the runtime derives ``sender``
-    from authenticated identity, so mismatches are always rejected — this
-    check just surfaces the problem earlier and more clearly.
+    The ``expected_sender`` field is a client-side guardrail: when set, the
+    *resolved* sender — an explicit ``sender=`` passed to a session helper,
+    or the fallback to ``sender_hint`` when no explicit ``sender=`` is
+    given — must match it, otherwise the SDK raises
+    :class:`MacpIdentityMismatchError` before the envelope reaches the wire.
+    Per RFC-MACP-0004 §4 the runtime derives ``sender`` from authenticated
+    identity, so mismatches are always rejected — this check just surfaces
+    the problem earlier and more clearly.
     """
 
     bearer_token: str | None = None

@@ -61,13 +61,19 @@ class BaseSession(ABC):
         """Return a new projection instance for this mode."""
 
     def _sender_for(self, sender: str | None, *, auth: AuthConfig | None = None) -> str:
+        """Resolve and validate the envelope sender against auth.expected_sender.
+
+        The identity check runs against whatever sender is actually resolved
+        — explicit or falling back to ``auth_cfg.sender_hint`` — not only the
+        explicit-``sender`` branch, so a ``sender_hint``/``expected_sender``
+        mismatch can't bypass the guard just by omitting ``sender``.
+        """
         auth_cfg = auth or self.auth or self.client.auth
         expected = auth_cfg.expected_sender if auth_cfg else None
-        if sender:
-            if expected is not None and sender != expected:
-                raise MacpIdentityMismatchError(expected=expected, actual=sender)
-            return sender
-        return auth_cfg.sender or "" if auth_cfg else ""
+        resolved = sender or (auth_cfg.sender if auth_cfg else None) or ""
+        if expected is not None and resolved != expected:
+            raise MacpIdentityMismatchError(expected=expected, actual=resolved)
+        return resolved
 
     def _send_and_track(
         self,
