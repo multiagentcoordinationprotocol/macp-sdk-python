@@ -128,6 +128,31 @@ class TestDecisionSession:
         env = _sent_envelope(mock_client)
         assert env.message_type == "Commitment"
 
+    def test_full_flow_composes_across_calls(self, mock_client):
+        """A whole-session flow -- start, propose, evaluate, vote, commit -- on
+        one session instance, chaining every action Phase 4 added validation
+        to. Each action is already covered independently above; this proves
+        the sequence composes on a single session (no shared, accidentally-
+        mutated validation state between calls) and that every envelope in
+        the sequence carries the id fields the calls were given.
+        """
+        s = DecisionSession(mock_client, session_id=VALID_SESSION_ID, auth=_auth("alice"))
+        s.start(intent="pick a vendor", participants=["alice", "bob"], ttl_ms=60_000)
+        s.propose("p1", "vendor-a", rationale="cheapest")
+        s.evaluate("p1", "APPROVE", confidence=0.9)
+        s.vote("p1", "APPROVE")
+        s.commit(action="select", authority_scope="procurement", reason="quorum reached")
+
+        calls = mock_client.send.call_args_list
+        message_types = [call.args[0].message_type for call in calls]
+        assert message_types == ["SessionStart", "Proposal", "Evaluation", "Vote", "Commitment"]
+        # Proposal/Evaluation/Vote all reference the same proposal_id -- confirm
+        # each envelope's payload actually carries it (proto3 string fields are
+        # raw UTF-8 bytes on the wire, so a plain substring check is valid here).
+        for call in calls[1:4]:
+            payload_str = call.args[0].payload.decode("utf-8", errors="ignore")
+            assert "p1" in payload_str
+
 
 class TestProposalSession:
     def test_propose(self, mock_client):
