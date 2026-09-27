@@ -101,6 +101,15 @@ class GrpcTransportAdapter:
                 return
             self._stream = self._client.open_stream(auth=self._auth, timeout=self._timeout)
             try:
+                # #80: recheck immediately after assignment. stop()/cancel()
+                # set self._stopped before reading self._stream; this line
+                # assigns self._stream before reading self._stopped -- so at
+                # least one side always observes the other's write, closing
+                # the window without a lock (see cancel()/stop() below for
+                # the matching local-bind fix to the read side).
+                if self._stopped:
+                    self._stream.cancel()
+                    return
                 # RFC-MACP-0006-A1: Subscribe to the session with history replay.
                 # The runtime replays accepted envelopes then switches to live
                 # broadcast, ensuring non-initiator agents receive SessionStart +
@@ -140,6 +149,12 @@ class GrpcTransportAdapter:
                     delay,
                 )
                 attempt += 1
+                # #80 (known, accepted gap): a cancel()/stop() landing here
+                # isn't woken early -- this sleep isn't a threading.Event.wait,
+                # so it can't be interrupted. Fixing that needs a _stop_event
+                # and touches tests that poke self._stopped directly as a raw
+                # bool; deferred as a separate, larger change (see the plan's
+                # Phase 2 Edge cases).
                 time.sleep(delay)
             finally:
                 if self._stream is not None:
@@ -148,8 +163,13 @@ class GrpcTransportAdapter:
 
     def stop(self) -> None:
         self._stopped = True
-        if self._stream is not None:
-            self._stream.close()
+        # Bind to a local before checking: self._stream is read once here
+        # rather than twice, so a concurrent finally-block reassignment
+        # (start()'s own finally, on another thread) can't null it out
+        # between the None-check and the call.
+        stream = self._stream
+        if stream is not None:
+            stream.close()
 
     def cancel(self) -> None:
         """Immediately abort a blocked stream read, safe to call from
@@ -168,8 +188,10 @@ class GrpcTransportAdapter:
         stopped flag).
         """
         self._stopped = True
-        if self._stream is not None:
-            self._stream.cancel()
+        # See stop()'s comment above -- same single-read local-bind fix.
+        stream = self._stream
+        if stream is not None:
+            stream.cancel()
 
 
 class HttpTransportAdapter:
