@@ -211,6 +211,17 @@ class TestTaskSession:
         env = _sent_envelope(mock_client)
         assert env.message_type == "TaskAccept"
 
+    def test_reject_task(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        s.reject_task("t1", reason="cannot do this", sender="worker", auth=_auth("worker"))
+        env = _sent_envelope(mock_client)
+        assert env.message_type == "TaskReject"
+
+    def test_reject_task_empty_task_id_raises(self, mock_client):
+        s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="task_id"):
+            s.reject_task("", sender="worker", auth=_auth("worker"))
+
     def test_update_task(self, mock_client):
         s = TaskSession(mock_client, session_id=VALID_SESSION_ID)
         s.update_task("t1", status="running", progress=0.5, sender="worker", auth=_auth("worker"))
