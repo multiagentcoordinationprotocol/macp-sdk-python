@@ -59,6 +59,12 @@ class ProposalProjection(BaseProjection):
         self.proposals: dict[str, ProposalRecord] = {}
         self.accepts: list[AcceptRecord] = []
         self.rejections: list[RejectRecord] = []
+        # Tracks each sender's most recent Accept, so a later Accept from the
+        # same sender supersedes an earlier one (RFC-MACP-0008 §5 rule 5).
+        # `self.accepts` remains the full audit trail; this is the derived
+        # "current position per sender" view `is_accepted`/`accepted_proposal`
+        # read from. Mirrors typescript-sdk's `latestAcceptBySender` map.
+        self._latest_accept_by_sender: dict[str, str] = {}
 
     def _apply_mode_message(self, envelope: envelope_pb2.Envelope) -> None:
         mt = envelope.message_type
@@ -101,6 +107,7 @@ class ProposalProjection(BaseProjection):
                     sender=envelope.sender,
                 )
             )
+            self._latest_accept_by_sender[envelope.sender] = p.proposal_id
             return
 
         if mt == "Reject":
@@ -135,10 +142,15 @@ class ProposalProjection(BaseProjection):
         return {k: v for k, v in self.proposals.items() if v.status != "withdrawn"}
 
     def accepted_proposal(self) -> str | None:
-        """Return the proposal_id that all accepting senders agree on, or None."""
-        if not self.accepts:
+        """Return the proposal_id that all accepting senders currently agree on,
+        or None. Each sender's *most recent* Accept is what counts — a later
+        Accept from the same sender supersedes an earlier one from them
+        (RFC-MACP-0008 §5 rule 5), so a sender who moved on doesn't keep an
+        earlier proposal_id in this comparison.
+        """
+        if not self._latest_accept_by_sender:
             return None
-        ids = {a.proposal_id for a in self.accepts}
+        ids = set(self._latest_accept_by_sender.values())
         if len(ids) == 1:
             return ids.pop()
         return None
@@ -157,8 +169,12 @@ class ProposalProjection(BaseProjection):
         return list(self.proposals.values())[-1]
 
     def is_accepted(self, proposal_id: str) -> bool:
-        """True if any accept record references *proposal_id*."""
-        return any(a.proposal_id == proposal_id for a in self.accepts)
+        """True if *proposal_id* is some sender's current (most recent) accept.
+
+        Superseded by a later Accept from the same sender — see
+        ``accepted_proposal``.
+        """
+        return proposal_id in self._latest_accept_by_sender.values()
 
     def is_terminally_rejected(self, proposal_id: str) -> bool:
         """True if a terminal rejection exists for *proposal_id*."""

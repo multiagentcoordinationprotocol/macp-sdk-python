@@ -66,8 +66,10 @@ class TaskFailRecord:
 class TaskProjection(BaseProjection):
     """In-process state tracking for Task mode sessions.
 
-    Supports multiple tasks within a single session.  Each task is tracked
-    independently with its own status and progress.
+    Supports multiple tasks within a single session. Each task's status and
+    progress is tracked independently, but the *assignee slot* is scoped to
+    the whole session, not to a task: only one participant may hold it at a
+    time (RFC-MACP-0009 §5 rule 3), tracked by ``active_assignment``.
     """
 
     MODE = MODE_TASK
@@ -79,10 +81,16 @@ class TaskProjection(BaseProjection):
         self.updates: list[TaskUpdateRecord] = []
         self.completions: list[TaskCompleteRecord] = []
         self.failures: list[TaskFailRecord] = []
-        # Per-task mutable state
+        # Per-task mutable state (reporting view — what a caller reads)
         self._assignees: dict[str, str] = {}  # task_id -> assignee
         self._statuses: dict[str, str] = {}  # task_id -> status
         self._progress: dict[str, float] = {}  # task_id -> progress
+        # Session-scoped single-assignee slot (RFC-MACP-0009 §5 rule 3: "Only
+        # one assignee may become active for the Session in base v1" — scoped
+        # to the whole session, not to a task_id). This is the exclusivity
+        # guard; ``_assignees`` above remains the per-task reporting view.
+        # Mirrors typescript-sdk's ``activeAssignment`` field.
+        self.active_assignment: tuple[str, str] | None = None  # (sender, task_id)
 
     def _apply_mode_message(self, envelope: envelope_pb2.Envelope) -> None:
         mt = envelope.message_type
@@ -105,16 +113,27 @@ class TaskProjection(BaseProjection):
         if mt == "TaskAccept":
             p = task_pb2.TaskAcceptPayload()
             p.ParseFromString(envelope.payload)
-            assignee = p.assignee or envelope.sender
-            self._assignees[p.task_id] = assignee
-            self._statuses[p.task_id] = "accepted"
-            self.phase = "InProgress"
+            if p.task_id in self.tasks and self.active_assignment is None:
+                assignee = p.assignee or envelope.sender
+                self.active_assignment = (envelope.sender, p.task_id)
+                self._assignees[p.task_id] = assignee
+                self._statuses[p.task_id] = "accepted"
+                self.phase = "InProgress"
             return
 
         if mt == "TaskReject":
             p = task_pb2.TaskRejectPayload()
             p.ParseFromString(envelope.payload)
-            self._statuses[p.task_id] = "rejected"
+            # Status write is gated on the task being known (task.ts:136's
+            # `if (task)`); slot-freeing is a SEPARATE, unconditional check on
+            # sender alone (task.ts:158-161) — a slot-holder's TaskReject
+            # naming an unknown task_id still frees their held slot.
+            if p.task_id in self.tasks:
+                self._statuses[p.task_id] = "rejected"
+            slot = self.active_assignment
+            if slot is not None and slot[0] == envelope.sender:
+                self._assignees.pop(slot[1], None)
+                self.active_assignment = None
             return
 
         if mt == "TaskUpdate":
@@ -168,6 +187,14 @@ class TaskProjection(BaseProjection):
     def get_task(self, task_id: str) -> TaskRequestRecord | None:
         """Return the task request record for *task_id*, or None."""
         return self.tasks.get(task_id)
+
+    def current_assignee(self, task_id: str) -> str | None:
+        """Return the current assignee for *task_id*, or None if unassigned."""
+        return self._assignees.get(task_id)
+
+    def current_status(self, task_id: str) -> str | None:
+        """Return the current status for *task_id*, or None if unknown."""
+        return self._statuses.get(task_id)
 
     def is_accepted(self, task_id: str) -> bool:
         status = self._statuses.get(task_id)

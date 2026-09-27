@@ -110,3 +110,177 @@ class TestHandoffProjection:
         assert p.is_declined("h1")
         assert not p.is_accepted("h1")
         assert p.phase == "Declined"
+
+    def test_accept_unknown_handoff_is_noop(self):
+        """A HandoffAccept referencing a handoff_id never offered must not
+        raise and must not move ``phase`` (RFC-MACP-0010 §5 rule 2).
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffAccept",
+                handoff_pb2.HandoffAcceptPayload(handoff_id="ghost", accepted_by="bob"),
+                sender="bob",
+            )
+        )
+        assert p.get_handoff("ghost") is None
+        assert p.phase == "Pending"
+
+    def test_decline_unknown_handoff_is_noop(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffDecline",
+                handoff_pb2.HandoffDeclinePayload(handoff_id="ghost", declined_by="bob"),
+                sender="bob",
+            )
+        )
+        assert p.get_handoff("ghost") is None
+        assert p.phase == "Pending"
+
+    def test_accept_after_accepted_is_noop(self):
+        """A competing HandoffAccept after the handoff is already accepted
+        does not change ``accepted_by`` or ``phase`` (RFC-MACP-0010 §5 rule
+        4 / §5.1(4) — settle once).
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffOffer",
+                handoff_pb2.HandoffOfferPayload(handoff_id="h1", target_participant="bob"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffAccept",
+                handoff_pb2.HandoffAcceptPayload(handoff_id="h1", accepted_by="bob"),
+                sender="bob",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffAccept",
+                handoff_pb2.HandoffAcceptPayload(handoff_id="h1", accepted_by="carol"),
+                sender="carol",
+            )
+        )
+        handoff = p.get_handoff("h1")
+        assert handoff is not None
+        assert handoff.accepted_by == "bob"
+        assert p.phase == "Accepted"
+
+    def test_decline_after_accepted_is_noop(self):
+        """A HandoffDecline after acceptance must not flip status back."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffOffer",
+                handoff_pb2.HandoffOfferPayload(handoff_id="h1", target_participant="bob"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffAccept",
+                handoff_pb2.HandoffAcceptPayload(handoff_id="h1", accepted_by="bob"),
+                sender="bob",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffDecline",
+                handoff_pb2.HandoffDeclinePayload(handoff_id="h1", declined_by="bob"),
+                sender="bob",
+            )
+        )
+        handoff = p.get_handoff("h1")
+        assert handoff is not None
+        assert handoff.status == "accepted"
+        assert p.phase == "Accepted"
+
+    def test_second_decline_is_noop(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffOffer",
+                handoff_pb2.HandoffOfferPayload(handoff_id="h1", target_participant="bob"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffDecline",
+                handoff_pb2.HandoffDeclinePayload(handoff_id="h1", declined_by="bob"),
+                sender="bob",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffDecline",
+                handoff_pb2.HandoffDeclinePayload(handoff_id="h1", declined_by="carol"),
+                sender="carol",
+            )
+        )
+        handoff = p.get_handoff("h1")
+        assert handoff is not None
+        assert handoff.declined_by == "bob"
+        assert p.phase == "Declined"
+
+
+class TestReplayIdempotence:
+    """Replay/resubscribe must reach the same final state as a live feed —
+    the settle-once fix is a pure function of transcript order, so
+    redelivering the same envelopes must not double-apply it.
+    """
+
+    def _proj(self) -> HandoffProjection:
+        return HandoffProjection()
+
+    def test_replayed_offer_after_accept_is_deterministic(self):
+        """Redelivering the original HandoffOffer after the handoff has
+        since been accepted must stay a no-op (dedup by message_id) —
+        without dedup, HandoffOffer unconditionally overwrites the record
+        (``self.handoffs[p.handoff_id] = HandoffRecord(..., status="offered")``),
+        which would incorrectly regress an already-accepted handoff back to
+        "offered". This is what makes the redelivery genuinely exercise the
+        dedup guard rather than passing vacuously (the settle-once guard
+        alone wouldn't catch a replayed *offer*, only a replayed accept/decline).
+        """
+        p = self._proj()
+        offer = make_envelope(
+            MODE_HANDOFF,
+            "HandoffOffer",
+            handoff_pb2.HandoffOfferPayload(handoff_id="h1", target_participant="bob"),
+            sender="alice",
+        )
+        accept = make_envelope(
+            MODE_HANDOFF,
+            "HandoffAccept",
+            handoff_pb2.HandoffAcceptPayload(handoff_id="h1", accepted_by="bob"),
+            sender="bob",
+        )
+        p.apply_envelope(offer)
+        p.apply_envelope(accept)
+        assert p.phase == "Accepted"
+        # Redeliver the original offer (same envelope object — same
+        # message_id, already recorded). Without dedup this would reset
+        # status back to "offered" and phase back to "OfferPending".
+        p.apply_envelope(offer)
+        handoff = p.get_handoff("h1")
+        assert handoff is not None
+        assert handoff.status == "accepted"
+        assert handoff.accepted_by == "bob"
+        assert p.phase == "Accepted"
+        assert len(p.transcript) == 2
