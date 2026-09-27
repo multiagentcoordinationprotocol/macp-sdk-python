@@ -164,9 +164,18 @@ def validate_ttl_ms(ttl_ms: int) -> None:
         raise MacpSessionError(f"ttl_ms must be in [1, {_MAX_TTL_MS}], got {ttl_ms}")
 
 
-def validate_participants(participants: Sequence[str]) -> None:
-    """Validate participant list: non-empty, no duplicates, within count limit."""
-    if not participants:
+def validate_participants(participants: Sequence[str], *, allow_empty: bool = False) -> None:
+    """Validate participant list: non-empty, no duplicates, within count limit.
+
+    ``allow_empty`` skips the non-empty check only -- the duplicate check and
+    the count limit still apply to whatever is passed. Decision mode is the
+    sole caller of ``allow_empty=True`` (via ``validate_session_start``): the
+    runtime deliberately accepts an empty ``participants`` list for Decision
+    mode's ``SessionStart`` (RFC-MACP-0001 §7.1, RFC-MACP-0007), while the
+    other four standards-track modes re-reject an insufficient roster in
+    their own ``on_session_start`` regardless of what the SDK does here.
+    """
+    if not participants and not allow_empty:
         raise MacpSessionError("participants must be non-empty")
     seen: set[str] = set()
     for p in participants:
@@ -189,10 +198,15 @@ def validate_session_start(
     ttl_ms: int,
     mode_version: str,
     configuration_version: str,
+    allow_empty_participants: bool = False,
 ) -> None:
-    """Composite validation for SessionStart parameters."""
+    """Composite validation for SessionStart parameters.
+
+    ``allow_empty_participants`` forwards to :func:`validate_participants` --
+    see its docstring for why Decision mode is the one caller that sets it.
+    """
     validate_required_field("intent", intent)
-    validate_participants(participants)
+    validate_participants(participants, allow_empty=allow_empty_participants)
     validate_ttl_ms(ttl_ms)
     validate_required_field("mode_version", mode_version)
     validate_required_field("configuration_version", configuration_version)

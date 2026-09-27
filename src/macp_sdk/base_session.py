@@ -14,6 +14,7 @@ from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
     DEFAULT_MODE_VERSION,
     DEFAULT_POLICY_VERSION,
+    MODE_DECISION,
 )
 from .envelope import (
     build_commitment_payload,
@@ -23,7 +24,7 @@ from .envelope import (
     serialize_message,
 )
 from .errors import MacpIdentityMismatchError
-from .validation import validate_participant_count, validate_session_id
+from .validation import validate_session_id, validate_session_start
 
 
 class BaseSession(ABC):
@@ -119,7 +120,20 @@ class BaseSession(ABC):
         A suspension outlasting this cap expires the session
         (``SUSPENDED`` → ``EXPIRED``). Negative values are rejected.
         """
-        validate_participant_count(len(participants))
+        validate_session_start(
+            intent=intent,
+            participants=participants,
+            ttl_ms=ttl_ms,
+            mode_version=self.mode_version,
+            configuration_version=self.configuration_version,
+            # Decision mode's SessionStart legitimately accepts an empty
+            # participants list (RFC-MACP-0001 §7.1, RFC-MACP-0007) -- the
+            # other four standards-track modes each re-reject an
+            # insufficient roster in their own on_session_start regardless,
+            # so this carve-out only relaxes the client-side check to match
+            # what the runtime already does.
+            allow_empty_participants=self.MODE == MODE_DECISION,
+        )
         payload = build_session_start_payload(
             intent=intent,
             participants=participants,

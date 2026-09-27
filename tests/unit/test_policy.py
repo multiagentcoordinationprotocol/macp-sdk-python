@@ -259,6 +259,19 @@ class TestDecisionVotingValidation:
                 voting=VotingRules(algorithm=algorithm, threshold=1.0, weights={"a": 0}),
             )
 
+    @pytest.mark.parametrize("weight", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_weight_rejected(self, weight):
+        # NaN/inf would otherwise pass the plain `weight <= 0` check (NaN
+        # compares False either way, +inf is > 0) and reach json.dumps, which
+        # emits non-standard `NaN`/`Infinity` literals that are not valid
+        # JSON -- rejecting client-side names the real problem instead of
+        # producing a policy descriptor a strict JSON parser downstream
+        # can't read.
+        with pytest.raises(MacpSessionError, match="finite"):
+            build_decision_policy(
+                "q", "d", voting=VotingRules(algorithm="none", weights={"a": weight})
+            )
+
     def test_designated_role_without_roles_rejected(self):
         with pytest.raises(MacpSessionError, match="designated_role"):
             build_decision_policy("q", "d", commitment=CommitmentRules(authority="designated_role"))

@@ -10,6 +10,7 @@ from .constants import MODE_DECISION
 from .envelope import build_envelope, serialize_message
 from .errors import MacpSessionError
 from .projections import DecisionProjection
+from .validation import validate_required_field
 
 _VALID_VOTES = frozenset({"APPROVE", "REJECT", "ABSTAIN"})
 _VALID_RECOMMENDATIONS = frozenset({"APPROVE", "REVIEW", "BLOCK", "REJECT"})
@@ -49,6 +50,8 @@ class DecisionSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
+        validate_required_field("option", option)
         payload = decision_pb2.ProposalPayload(
             proposal_id=proposal_id,
             option=option,
@@ -74,6 +77,7 @@ class DecisionSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
         normalized_rec = recommendation.upper()
         if normalized_rec not in _VALID_RECOMMENDATIONS:
             raise MacpSessionError(
@@ -106,6 +110,7 @@ class DecisionSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
         normalized_sev = severity.lower()
         if normalized_sev not in _VALID_SEVERITIES:
             raise MacpSessionError(
@@ -134,6 +139,7 @@ class DecisionSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
+        validate_required_field("proposal_id", proposal_id)
         normalized_vote = vote.upper()
         if normalized_vote not in _VALID_VOTES:
             raise MacpSessionError(
