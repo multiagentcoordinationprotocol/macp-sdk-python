@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.10.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.9.1...v0.10.0) (2026-09-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **policy:** build_decision_policy's default schema_version is now 3 (was 2). A call that omits schema_version and uses a binding voting algorithm now fails closed on an empty decisive tally instead of silently sealing on zero ballots. Pass schema_version=1 or schema_version=2 explicitly to keep the old fail-open behavior.
+
+### Features
+
+* **api:** export every projection record dataclass, __version__, now_unix_ms ([#84](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/84)) ([65d59bc](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/65d59bc7ecaab39e460bcb21f020267aa618cd8d))
+* **policy:** flip Decision-policy schema_version default from 2 to 3 ([#74](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/74)) ([d08f214](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/d08f2143954d01581d51b6c8266f831acaadae48))
+* **policy:** support schema_version 3, enforce schema tightenings client-side ([1c5bc26](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1c5bc2658b00d116facf9404f67875c85bb83bf1))
+
+
+### Bug Fixes
+
+* **agent,client:** agent-framework and client/transport correctness (Phases 2+3) ([#81](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/81)) ([c91cccf](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/c91cccffb2de1403ef0e8f0e87b9c64d09ce6516))
+* **agent:** close GrpcTransportAdapter.start() cancel TOCTOU window ([#90](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/90)) ([3643675](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/3643675b1763dd677995b70974f80403ca59dfef))
+* **agent:** retry transient NOT_FOUND from the initial subscribe ([#76](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/76)) ([8b554ca](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/8b554ca19afd2e2b6e826fc09e7c2b0277817eb0)), closes [#75](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/75)
+* **agent:** route ParticipantActions through Phase 4's shared validators ([#87](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/87)) ([f9e5d7d](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/f9e5d7dafa40c41051ca1d2cdb7c250cd85f5151))
+* **handoff:** update stale implicit-accept docstrings, add live integration test ([#70](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/70)) ([#71](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/71)) ([110f250](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/110f250366ac08b7874bf896c10f9f85c9ff9ca8))
+* **policy:** stop emitting require_vote_quorum for non-decision commitment schemas ([#72](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/72)) ([5dd9e37](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/5dd9e37e075d5369d9f12ba22371721072acbaa0))
+* **projections:** enforce RFC settle-once/supersession rules for Proposal, Task, Handoff ([#79](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/79)) ([f168ef1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/f168ef1aa1d2f481591c508abf2e1c751a6ce925))
+* **proto_registry:** stop misdecoding canonical Contribute payloads as legacy JSON ([#77](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/77)) ([3403034](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/3403034d0bc6608e19bc3ec8ddb33b5499963467))
+* **task:** gate TaskUpdate/TaskComplete/TaskFail on known task_id ([#88](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/88)) ([98991e1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/98991e1a4d0f16cc254f9b6d920081cf95289488))
+* **validation:** wire session-start and per-action validators into the SDK ([#83](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/83)) ([cec88ce](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/cec88ce303dbd4d67c7d6a70bbef8d5df6cc4449))
+
 ## [0.9.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.9.0...v0.9.1) (2026-09-06)
 
 
