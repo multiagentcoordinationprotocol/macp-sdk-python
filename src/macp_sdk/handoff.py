@@ -87,26 +87,31 @@ class HandoffProjection(BaseProjection):
             p = handoff_pb2.HandoffAcceptPayload()
             p.ParseFromString(envelope.payload)
             handoff = self.handoffs.get(p.handoff_id)
-            if handoff is not None:
+            # RFC-MACP-0010 §5 rule 2 (must reference an existing handoff_id)
+            # and §5.1(4) (settle once, only from offered/context_sent): an
+            # unknown handoff_id, or one already settled, is a silent no-op —
+            # it must not move ``self.phase`` either. Matches
+            # typescript-sdk's handoff.ts, which bails the same way.
+            if handoff is not None and handoff.status in ("offered", "context_sent"):
                 handoff.status = "accepted"
                 handoff.accepted_by = p.accepted_by
                 # macp-proto >= 0.1.6: capture whether this was a runtime
                 # implicit accept (sender = target, message_id
                 # ``implicit-accept:<handoff_id>``). Absent field decodes to
-                # False. If ``handoff`` is None the offer was never observed
-                # (e.g. mid-session subscribe) — we still advance the phase.
+                # False.
                 handoff.implicit = getattr(p, "implicit", False)
-            self.phase = "Accepted"
+                self.phase = "Accepted"
             return
 
         if mt == "HandoffDecline":
             p = handoff_pb2.HandoffDeclinePayload()
             p.ParseFromString(envelope.payload)
             handoff = self.handoffs.get(p.handoff_id)
-            if handoff is not None:
+            # Same settle-once guard as HandoffAccept above.
+            if handoff is not None and handoff.status in ("offered", "context_sent"):
                 handoff.status = "declined"
                 handoff.declined_by = p.declined_by
-            self.phase = "Declined"
+                self.phase = "Declined"
 
     # -- State query helpers --
 

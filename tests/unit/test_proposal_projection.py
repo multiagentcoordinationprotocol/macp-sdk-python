@@ -124,6 +124,35 @@ class TestProposalProjection:
         assert p.rejections[1].terminal is True
         assert sum(1 for r in p.rejections if r.terminal) == 1
 
+    def test_accept_supersession_same_sender(self):
+        """A later Accept from the same sender supersedes an earlier one from
+        them (RFC-MACP-0008 §5 rule 5) — the sender's old choice stops
+        counting, even though the audit trail keeps both.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Accept",
+                proposal_pb2.AcceptPayload(proposal_id="p1"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Accept",
+                proposal_pb2.AcceptPayload(proposal_id="p2"),
+                sender="alice",
+            )
+        )
+        assert p.is_accepted("p1") is False
+        assert p.is_accepted("p2") is True
+        assert p.accepted_proposal() == "p2"
+        # Audit trail keeps both entries, unmodified, in delivery order.
+        assert [a.proposal_id for a in p.accepts] == ["p1", "p2"]
+        assert all(a.sender == "alice" for a in p.accepts)
+
     def test_withdraw(self):
         p = self._proj()
         p.apply_envelope(
@@ -207,3 +236,31 @@ class TestReplayIdempotence:
         p.apply_envelope(env)
         assert len(p.rejections) == 1
         assert len(p.transcript) == 1
+
+    def test_replayed_supersession_is_deterministic(self):
+        """Replaying the same two-Accept transcript twice (dedup by
+        message_id) must not double-apply the supersession — the final
+        state after redelivery matches the state after a single delivery.
+        """
+        p = self._proj()
+        first = make_envelope(
+            MODE_PROPOSAL,
+            "Accept",
+            proposal_pb2.AcceptPayload(proposal_id="p1"),
+            sender="alice",
+        )
+        second = make_envelope(
+            MODE_PROPOSAL,
+            "Accept",
+            proposal_pb2.AcceptPayload(proposal_id="p2"),
+            sender="alice",
+        )
+        p.apply_envelope(first)
+        p.apply_envelope(second)
+        # Redeliver both (same envelope objects — same message_ids).
+        p.apply_envelope(first)
+        p.apply_envelope(second)
+        assert p.accepted_proposal() == "p2"
+        assert p.is_accepted("p1") is False
+        assert len(p.accepts) == 2
+        assert len(p.transcript) == 2

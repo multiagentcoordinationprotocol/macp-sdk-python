@@ -148,6 +148,233 @@ class TestTaskProjection:
         assert p.is_retryable("t1")
         assert p.phase == "Failed"
 
+    def test_session_scoped_slot_blocks_second_accept(self):
+        """A second TaskAccept from a different sender while the session's
+        one assignee slot is already held is a no-op on state (RFC-MACP-0009
+        §5 rule 3 — session-scoped, not per-task), even for a different
+        known task. The transcript still records both messages.
+        """
+        p = self._proj()
+        for task_id in ("t1", "t2"):
+            p.apply_envelope(
+                make_envelope(
+                    MODE_TASK,
+                    "TaskRequest",
+                    task_pb2.TaskRequestPayload(task_id=task_id, title="x"),
+                    sender="planner",
+                )
+            )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t1", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t2", assignee="worker2"),
+                sender="worker2",
+            )
+        )
+        assert p.current_assignee("t1") == "worker1"
+        assert p.current_assignee("t2") is None
+        assert p.current_status("t2") == "requested"
+        assert len(p.transcript) == 4
+
+    def test_task_accept_unknown_task_is_noop(self):
+        """A TaskAccept for a task_id never seen in a TaskRequest must not
+        raise, must not fabricate state, and must not move ``phase``.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="ghost", assignee="worker"),
+                sender="worker",
+            )
+        )
+        assert p.current_assignee("ghost") is None
+        assert p.current_status("ghost") is None
+        assert p.phase == "Pending"
+
+    def test_task_reject_unknown_task_is_noop(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskReject",
+                task_pb2.TaskRejectPayload(task_id="ghost", assignee="worker", reason="n/a"),
+                sender="worker",
+            )
+        )
+        assert p.current_status("ghost") is None
+        assert p.phase == "Pending"
+
+    def test_reject_from_non_slot_holder_sets_status_but_keeps_slot(self):
+        """A TaskReject(task_id=B) from a sender who does NOT hold the
+        session's slot still sets B's status to 'rejected' (gated only on
+        B being a known task) but must not clear the slot-holder's assignee.
+        """
+        p = self._proj()
+        for task_id in ("A", "B"):
+            p.apply_envelope(
+                make_envelope(
+                    MODE_TASK,
+                    "TaskRequest",
+                    task_pb2.TaskRequestPayload(task_id=task_id, title="x"),
+                    sender="planner",
+                )
+            )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="A", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        # A different sender (never held the slot) rejects B.
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskReject",
+                task_pb2.TaskRejectPayload(task_id="B", assignee="worker2", reason="busy"),
+                sender="worker2",
+            )
+        )
+        assert p.current_status("B") == "rejected"
+        assert p.current_assignee("A") == "worker1"
+
+    def test_reject_from_slot_holder_frees_held_task_not_named_task(self):
+        """A TaskReject(task_id=B) from the session's current slot-holder,
+        where the slot is held for a DIFFERENT task A, sets B's status to
+        'rejected' AND frees A's assignee — slot-freeing matches on sender
+        alone, not on the rejected task_id equaling the held task.
+        """
+        p = self._proj()
+        for task_id in ("A", "B"):
+            p.apply_envelope(
+                make_envelope(
+                    MODE_TASK,
+                    "TaskRequest",
+                    task_pb2.TaskRequestPayload(task_id=task_id, title="x"),
+                    sender="planner",
+                )
+            )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="A", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        # The slot-holder (worker1) sends a reject naming B, not A.
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskReject",
+                task_pb2.TaskRejectPayload(task_id="B", assignee="worker1", reason="changed mind"),
+                sender="worker1",
+            )
+        )
+        assert p.current_status("B") == "rejected"
+        assert p.current_assignee("A") is None
+        # The slot is free again — a new sender can now claim it.
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="A", assignee="worker3"),
+                sender="worker3",
+            )
+        )
+        assert p.current_assignee("A") == "worker3"
+
+    def test_reject_from_slot_holder_same_task(self):
+        """The ordinary single-task case: slot-holder rejects the very task
+        they hold — status goes to 'rejected' and the slot frees.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="A", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="A", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskReject",
+                task_pb2.TaskRejectPayload(task_id="A", assignee="worker1", reason="busy"),
+                sender="worker1",
+            )
+        )
+        assert p.current_status("A") == "rejected"
+        assert p.current_assignee("A") is None
+
+    def test_reject_unknown_task_from_slot_holder_still_frees_slot(self):
+        """Slot-freeing is gated on sender alone, independent of whether the
+        rejected task_id is known — a TaskReject naming an unknown task_id
+        still frees the sender's held slot (matches task.ts:158-161, where
+        slot-freeing is a separate, unconditional check from the status
+        write's task-existence gate).
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="A", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="A", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskReject",
+                task_pb2.TaskRejectPayload(task_id="ghost", assignee="worker1", reason="n/a"),
+                sender="worker1",
+            )
+        )
+        # The unknown task_id itself never gets a status.
+        assert p.current_status("ghost") is None
+        # But the slot-holder's slot is freed all the same.
+        assert p.current_assignee("A") is None
+        # Confirm the slot is genuinely free — a new sender can now claim it.
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="A", assignee="worker2"),
+                sender="worker2",
+            )
+        )
+        assert p.current_assignee("A") == "worker2"
+
     def test_active_tasks(self):
         p = self._proj()
         p.apply_envelope(
@@ -248,3 +475,41 @@ class TestReplayIdempotence:
         p.apply_envelope(env)
         assert len(p.failures) == 1
         assert len(p.transcript) == 1
+
+    def test_replayed_slot_claim_is_deterministic(self):
+        """Redelivering an already-applied TaskAccept after the slot has
+        since been freed must stay a no-op (dedup by message_id) — without
+        dedup, replaying the original accept would incorrectly re-claim the
+        now-free slot for its sender. This is what makes the redelivery
+        genuinely exercise the dedup guard rather than passing vacuously.
+        """
+        p = self._proj()
+        request = make_envelope(
+            MODE_TASK,
+            "TaskRequest",
+            task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+            sender="planner",
+        )
+        accept = make_envelope(
+            MODE_TASK,
+            "TaskAccept",
+            task_pb2.TaskAcceptPayload(task_id="t1", assignee="worker"),
+            sender="worker",
+        )
+        reject = make_envelope(
+            MODE_TASK,
+            "TaskReject",
+            task_pb2.TaskRejectPayload(task_id="t1", assignee="worker", reason="busy"),
+            sender="worker",
+        )
+        p.apply_envelope(request)
+        p.apply_envelope(accept)
+        p.apply_envelope(reject)
+        assert p.current_assignee("t1") is None
+        # Redeliver the original accept (same envelope object — same
+        # message_id, already recorded). Without dedup this would re-claim
+        # the now-free slot for "worker".
+        p.apply_envelope(accept)
+        assert p.current_assignee("t1") is None
+        assert p.current_status("t1") == "rejected"
+        assert len(p.transcript) == 3

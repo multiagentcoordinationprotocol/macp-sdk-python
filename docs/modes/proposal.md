@@ -119,7 +119,7 @@ proj.proposals["p2"].supersedes   # "p1"
 
 # Accepts
 proj.accepts                    # dict[sender, AcceptRecord]
-proj.accepted_proposal()        # proposal_id if all accepts agree, else None
+proj.accepted_proposal()        # proposal_id if all senders' latest accepts agree, else None
 
 # Rejections and withdrawals
 proj.terminal_rejections        # list[TerminalRejectRecord]
