@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -377,6 +378,22 @@ class TestGrpcTransportAdapterCancel:
         mock_stream.cancel.assert_called_once()
         assert adapter._stopped is True
 
+    def test_stop_calls_stream_close_when_stream_present(self):
+        """#80's local-bind fix in stop() (read self._stream once into a
+        local before checking it, closing the same double-read
+        AttributeError window cancel() had) -- proven directly rather than
+        only by the pre-existing test_stop_closes_stream, which runs
+        start() to completion first so _stream is already None by the time
+        stop() is called and never exercises this branch."""
+        adapter = GrpcTransportAdapter(MagicMock(), "s1")
+        mock_stream = MagicMock()
+        adapter._stream = mock_stream
+
+        adapter.stop()
+
+        mock_stream.close.assert_called_once()
+        assert adapter._stopped is True
+
     def test_cancel_before_start_is_safe_noop(self):
         adapter = GrpcTransportAdapter(MagicMock(), "s1")
         adapter.cancel()  # no stream yet -- must not raise
@@ -438,6 +455,83 @@ class TestGrpcTransportAdapterCancel:
         messages = list(adapter.start())  # must not raise
 
         assert messages == []
+
+    def test_cancel_during_open_stream_window_is_not_lost(self):
+        """#80: a cancel() landing after self._stream is assigned but
+        before the recheck must be caught by that recheck, not lost.
+        Deterministic single-thread reproduction: open_stream()'s own
+        side_effect calls adapter.cancel() before returning the mock
+        stream, so cancel() runs while self._stream is still None (its
+        own no-op branch) and self._stopped is set to True before
+        start()'s assignment+recheck ever run."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+
+        def _cancel_before_returning_stream(**kwargs):
+            adapter.cancel()
+            return mock_stream
+
+        mock_client.open_stream.side_effect = _cancel_before_returning_stream
+
+        messages = list(adapter.start())
+
+        assert messages == []
+        mock_stream.send_subscribe.assert_not_called()
+        # The discriminating assertion: MagicMock.__iter__ would let an
+        # un-configured responses() silently iterate as empty, so without
+        # this the test would pass on the pre-fix code too.
+        mock_stream.responses.assert_not_called()
+        mock_stream.cancel.assert_called_once()
+        assert adapter._stream is None
+
+    def test_cancel_during_open_stream_window_unblocks_background_thread(self):
+        """#80's true two-thread regression. A single `opened` event is not
+        enough to reproduce the race (the worker thread reaches the recheck
+        and enters responses() before a main thread woken by opened.wait()
+        can call cancel() -- verified empirically during plan review). This
+        uses two events: open_stream()'s side_effect sets `opened` and then
+        blocks on `may_return` before returning the mock stream, so
+        open_stream() itself does not return until the main thread has both
+        observed `opened` and called cancel(). At that instant self._stream
+        is still its pre-call value, so cancel()'s own guard is a no-op
+        beyond setting self._stopped; when open_stream() then unblocks and
+        self._stream is assigned, the new recheck immediately observes
+        self._stopped is True and tears the stream down without ever
+        calling responses() -- pre-fix, with no recheck, the code proceeds
+        straight into responses(), which blocks on a third, never-set event
+        (simulating an idle live stream) and hangs."""
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        adapter = GrpcTransportAdapter(mock_client, "target-session")
+
+        opened = threading.Event()
+        may_return = threading.Event()
+        stuck = threading.Event()
+
+        def _open_stream(**kwargs):
+            opened.set()
+            may_return.wait(timeout=5)
+            return mock_stream
+
+        def _blocking_responses():
+            stuck.wait(timeout=5)
+            return
+            yield  # pragma: no cover - makes this a generator function
+
+        mock_client.open_stream.side_effect = _open_stream
+        mock_stream.responses.side_effect = _blocking_responses
+
+        thread = threading.Thread(target=lambda: list(adapter.start()), daemon=True)
+        thread.start()
+        assert opened.wait(timeout=2)
+        adapter.cancel()
+        may_return.set()
+        thread.join(timeout=2)
+
+        assert not thread.is_alive()
+        mock_stream.responses.assert_not_called()
+        mock_stream.cancel.assert_called_once()
 
 
 class TestHttpTransportAdapter:
