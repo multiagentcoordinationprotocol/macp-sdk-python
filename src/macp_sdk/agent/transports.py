@@ -16,7 +16,7 @@ from typing import Any, Protocol
 from .._logging import logger
 from ..auth import AuthConfig
 from ..client import MacpClient
-from ..errors import MacpTransportError
+from ..errors import MacpSdkError, MacpTransportError
 from ..retry import RetryPolicy
 from .types import IncomingMessage
 
@@ -156,6 +156,23 @@ class GrpcTransportAdapter:
                 # bool; deferred as a separate, larger change (see the plan's
                 # Phase 2 Edge cases).
                 time.sleep(delay)
+            except MacpSdkError:
+                if self._stopped:
+                    # #89: send_subscribe()'s own already-closed check
+                    # (client.py's MacpStream.send_subscribe) raises
+                    # MacpSdkError directly, not MacpTransportError, when a
+                    # cancel() lands between the #80 recheck above and this
+                    # call -- same clean shutdown as the MacpTransportError
+                    # case above, just a different sibling exception type.
+                    # Narrow: every other call in this try block either
+                    # raises MacpTimeoutError/MacpTransportError (already
+                    # caught above -- read()/responses(), client.py:213-230)
+                    # or a non-MacpSdkError type (_stream.cancel() raises
+                    # gRPC errors; _envelope_to_message raises ValueError),
+                    # so this clause is reached only by send_subscribe()'s
+                    # already-closed check, not a blanket MacpSdkError catch.
+                    return
+                raise
             finally:
                 if self._stream is not None:
                     self._stream.close()
