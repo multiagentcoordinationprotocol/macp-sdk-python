@@ -186,4 +186,7 @@ existing convention. Reconciled via `/reconcile`.
   documented as intentional) now gets a clear `ValueError` instead of a silent connection
   to `localhost:50051` — reversible in a commit by restoring the `or "localhost:50051"`
   fallback if a real caller is found depending on it.
-- **Status:** UNCONFIRMED
+- **Status:** CONFIRMED (2026-09-27) — see `DECISIONS.md` for the full analysis. Confirmed
+  as-is: cross-SDK parity found (`../macp-sdk-typescript/src/agent/runner.ts:81-82` does
+  the identical fail-fast, independently implemented), no documented example relies on the
+  removed default, and the package is pre-1.0/alpha. No further changes needed.

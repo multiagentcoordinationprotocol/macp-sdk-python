@@ -75,3 +75,47 @@ rests on, so the next person to touch `_apply_mode_message` is told the rule by 
 rather than expected to rediscover it.
 
 **Resulting status:** `CONFIRMED (2026-09-06)`
+
+---
+
+## 2026-09-27 — `from_bootstrap` hard-fails on a missing runtime address instead of defaulting to localhost
+
+- **Plan:** `plans/sdk-parity-python-fixes.md` (Phase 2, item 5)
+- **Entry:** `ASSUMPTIONS.md` — "`from_bootstrap` hard-fails on a missing runtime
+  address…"
+- **Blast radius / tier:** Reversible → **Opus** (auto-settled, not brought to the
+  user). An internal default-behavior choice on a factory function, not a schema/wire-
+  format/auth-model change; the entry's own analysis already noted it's "reversible in a
+  commit by restoring the `or 'localhost:50051'` fallback" if a real caller needed it.
+
+### The assumption
+
+`runner.py`'s old `ctx.get("runtime_url") or ctx.get("runtime_address") or
+"localhost:50051"` default was judged an accident of `or`-chaining, not a documented or
+intentional contract. Chosen fix: raise `ValueError` naming both accepted keys when
+neither is present (`runner.py:67-72`), matching the exception type `from_bootstrap`
+already raises for a missing bootstrap path.
+
+### Recommendation (Opus)
+
+**CONFIRM as-is**, on:
+
+1. **Code matches the entry exactly** — `runner.py:67-72` raises `ValueError` naming
+   both keys, no implicit default remains.
+2. **Independent cross-SDK parity evidence, not present when the assumption was first
+   written**: `../macp-sdk-typescript/src/agent/runner.ts:81-82` does the identical
+   fail-fast (`runtime_address ?? runtime_url ?? ''`, throw if empty) with no localhost
+   fallback — an independently-implemented sibling SDK made the same choice, which is
+   strong evidence this isn't an accidental Python-only tightening.
+3. **No documented example breaks**: `docs/guides/agent-framework.md:55`'s canonical
+   bootstrap example already sets `runtime_url` explicitly; `docs/guides/direct-agent-auth.md`
+   already treats the key as required. Nothing in the docs relied on the removed default.
+4. **Low real-world exposure**: `pyproject.toml:7,16` — version `0.9.1`,
+   `Development Status :: 3 - Alpha` — pre-1.0, no stability promise broken.
+
+### Verdict — confirm, no further changes needed
+
+Nothing found during verification weakens the original call; the parity evidence
+actively strengthens it. No code or doc follow-up required.
+
+**Resulting status:** `CONFIRMED (2026-09-27)`
