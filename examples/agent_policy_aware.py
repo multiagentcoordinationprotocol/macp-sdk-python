@@ -110,7 +110,7 @@ def main() -> None:
     vote_strategy = function_voter(should_vote, decide_vote)
 
     participant.on("Proposal", evaluation_handler(eval_strategy))
-    participant.on("Proposal", voting_handler(vote_strategy))
+    participant.on("Evaluation", voting_handler(vote_strategy))
 
     # Log terminal outcomes
     participant.on_terminal(lambda r: print(f"Session ended: {r.state}"))
@@ -119,7 +119,8 @@ def main() -> None:
     print(f"Policy: {participant.session.policy_version}")
     print()
 
-    # Simulate a proposal event
+    # Simulate a proposal event -- triggers evaluation_handler, which sends
+    # this agent's own Evaluation (via the mocked client, not observed here).
     proposal_env = _make_envelope(
         "Proposal",
         decision_pb2.ProposalPayload(proposal_id="p1", option="deploy-canary"),
@@ -130,6 +131,28 @@ def main() -> None:
     proj = participant.projection
     if proj:
         print(f"Proposals seen: {list(proj.proposals.keys())}")
+
+    # Simulate the Evaluation the runtime broadcasts back to every
+    # participant once an Evaluation has been accepted -- this is the
+    # message voting_handler is gated on, not Proposal.
+    evaluation_env = _make_envelope(
+        "Evaluation",
+        decision_pb2.EvaluationPayload(
+            proposal_id="p1",
+            recommendation="APPROVE",
+            confidence=0.95,
+            reason="canary deployment is low risk",
+        ),
+    )
+    participant.process_event(evaluation_env)
+
+    # Prove the handlers actually ran, not just that nothing crashed --
+    # this is exactly the failure mode the message-type gates must not
+    # reintroduce (unit tests green, shipped example silently inert).
+    sent_types = [call.args[0].message_type for call in client.send.call_args_list]
+    print(f"Envelopes sent by this agent: {sent_types}")
+    assert "Evaluation" in sent_types, "evaluation_handler did not fire"
+    assert "Vote" in sent_types, "voting_handler did not fire"
 
     print("\nDemo complete. In production, call participant.run() instead.")
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import grpc
 import pytest
 from macp.v1 import envelope_pb2
 
@@ -22,7 +23,10 @@ from macp_sdk.errors import (
     MacpAckError,
     MacpIdentityMismatchError,
     MacpSdkError,
+    MacpTransportError,
 )
+from tests.conftest import FakeRpcError
+from tests.conftest import client_with_stub as _client_with_stub
 
 
 class TestParseAckReasons:
@@ -179,3 +183,50 @@ class TestCancelSessionReasonParsing:
         assert exc.value.failure.code == "POLICY_DENIED"
         assert exc.value.failure.session_id == "s-1"
         assert exc.value.failure.reasons == ["cancellation_not_delegated"]
+
+
+class TestTransportErrorStatusCodes:
+    """Phase 3 item 4: send/cancel_session/suspend_session/resume_session
+    transport failures must expose the gRPC status code on ``.code``,
+    consistent with watch_*'s existing behavior — not just a bare message.
+    """
+
+    def test_send_transport_error_has_code(self):
+        client, stub = _client_with_stub()
+        stub.Send.side_effect = FakeRpcError(grpc.StatusCode.UNAVAILABLE, "down")
+        env = envelope_pb2.Envelope(message_type="Vote", session_id="s-1")
+        with pytest.raises(MacpTransportError) as exc:
+            client.send(env)
+        assert exc.value.code == "UNAVAILABLE"
+
+    def test_send_invalid_argument_also_has_code(self):
+        """INVALID_ARGUMENT is send()'s own dedicated branch, separate from
+        the generic fallback the other three raises share — must attach
+        the code too."""
+        client, stub = _client_with_stub()
+        stub.Send.side_effect = FakeRpcError(grpc.StatusCode.INVALID_ARGUMENT, "bad envelope")
+        env = envelope_pb2.Envelope(message_type="Vote", session_id="s-1")
+        with pytest.raises(MacpTransportError) as exc:
+            client.send(env)
+        assert exc.value.code == "INVALID_ARGUMENT"
+
+    def test_cancel_session_transport_error_has_code(self):
+        client, stub = _client_with_stub()
+        stub.CancelSession.side_effect = FakeRpcError(grpc.StatusCode.UNAVAILABLE, "down")
+        with pytest.raises(MacpTransportError) as exc:
+            client.cancel_session("s-1", reason="x")
+        assert exc.value.code == "UNAVAILABLE"
+
+    def test_suspend_session_transport_error_has_code(self):
+        client, stub = _client_with_stub()
+        stub.SuspendSession.side_effect = FakeRpcError(grpc.StatusCode.UNAVAILABLE, "down")
+        with pytest.raises(MacpTransportError) as exc:
+            client.suspend_session("s-1")
+        assert exc.value.code == "UNAVAILABLE"
+
+    def test_resume_session_transport_error_has_code(self):
+        client, stub = _client_with_stub()
+        stub.ResumeSession.side_effect = FakeRpcError(grpc.StatusCode.UNAVAILABLE, "down")
+        with pytest.raises(MacpTransportError) as exc:
+            client.resume_session("s-1")
+        assert exc.value.code == "UNAVAILABLE"

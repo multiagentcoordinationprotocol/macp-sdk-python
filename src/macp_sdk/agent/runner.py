@@ -64,7 +64,13 @@ def from_bootstrap(bootstrap_path: str | None = None) -> Participant:
     participant_id = str(ctx["participant_id"])
     session_id = str(ctx["session_id"])
     mode = str(ctx["mode"])
-    runtime_url = str(ctx.get("runtime_url") or ctx.get("runtime_address") or "localhost:50051")
+    runtime_url_raw = ctx.get("runtime_url") or ctx.get("runtime_address")
+    if not runtime_url_raw:
+        raise ValueError(
+            "bootstrap JSON must set 'runtime_url' or 'runtime_address' "
+            "(no implicit default) -- got neither key"
+        )
+    runtime_url = str(runtime_url_raw)
     secure = bool(ctx.get("secure", True))
     allow_insecure = bool(ctx.get("allow_insecure", False))
 

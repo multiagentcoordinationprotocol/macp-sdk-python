@@ -165,3 +165,25 @@ existing convention. Reconciled via `/reconcile`.
 - **Status:** CONFIRMED (2026-09-25) — the A-vs-B choice itself (this SDK's variant of B) is
   reversible in a commit and its cost is now accurately priced above; no further review needed
   before merge.
+
+## `from_bootstrap` hard-fails on a missing runtime address instead of defaulting to localhost
+- **Plan:** `plans/sdk-parity-python-fixes.md` (Phase 2, item 5)
+- **Assumed:** `runner.py`'s `ctx.get("runtime_url") or ctx.get("runtime_address") or
+  "localhost:50051"` default was an accident of `or`-chaining, not a documented or
+  intentional contract — no doc claims a bootstrap without either key should connect to
+  localhost, and it reads as convenience left over from early development rather than a
+  deliberate default worth preserving.
+- **Chose:** Raise `ValueError` naming both accepted flat keys when neither is present,
+  matching the exception type `from_bootstrap` already raises for a missing bootstrap
+  *path* (`"No bootstrap path provided..."`), for consistency within the same function.
+  Updated all 8 existing tests in `tests/unit/test_agent_participant.py` that omitted
+  both keys and relied on the implicit default to pass an explicit `runtime_url`.
+- **Alternatives:** Keep the default (rejected — masks a typo'd key name behind a
+  confusing connection-refused error, in production as readily as dev); raise
+  `MacpSessionError` instead of `ValueError` (rejected only for consistency with the
+  sibling raise in the same function, not because it would be wrong).
+- **Blast radius if wrong:** A caller relying on the implicit localhost default (never
+  documented as intentional) now gets a clear `ValueError` instead of a silent connection
+  to `localhost:50051` — reversible in a commit by restoring the `or "localhost:50051"`
+  fallback if a real caller is found depending on it.
+- **Status:** UNCONFIRMED

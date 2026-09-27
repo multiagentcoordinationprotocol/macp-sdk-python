@@ -147,6 +147,31 @@ class TestSendProgress:
         assert payload.target_message_id == "msg-xyz"
 
 
+class TestSendSignalValidatesSignalType:
+    """Phase 3 item 6: send_signal must validate signal_type itself
+    (validate_signal_type already exists and is enforced by the lower-level
+    build_signal_payload, but send_signal skipped calling it directly)."""
+
+    @staticmethod
+    def _client() -> MacpClient:
+        auth = AuthConfig.for_bearer("tok")
+        client = MacpClient(target="localhost:0", allow_insecure=True, auth=auth)
+        client.stub = MagicMock()
+        return client
+
+    def test_empty_signal_type_with_data_raises_before_rpc(self):
+        client = self._client()
+        with pytest.raises(MacpSessionError, match="signal_type"):
+            client.send_signal(signal_type="", data=b"x")
+        client.stub.Send.assert_not_called()
+
+    def test_empty_signal_type_without_data_is_allowed(self):
+        client = self._client()
+        client.send = MagicMock()  # type: ignore[method-assign]
+        client.send_signal(signal_type="")
+        client.send.assert_called_once()
+
+
 class TestSendProgressScopePairing:
     """RFC-MACP-0001 §6 makes ``Progress`` tri-state: ambient (``session_id``
     and ``mode`` both empty) or session-scoped (both non-empty), never mixed.

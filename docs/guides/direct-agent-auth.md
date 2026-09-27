@@ -26,6 +26,15 @@ a bootstrap document that includes:
 The `session_id` must satisfy the runtime validator (UUID v4/v7 or
 base64url ≥22 chars). Use `macp_sdk.new_session_id()` to generate one.
 
+> This guide's code samples build a session by hand from your own
+> orchestrator's bootstrap document — its key layout (`runtime.address`,
+> `runtime.bearerToken`, ...) is illustrative, not a fixed schema. If you
+> want the SDK to parse a bootstrap file and construct the
+> client/session/participant for you, use
+> [`from_bootstrap()`](agent-framework.md) instead, which reads a
+> different, flat key layout (`runtime_url` or `runtime_address`,
+> `participant_id`, `session_id`, ...).
+
 ## Initiator agent
 
 The initiator owns `SessionStart`. It is the agent whose identity the

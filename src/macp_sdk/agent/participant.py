@@ -14,7 +14,8 @@ from ..constants import (
     MODE_QUORUM,
     MODE_TASK,
 )
-from ..envelope import build_commitment_payload, build_envelope, serialize_message
+from ..envelope import build_commitment_payload, build_envelope, build_root, serialize_message
+from ..errors import MacpSessionError
 from ..handoff import HandoffProjection
 from ..projections import DecisionProjection
 from ..proposal import ProposalProjection
@@ -117,11 +118,13 @@ class ParticipantActions:
         configuration_version: str | None = None,
         policy_version: str | None = None,
         max_suspend_ms: int = 0,
+        roots: list[dict[str, str]] | None = None,
     ) -> Any:
         """Send a SessionStart envelope to open the session.
 
         ``max_suspend_ms`` (runtime v0.5.0) binds a per-session maximum
-        suspension cap; ``0`` selects the runtime default.
+        suspension cap; ``0`` selects the runtime default. ``roots`` is a
+        list of ``{"uri": ..., "name": ...}`` dicts (``name`` optional).
         """
         from ..constants import (
             DEFAULT_CONFIGURATION_VERSION,
@@ -144,6 +147,11 @@ class ParticipantActions:
             configuration_version=configuration_version or DEFAULT_CONFIGURATION_VERSION,
             policy_version=policy_version or DEFAULT_POLICY_VERSION,
             max_suspend_ms=max_suspend_ms,
+            roots=(
+                [build_root(uri=r.get("uri", ""), name=r.get("name", "")) for r in roots]
+                if roots
+                else None
+            ),
         )
         envelope = build_envelope(
             mode=self._mode,
@@ -163,6 +171,11 @@ class ParticipantActions:
         reason: str = "",
     ) -> Any:
         """Send an Evaluation envelope for a decision-mode session."""
+        if self._mode != MODE_DECISION:
+            raise MacpSessionError(
+                f"evaluate() has no equivalent action in mode {self._mode!r}; "
+                "only decision mode supports it"
+            )
         from macp.modes.decision.v1 import decision_pb2
 
         payload = decision_pb2.EvaluationPayload(
@@ -188,6 +201,11 @@ class ParticipantActions:
         reason: str = "",
     ) -> Any:
         """Send a Vote envelope for a decision-mode session."""
+        if self._mode != MODE_DECISION:
+            raise MacpSessionError(
+                f"vote() has no equivalent action in mode {self._mode!r}; "
+                "only decision mode supports it"
+            )
         from macp.modes.decision.v1 import decision_pb2
 
         payload = decision_pb2.VotePayload(
@@ -212,6 +230,11 @@ class ParticipantActions:
         severity: str = "medium",
     ) -> Any:
         """Send an Objection envelope for a decision-mode session."""
+        if self._mode != MODE_DECISION:
+            raise MacpSessionError(
+                f"raise_objection() has no equivalent action in mode {self._mode!r}; "
+                "only decision mode supports it"
+            )
         from macp.modes.decision.v1 import decision_pb2
 
         payload = decision_pb2.ObjectionPayload(
@@ -231,20 +254,47 @@ class ParticipantActions:
     def propose(
         self,
         proposal_id: str,
-        option: str,
+        option_or_title: str,
         *,
         rationale: str = "",
         supporting_data: bytes = b"",
+        summary: str = "",
+        details: bytes = b"",
+        tags: list[str] | None = None,
     ) -> Any:
-        """Send a Proposal envelope for a decision-mode session."""
-        from macp.modes.decision.v1 import decision_pb2
+        """Send a Proposal envelope, shaped for the participant's actual mode.
 
-        payload = decision_pb2.ProposalPayload(
-            proposal_id=proposal_id,
-            option=option,
-            rationale=rationale,
-            supporting_data=supporting_data,
-        )
+        Decision mode uses ``option_or_title`` as ``option`` plus
+        ``rationale``/``supporting_data`` (``decision_pb2.ProposalPayload``).
+        Proposal mode uses it as ``title`` plus ``summary``/``details``/
+        ``tags`` (``proposal_pb2.ProposalPayload`` -- a different shape).
+        Any other mode has no "propose" analog and raises
+        :class:`MacpSessionError`.
+        """
+        if self._mode == MODE_DECISION:
+            from macp.modes.decision.v1 import decision_pb2
+
+            payload: Any = decision_pb2.ProposalPayload(
+                proposal_id=proposal_id,
+                option=option_or_title,
+                rationale=rationale,
+                supporting_data=supporting_data,
+            )
+        elif self._mode == MODE_PROPOSAL:
+            from macp.modes.proposal.v1 import proposal_pb2
+
+            payload = proposal_pb2.ProposalPayload(
+                proposal_id=proposal_id,
+                title=option_or_title,
+                summary=summary,
+                details=details,
+                tags=tags or [],
+            )
+        else:
+            raise MacpSessionError(
+                f"propose() has no equivalent action in mode {self._mode!r}; "
+                "only decision and proposal modes support it"
+            )
         envelope = build_envelope(
             mode=self._mode,
             message_type="Proposal",
@@ -497,6 +547,9 @@ class Participant:
             self._initiator_config is not None,
         )
 
+        if self._stopped:
+            return
+
         if self._initiator_config is not None:
             self._emit_initiator_envelopes()
 
@@ -505,6 +558,11 @@ class Participant:
             self._session_id,
             auth=self._auth,
         )
+        # Assign back onto self._transport (not just the local variable)
+        # so stop() -- callable from another thread while this loop is
+        # blocked inside transport.start() -- always has a live reference
+        # to cancel, even when no transport was injected at construction.
+        self._transport = transport
         try:
             for message in transport.start():
                 if self._stopped:
@@ -532,19 +590,39 @@ class Participant:
             configuration_version=cfg.configuration_version,
             policy_version=cfg.policy_version,
             max_suspend_ms=cfg.max_suspend_ms,
+            roots=cfg.roots,
         )
         logger.info("SessionStart emitted (session=%s)", self._session_id)
 
         if cfg.kickoff_message_type == "Proposal":
+            # "Proposal" here means the message type name, which exists
+            # (with different field names) in both decision and proposal
+            # mode -- propose() now branches on self._mode, so this kickoff
+            # must build the matching kwargs for whichever mode this
+            # participant actually runs, not always the decision shape.
             payload = cfg.kickoff_payload or {}
             proposal_id = str(
                 payload.get("proposalId")
                 or payload.get("proposal_id")
                 or f"{self._session_id}-kickoff"
             )
-            option = str(payload.get("option", "decide"))
-            rationale = str(payload.get("rationale", ""))
-            self._actions.propose(proposal_id, option, rationale=rationale)
+            if self._mode == MODE_PROPOSAL:
+                title = str(payload.get("title") or payload.get("option") or "decide")
+                tags_raw = payload.get("tags")
+                self._actions.propose(
+                    proposal_id,
+                    title,
+                    summary=str(payload.get("summary", "")),
+                    details=str(payload.get("details", "")).encode("utf-8"),
+                    tags=[str(t) for t in tags_raw] if isinstance(tags_raw, list) else None,
+                )
+            else:
+                option = str(payload.get("option") or payload.get("title") or "decide")
+                self._actions.propose(
+                    proposal_id,
+                    option,
+                    rationale=str(payload.get("rationale", "")),
+                )
             logger.info("Kickoff proposal emitted (proposalId=%s)", proposal_id)
 
     def process_event(self, envelope: Any) -> None:
@@ -554,10 +632,25 @@ class Participant:
     def stop(self) -> None:
         """Signal the event loop to stop.
 
+        If a transport is attached (whether injected or auto-constructed
+        by :meth:`run`) and supports immediate cancellation, calls it so a
+        ``run()`` loop blocked inside a stream read with no message
+        pending can be woken from another thread, instead of waiting
+        indefinitely for the next message or a server-side stream end.
+        Feature-detected via ``getattr`` so a custom
+        :class:`~.transports.TransportAdapter` without cancellation
+        support just falls back to today's cooperative-flag behavior
+        (checked between yielded messages).
+
         Also shuts down a bound cancel-callback HTTP server (if one was
         started by :func:`from_bootstrap` for this participant).
         """
         self._stopped = True
+        transport = self._transport
+        if transport is not None:
+            cancel = getattr(transport, "cancel", None)
+            if callable(cancel):
+                cancel()
         server = self._cancel_callback_server
         if server is not None:
             self._cancel_callback_server = None

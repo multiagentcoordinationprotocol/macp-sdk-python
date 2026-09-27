@@ -39,9 +39,10 @@ This sends the `Authorization: Bearer tok-abc123` header. The runtime validates 
 
 `expected_sender` is the identity the runtime will bind this token to. When
 set, the SDK raises `MacpIdentityMismatchError` **before** the envelope
-reaches the wire if a call passes an explicit `sender=` that does not match.
-This surfaces identity mistakes as a clear Python exception instead of
-an opaque `UNAUTHENTICATED` from the runtime.
+reaches the wire if the *resolved* sender — whether an explicit `sender=`
+passed to a call, or the fallback to `sender_hint` when no explicit `sender=`
+is given — does not match. This surfaces identity mistakes as a clear Python
+exception instead of an opaque `UNAUTHENTICATED` from the runtime.
 
 ```python
 from macp_sdk import AuthConfig, MacpIdentityMismatchError
@@ -119,19 +120,25 @@ end-to-end pattern.
 ### Advanced: `sender_hint`
 
 `sender_hint` is the low-level field the SDK reads when no explicit `sender=`
-is passed to a method. In almost every case you should not set it directly —
-pass `expected_sender` instead and let the SDK derive `sender_hint` for you.
+is passed to a method. `AuthConfig.for_bearer` already derives it from
+`expected_sender` for you (`sender_hint or expected_sender`), so **in
+practice you should never set `sender_hint` directly** — pass
+`expected_sender` alone.
 
-Supply `sender_hint` only when the envelope `sender` you want on the wire
-differs from the identity the runtime binds to your token — a rare deployment
-where one operator credential fronts for many logical senders. In that case,
-keep `expected_sender` matching the token identity and override `sender_hint`
-explicitly:
+`sender_hint` and `expected_sender` must always resolve to the same
+identity. The SDK enforces this — raising `MacpIdentityMismatchError` — on
+*both* the explicit-`sender=` path and the fallback path (no explicit
+`sender=`, so the SDK falls back to `sender_hint`). A `sender_hint` that
+disagreed with `expected_sender` would always be rejected by the runtime
+anyway (RFC-MACP-0004 §4: the runtime binds a single identity to your
+credential and rejects any envelope whose self-declared `sender` disagrees),
+so there is no deployment where setting them to different values works —
+this field exists for completeness, not as an escape hatch:
 
 ```python
 auth = AuthConfig.for_bearer(
     "tok-fleet",
-    sender_hint="fleet-agent-17",   # envelope .sender
+    sender_hint="fleet-agent-17",   # envelope .sender — same identity as below
     expected_sender="fleet-agent-17",
 )
 ```
