@@ -160,7 +160,7 @@ proj.task.requested_assignee # "analyst-agent"
 
 # Assignment
 proj.active_assignee         # "analyst-agent" or None
-proj.is_accepted(task_id)    # True after TaskAccept
+proj.is_accepted(task_id)    # True after a TaskAccept claims the session's one assignee slot
 
 # Progress
 proj.updates                 # list[TaskUpdateRecord]
