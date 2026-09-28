@@ -6,10 +6,10 @@
 # Note: callers of a reusable workflow cannot set timeout-minutes, so the
 # timeouts live on the jobs here.
 #
-# The lint/typecheck/test/conformance steps below are mirrored by the
-# `lint`/`typecheck`/`test`/`test-conformance` Makefile targets — if you add,
-# remove, or change a step here, update the matching Makefile target too, or
-# `make test-all` silently stops reproducing CI (see issue #39).
+# The lint/typecheck/test/conformance/parity steps below are mirrored by the
+# `lint`/`typecheck`/`test`/`test-conformance`/`test-parity` Makefile targets
+# — if you add, remove, or change a step here, update the matching Makefile
+# target too, or `make test-all` silently stops reproducing CI (see issue #39).
 name: Checks
 
 on:
@@ -70,3 +70,18 @@ jobs:
       # runtime needed. Fixture *drift* vs the spec repo is gated separately
       # by conformance-fixtures.yml.
       - run: pytest tests/conformance/ -v -m conformance
+
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # Asserts this SDK's runtime values against the vendored parity
+      # contract — no spec-repo checkout needed. Contract *drift* vs the spec
+      # repo is gated separately by conformance-fixtures.yml.
+      - run: pytest tests/parity/ -v

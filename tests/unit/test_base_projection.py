@@ -8,7 +8,9 @@ from macp.v1 import core_pb2
 
 from macp_sdk.base_projection import (
     ANOMALY_DUPLICATE_BALLOT,
+    ANOMALY_DUPLICATE_TASK_ACCEPT,
     ANOMALY_DUPLICATE_VOTE,
+    ANOMALY_SETTLED_HANDOFF,
     BaseProjection,
     ProjectionAnomaly,
 )
@@ -412,6 +414,11 @@ class TestProjectionAnomaly:
         # a typo in the constant's value would pass an `assert X == X` check.
         assert ANOMALY_DUPLICATE_VOTE == "duplicate_vote"
         assert ANOMALY_DUPLICATE_BALLOT == "duplicate_ballot"
+        # Issue #94 (spec #148): this SDK's side of the decision, pending
+        # macp-sdk-typescript landing a matching kind -- NOT yet in the
+        # parity manifest's kinds list (see base_projection.py's comment).
+        assert ANOMALY_DUPLICATE_TASK_ACCEPT == "duplicate_task_accept"
+        assert ANOMALY_SETTLED_HANDOFF == "settled_handoff"
 
     def test_frozen_and_slots(self):
         assert ProjectionAnomaly.__dataclass_params__.frozen is True
@@ -487,3 +494,40 @@ class TestProjectionAnomaly:
         )
         assert proj.anomalies[0].mode == TEST_MODE
         assert proj.anomalies[0].mode == proj.MODE
+
+
+class TestSetPhaseTerminalityGuard:
+    """Issue #93 item 5: ``_set_phase`` must not let ``phase`` regress out
+    of the terminal ``"Committed"`` state once a ``Commitment`` envelope has
+    been applied.
+    """
+
+    def test_set_phase_updates_normally_before_commitment(self):
+        proj = _Projection()
+        proj._set_phase("Voting")
+        assert proj.phase == "Voting"
+
+    def test_set_phase_is_a_noop_once_committed(self):
+        proj = _Projection()
+        proj.phase = "Committed"
+        proj._set_phase("Voting")
+        assert proj.phase == "Committed"
+
+    def test_commitment_then_set_phase_call_stays_committed(self):
+        """End-to-end through apply_envelope: a real Commitment envelope,
+        then a direct _set_phase call standing in for whatever a subclass's
+        _apply_mode_message would do for a late mode message.
+        """
+        proj = _Projection()
+        proj.apply_envelope(
+            make_envelope(
+                TEST_MODE,
+                "Commitment",
+                core_pb2.CommitmentPayload(
+                    commitment_id="c1", action="deploy", authority_scope="release"
+                ),
+            )
+        )
+        assert proj.phase == "Committed"
+        proj._set_phase("Voting")
+        assert proj.phase == "Committed"

@@ -18,8 +18,20 @@ def _decode_extensions(raw: Any) -> dict[str, bytes]:
     """Coerce a bootstrap ``session_start.extensions`` map into ``dict[str, bytes]``.
 
     The protobuf ``map<string, bytes>`` is JSON-encoded as base64 strings
-    (proto-JSON canonical), so try base64 first and fall back to raw
-    UTF-8 bytes for hand-authored bootstraps.
+    (proto-JSON canonical: ``schemas/json/macp-agent-bootstrap.schema.json``
+    declares ``extensions`` values as ``{"type": "string", "contentEncoding":
+    "base64"}``, mirroring ``macp-envelope.schema.json``'s ``$defs/Base64Bytes``
+    and RFC-MACP-0001 §10.3), so base64 is tried first.
+
+    The UTF-8 fallback below is deliberately laxer than that canonical schema
+    -- ``contentEncoding`` is a draft-2020-12 *annotation*, not an assertion,
+    so nothing in the schema itself rejects a non-base64 string; this SDK
+    chooses to accept one anyway, decoded as raw UTF-8 bytes, so a
+    hand-authored bootstrap that skipped base64-encoding its extension values
+    still loads. A value that is neither ``str`` nor ``bytes`` has no
+    reasonable interpretation under either path and is not silently
+    dropped -- it raises, since the schema now says every value MUST be a
+    string (issue #93 item 2).
     """
     if not isinstance(raw, dict):
         return {}
@@ -32,6 +44,11 @@ def _decode_extensions(raw: Any) -> dict[str, bytes]:
                 decoded[str(key)] = base64.b64decode(value, validate=True)
             except (binascii.Error, ValueError):
                 decoded[str(key)] = value.encode("utf-8")
+        else:
+            raise ValueError(
+                f"bootstrap extensions[{key!r}] must be a base64-encoded string "
+                f"(or bytes), got {type(value).__name__}"
+            )
     return decoded
 
 

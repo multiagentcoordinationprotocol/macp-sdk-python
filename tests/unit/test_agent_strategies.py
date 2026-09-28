@@ -306,20 +306,39 @@ class TestStrategyComposition:
 
 
 class TestMajorityVoter:
-    def _mock_projection(self, totals: dict[str, int], winner: str | None = None):
+    def _mock_projection(
+        self,
+        totals: dict[str, int],
+        winner: str | None = None,
+        evaluations: list[Any] | None = None,
+    ):
         proj = MagicMock()
         proj.vote_totals.return_value = totals
         proj.majority_winner.return_value = winner
+        # Explicit, not a bare MagicMock() attribute: an un-configured
+        # MagicMock attribute auto-vivifies as a (truthy) MagicMock, which
+        # would make should_vote's `bool(projection.evaluations)` check
+        # meaningless in these tests.
+        proj.evaluations = evaluations if evaluations is not None else []
         return proj
 
-    def test_should_vote_with_votes(self):
+    def test_should_vote_true_once_an_evaluation_exists(self):
+        """Issue #93 item 4: should_vote gates on Evaluations, not on votes
+        already cast -- even with zero votes so far."""
         strategy = majority_voter()
-        proj = self._mock_projection({"approve": 3, "reject": 1}, "approve")
+        proj = self._mock_projection({}, evaluations=[MagicMock()])
         assert strategy.should_vote(proj) is True
 
-    def test_should_vote_no_votes(self):
+    def test_should_vote_false_with_no_evaluations(self):
         strategy = majority_voter()
         proj = self._mock_projection({})
+        assert strategy.should_vote(proj) is False
+
+    def test_should_vote_ignores_existing_vote_totals(self):
+        """Votes alone (no Evaluation recorded) must not trigger should_vote
+        -- the old vote_totals()-based gate is gone entirely."""
+        strategy = majority_voter()
+        proj = self._mock_projection({"approve": 3, "reject": 1}, "approve")
         assert strategy.should_vote(proj) is False
 
     def test_should_vote_none_projection(self):
@@ -339,15 +358,39 @@ class TestMajorityVoter:
         decision = strategy.decide_vote(proj)
         assert decision.vote == "ABSTAIN"
 
-    def test_custom_threshold(self):
-        strategy = majority_voter(positive_threshold=0.9)
-        proj = self._mock_projection({"approve": 6, "reject": 4})
-        # 6/10 = 0.6, below 0.9 threshold
-        assert strategy.should_vote(proj) is False
+    def test_all_majority_voter_session_reaches_a_first_vote(self):
+        """Regression for issue #93 item 4: a Decision session in which
+        every participant runs majority_voter must be able to cast a first
+        vote at all -- before this fix, vote_totals() started empty, so
+        should_vote() was false for everyone, forever (a deadlock).
 
-        proj2 = self._mock_projection({"approve": 10, "reject": 1})
-        # 10/11 = 0.91, above 0.9 threshold
-        assert strategy.should_vote(proj2) is True
+        Exercises a real DecisionProjection (not a MagicMock), driven the
+        way voting_handler actually drives it: should_vote() is checked
+        right after an Evaluation lands, with zero votes cast yet.
+        """
+        p = DecisionProjection()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="deploy"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Evaluation",
+                decision_pb2.EvaluationPayload(
+                    proposal_id="p1", recommendation="APPROVE", confidence=0.9, reason="ok"
+                ),
+                sender="alice",
+            )
+        )
+        assert p.vote_totals() == {}  # no vote cast yet -- the old gate's deadlock condition
+
+        strategy = majority_voter()
+        assert strategy.should_vote(p) is True
 
 
 class TestMajorityCommitter:

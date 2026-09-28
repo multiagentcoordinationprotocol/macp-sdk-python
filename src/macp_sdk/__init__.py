@@ -4,12 +4,14 @@ from ._logging import configure_logging
 from .auth import AuthConfig
 from .base_projection import (
     ANOMALY_DUPLICATE_BALLOT,
+    ANOMALY_DUPLICATE_TASK_ACCEPT,
     ANOMALY_DUPLICATE_VOTE,
+    ANOMALY_SETTLED_HANDOFF,
     BaseProjection,
     ProjectionAnomaly,
 )
 from .base_session import BaseSession
-from .client import InlineErrorCallback, MacpClient, MacpStream
+from .client import UNBOUNDED, InlineErrorCallback, MacpClient, MacpStream
 from .commitment_hash import commitment_hash, is_canonical_commitment_hash
 from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
@@ -142,7 +144,9 @@ __version__ = _version("macp-sdk-python")
 
 __all__ = [
     "ANOMALY_DUPLICATE_BALLOT",
+    "ANOMALY_DUPLICATE_TASK_ACCEPT",
     "ANOMALY_DUPLICATE_VOTE",
+    "ANOMALY_SETTLED_HANDOFF",
     "DEFAULT_CONFIGURATION_VERSION",
     "DEFAULT_MODE_VERSION",
     "DEFAULT_POLICY_VERSION",
@@ -168,6 +172,7 @@ __all__ = [
     "SESSION_NOT_OPEN",
     "STANDARD_MODES",
     "UNAUTHENTICATED",
+    "UNBOUNDED",
     "UNKNOWN_POLICY_VERSION",
     "UNSUPPORTED_PROTOCOL_VERSION",
     "AbstentionRules",

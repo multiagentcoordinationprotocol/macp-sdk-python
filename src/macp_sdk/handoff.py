@@ -6,7 +6,7 @@ from macp.modes.handoff.v1 import handoff_pb2
 from macp.v1 import envelope_pb2
 
 from .auth import AuthConfig
-from .base_projection import BaseProjection
+from .base_projection import ANOMALY_SETTLED_HANDOFF, BaseProjection
 from .base_session import BaseSession
 from .constants import MODE_HANDOFF
 from .envelope import build_envelope, serialize_message
@@ -69,7 +69,7 @@ class HandoffProjection(BaseProjection):
                 accepted_by=None,
                 declined_by=None,
             )
-            self.phase = "OfferPending"
+            self._set_phase("OfferPending")
             return
 
         if mt == "HandoffContext":
@@ -81,19 +81,26 @@ class HandoffProjection(BaseProjection):
                     handoff.status = "context_sent"
                 handoff.context_content_type = p.content_type
             if self.phase == "OfferPending":
-                self.phase = "ContextSharing"
+                self._set_phase("ContextSharing")
             return
 
         if mt == "HandoffAccept":
             p = handoff_pb2.HandoffAcceptPayload()
             p.ParseFromString(envelope.payload)
             handoff = self.handoffs.get(p.handoff_id)
-            # RFC-MACP-0010 §5 rule 2 (must reference an existing handoff_id)
-            # and §5.1(4) (settle once, only from offered/context_sent): an
-            # unknown handoff_id, or one already settled, is a silent no-op —
-            # it must not move ``self.phase`` either. Matches
-            # typescript-sdk's handoff.ts, which bails the same way.
-            if handoff is not None and handoff.status in ("offered", "context_sent"):
+            # RFC-MACP-0010 §5 rule 2: an accept for an unknown handoff_id is
+            # a silent no-op -- it must not move ``self.phase`` either, and
+            # (issue #94) it is NOT caller misuse: a projection that joined
+            # mid-session may legitimately never have seen the offer, so no
+            # anomaly is recorded for this case. Matches typescript-sdk's
+            # handoff.ts, which bails the same way.
+            if handoff is None:
+                return
+            # §5.1(4) (settle once, only from offered/context_sent): a
+            # competing accept after the handoff already settled IS caller
+            # misuse (issue #94) -- the sender submitted a valid accept for a
+            # handoff RFC-MACP-0010 §5 rule 4 already closed.
+            if handoff.status in ("offered", "context_sent"):
                 handoff.status = "accepted"
                 handoff.accepted_by = p.accepted_by
                 # macp-proto >= 0.1.6: capture whether this was a runtime
@@ -101,18 +108,46 @@ class HandoffProjection(BaseProjection):
                 # ``implicit-accept:<handoff_id>``). Absent field decodes to
                 # False.
                 handoff.implicit = getattr(p, "implicit", False)
-                self.phase = "Accepted"
+                self._set_phase("Accepted")
+            else:
+                self._record_anomaly(
+                    kind=ANOMALY_SETTLED_HANDOFF,
+                    message_type=envelope.message_type,
+                    message_id=envelope.message_id,
+                    sender=envelope.sender,
+                    subject_id=p.handoff_id,
+                    detail=(
+                        f"handoff {p.handoff_id!r} already settled as {handoff.status!r}; "
+                        f"discarded competing HandoffAccept from {envelope.sender!r}"
+                    ),
+                )
             return
 
         if mt == "HandoffDecline":
             p = handoff_pb2.HandoffDeclinePayload()
             p.ParseFromString(envelope.payload)
             handoff = self.handoffs.get(p.handoff_id)
-            # Same settle-once guard as HandoffAccept above.
-            if handoff is not None and handoff.status in ("offered", "context_sent"):
+            # Same unknown-id no-op (no anomaly) as HandoffAccept above.
+            if handoff is None:
+                return
+            # Same settle-once guard as HandoffAccept above -- a competing
+            # decline after the handoff already settled IS caller misuse.
+            if handoff.status in ("offered", "context_sent"):
                 handoff.status = "declined"
                 handoff.declined_by = p.declined_by
-                self.phase = "Declined"
+                self._set_phase("Declined")
+            else:
+                self._record_anomaly(
+                    kind=ANOMALY_SETTLED_HANDOFF,
+                    message_type=envelope.message_type,
+                    message_id=envelope.message_id,
+                    sender=envelope.sender,
+                    subject_id=p.handoff_id,
+                    detail=(
+                        f"handoff {p.handoff_id!r} already settled as {handoff.status!r}; "
+                        f"discarded competing HandoffDecline from {envelope.sender!r}"
+                    ),
+                )
 
     # -- State query helpers --
 

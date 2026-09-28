@@ -70,7 +70,7 @@ class QuorumProjection(BaseProjection):
                 required_approvals=p.required_approvals,
                 requester=envelope.sender,
             )
-            self.phase = "Voting"
+            self._set_phase("Voting")
             return
 
         if mt == "Approve":

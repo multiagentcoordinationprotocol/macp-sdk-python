@@ -96,6 +96,39 @@ class TestDecisionProjection:
         assert p.vote_totals() == {"p1": 2}
         assert p.majority_winner() == "p1"
 
+    def test_late_vote_after_commitment_does_not_regress_phase(self):
+        """Issue #93 item 5: a Vote arriving after Commitment must not move
+        ``phase`` back to "Voting" -- mirrors typescript-sdk's
+        decision.ts:104 guard. The vote's own effect is NOT suppressed
+        (`self.votes` still gets it, matching typescript-sdk, which sets
+        `bySender.set(...)` before the phase check) -- only the derived
+        `phase` field is protected. Per apply_envelope's own contract this
+        scenario cannot arise from a conforming runtime's accepted history
+        (RFC-MACP-0001 §7.2/§7.3); it defends the accepted-only precondition
+        being violated by an unfiltered feed.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Commitment",
+                core_pb2.CommitmentPayload(
+                    commitment_id="c1", action="deploy", authority_scope="release"
+                ),
+            )
+        )
+        assert p.phase == "Committed"
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve", reason=""),
+                sender="late-voter",
+            )
+        )
+        assert p.phase == "Committed"
+        assert p.vote_totals() == {"p1": 1}
+
     def test_commitment(self):
         p = self._proj()
         env = make_envelope(

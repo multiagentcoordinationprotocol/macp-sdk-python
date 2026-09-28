@@ -1,6 +1,7 @@
-.PHONY: help setup lint fmt typecheck test test-integration test-conformance test-all coverage build sync-fixtures verify-fixtures lint-fixtures dev-link-protos
+.PHONY: help setup lint fmt typecheck test test-integration test-conformance test-parity test-all coverage build sync-fixtures verify-fixtures sync-parity verify-parity lint-fixtures dev-link-protos
 
 SPEC_CONFORMANCE_DIR := ../multiagentcoordinationprotocol/schemas/conformance
+SPEC_PARITY_DIR := ../multiagentcoordinationprotocol/schemas/parity
 
 # <canonical-subpath>:<local-dir> pairs checked by sync-fixtures/verify-fixtures.
 # "." = the flat top level of SPEC_CONFORMANCE_DIR.
@@ -31,7 +32,10 @@ test-integration:  ## Run integration tests (requires a running MACP runtime).
 test-conformance:  ## Replay the canonical conformance fixtures.
 	pytest tests/conformance/ -v -m conformance
 
-test-all: lint typecheck test test-integration test-conformance lint-fixtures  ## Run the full green-bar matrix.
+test-parity:  ## Run the cross-SDK parity contract test (tests/parity/).
+	pytest tests/parity/ -v
+
+test-all: lint typecheck test test-integration test-conformance test-parity lint-fixtures  ## Run the full green-bar matrix.
 
 coverage:  ## Unit tests with HTML + terminal coverage report.
 	pytest tests/unit/ --cov --cov-report=html --cov-report=term
@@ -126,6 +130,35 @@ verify-fixtures:  ## Fail if local fixtures drifted from canonical (CI drift gat
 		exit 1; \
 	fi; \
 	echo "All conformance fixtures match the canonical source."
+
+## Sync the vendored parity contract from canonical source
+sync-parity:  ## Copy contract.json from the spec repo into tests/parity/.
+	@if [ ! -f "$(SPEC_PARITY_DIR)/contract.json" ]; then \
+		echo ""; \
+		echo "  sync-parity: canonical contract.json not found at $(SPEC_PARITY_DIR)/contract.json"; \
+		echo ""; \
+		echo "  Clone the spec repo alongside this repo:"; \
+		echo "    git clone https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol $(dir $(abspath $(lastword $(MAKEFILE_LIST))))../multiagentcoordinationprotocol"; \
+		echo ""; \
+		echo "  or override SPEC_PARITY_DIR=/path/to/schemas/parity"; \
+		echo ""; \
+		exit 1; \
+	fi
+	cp "$(SPEC_PARITY_DIR)/contract.json" tests/parity/contract.json
+	@echo "Copied tests/parity/contract.json. Run 'git diff tests/parity/contract.json' to review changes."
+
+verify-parity:  ## Fail if the vendored parity contract drifted from canonical (CI drift gate).
+	@if [ ! -f "$(SPEC_PARITY_DIR)/contract.json" ]; then \
+		echo "  verify-parity: canonical contract.json not found at $(SPEC_PARITY_DIR)/contract.json"; \
+		exit 1; \
+	fi
+	@if diff -q "$(SPEC_PARITY_DIR)/contract.json" tests/parity/contract.json >/dev/null 2>&1; then \
+		echo "  OK: tests/parity/contract.json matches $(SPEC_PARITY_DIR)/contract.json"; \
+	else \
+		echo "  DRIFT: tests/parity/contract.json differs from (or is missing vs) canonical"; \
+		echo "Vendored parity contract drifted from canonical. Run 'make sync-parity' and commit."; \
+		exit 1; \
+	fi
 
 lint-fixtures:  ## Lint canonical conformance fixtures for internal consistency (spec repo's lint_fixtures.py; mirrors conformance-fixtures.yml).
 	@if [ ! -d "$(SPEC_CONFORMANCE_DIR)" ]; then \

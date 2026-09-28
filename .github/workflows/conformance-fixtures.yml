@@ -6,6 +6,9 @@ name: Conformance fixtures
 # tests/conformance/ and tests/vectors/cmt-hash/, and
 # `make sync-fixtures` / `make verify-fixtures`.
 #
+# Also enforces zero drift for the vendored parity contract (tests/parity/,
+# `make sync-parity` / `make verify-parity`), reusing the same _spec checkout.
+#
 # If the spec repo is private, configure a read-scoped PAT as the
 # CONFORMANCE_SPEC_TOKEN secret; otherwise the default GITHUB_TOKEN is used.
 
@@ -38,3 +41,6 @@ jobs:
 
       - name: Lint canonical fixtures for internal consistency
         run: python3 "$GITHUB_WORKSPACE/_spec/schemas/conformance/lint_fixtures.py"
+
+      - name: Verify parity contract matches canonical (no drift)
+        run: make verify-parity SPEC_PARITY_DIR="$GITHUB_WORKSPACE/_spec/schemas/parity"

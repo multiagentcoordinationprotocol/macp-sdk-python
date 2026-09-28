@@ -126,7 +126,7 @@ class ProposalProjection(BaseProjection):
                 rec = self.proposals.get(p.proposal_id)
                 if rec is not None:
                     rec.status = "rejected"
-                self.phase = "TerminalRejected"
+                self._set_phase("TerminalRejected")
             return
 
         if mt == "Withdraw":

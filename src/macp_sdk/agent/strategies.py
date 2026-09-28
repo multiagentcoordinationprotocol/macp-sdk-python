@@ -267,11 +267,19 @@ def majority_voter(
         def should_vote(self, projection: Any) -> bool:
             if projection is None:
                 return False
-            totals = projection.vote_totals()
-            total_votes = sum(totals.values())
-            return total_votes > 0 and any(
-                count / total_votes >= self._threshold for count in totals.values()
-            )
+            # Gate on Evaluations, not on votes already cast (issue #93 item
+            # 4): the old `vote_totals()`-based gate meant a session where
+            # every participant runs majority_voter could never cast a first
+            # vote -- vote_totals() starts empty, so total_votes > 0 was
+            # false for everyone, forever. voting_handler already only calls
+            # should_vote() on an incoming Evaluation message, so this
+            # mirrors typescript-sdk's majorityVoter.shouldVote
+            # (strategies.ts:88: `projection.evaluations.length > 0`).
+            # _threshold is unused here (it was only ever consulted by the
+            # now-removed vote-ratio gate, not by decide_vote below); kept as
+            # a constructor parameter for signature compatibility.
+            evaluations = getattr(projection, "evaluations", None)
+            return bool(evaluations)
 
         def decide_vote(self, projection: Any) -> VoteDecision:
             winner = projection.majority_winner()

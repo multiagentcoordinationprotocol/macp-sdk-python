@@ -114,6 +114,26 @@ def _default_capabilities() -> core_pb2.Capabilities:
     )
 
 
+class _UnboundedTimeout:
+    """Sentinel type for :data:`UNBOUNDED`. Not constructed by callers."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNBOUNDED"
+
+
+UNBOUNDED = _UnboundedTimeout()
+
+# ``timeout=None`` (the default) means "use ``self.default_timeout``"; both
+# ``None`` and ``0`` are falsy, so once ``default_timeout`` is set to a
+# non-None value, neither could express "no deadline for this one call" (#93
+# item 6). Pass ``UNBOUNDED`` for that. Not a plain ``float | None`` because
+# an ``Any``-typed default would defeat mypy strict's whole point of catching
+# a mistyped timeout argument at every one of this client's ~20 call sites.
+TimeoutValue = float | None | _UnboundedTimeout
+
+
 class MacpStream:
     _END = object()
 
@@ -270,11 +290,26 @@ class MacpStream:
 class MacpClient:
     """gRPC client for the MACP runtime.
 
-    Transport security follows RFC-MACP-0006 §3: TLS 1.2+ is REQUIRED in
-    production, so ``secure`` defaults to ``True``. Plaintext gRPC is only
-    available via the explicit ``allow_insecure=True`` opt-in, which is
-    intended for local development against a runtime started with
-    ``MACP_ALLOW_INSECURE=1``.
+    Transport security follows RFC-MACP-0004 §2 "Transport Security": "All
+    MACP deployments MUST use encrypted transport" and "For gRPC over
+    HTTP/2, TLS 1.2 or higher is REQUIRED", so ``secure`` defaults to
+    ``True``. Plaintext gRPC is only available via the explicit
+    ``allow_insecure=True`` opt-in, which is intended for local development
+    against a runtime started with ``MACP_ALLOW_INSECURE=1``.
+
+    ``secure`` and ``allow_insecure`` are deliberately not fully independent:
+    when ``secure`` is left at its default (``None``), it is derived as
+    ``not allow_insecure`` -- so passing ``allow_insecure=True`` alone is
+    sufficient to select a plaintext channel, without also having to pass
+    ``secure=False``. This is intentional, not a gap (issue #93 item 3): the
+    common local-dev call is ``MacpClient(target=..., allow_insecure=True)``,
+    and requiring a second, redundant flag to actually get the insecure
+    channel that name asks for would be surprising. ``secure`` remains
+    settable independently for the cases that need it explicit -- e.g.
+    ``secure=False`` without ``allow_insecure=True`` still raises below, and
+    ``secure=True`` with ``allow_insecure=True`` still builds a TLS channel
+    (``allow_insecure`` only lifts the *requirement*, it never forces
+    plaintext).
     """
 
     def __init__(
@@ -294,7 +329,8 @@ class MacpClient:
         if not secure and not allow_insecure:
             raise MacpSdkError(
                 "secure=False requires allow_insecure=True; "
-                "TLS is required by RFC-MACP-0006 §3 in production. "
+                "encrypted transport is required by RFC-MACP-0004 §2 "
+                "'Transport Security' in production. "
                 "For local dev only, pass allow_insecure=True."
             )
         self.target = target
@@ -329,6 +365,20 @@ class MacpClient:
         if selected is None:
             raise MacpSdkError("this operation requires auth; pass auth= or configure client.auth")
         return selected
+
+    def _resolve_timeout(self, timeout: TimeoutValue) -> float | None:
+        """Resolve a per-call ``timeout`` against ``self.default_timeout``.
+
+        ``None`` (the default) means "use ``self.default_timeout``".
+        :data:`UNBOUNDED` explicitly requests no deadline for this call,
+        overriding a configured ``default_timeout`` -- see :data:`UNBOUNDED`
+        for why that could not be expressed with a plain ``float | None``.
+        """
+        if isinstance(timeout, _UnboundedTimeout):
+            return None
+        if timeout is None:
+            return self.default_timeout
+        return timeout
 
     @staticmethod
     def _transport_error_from_rpc(rpc_err: grpc.RpcError) -> MacpTransportError:
@@ -403,7 +453,7 @@ class MacpClient:
         )
 
     def initialize(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> core_pb2.InitializeResponse:
         request = core_pb2.InitializeRequest(
             supported_protocol_versions=["1.0"],
@@ -419,7 +469,7 @@ class MacpClient:
         return self.stub.Initialize(
             request,
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def send(
@@ -427,7 +477,7 @@ class MacpClient:
         envelope: envelope_pb2.Envelope,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
         raise_on_nack: bool = True,
     ) -> envelope_pb2.Ack:
         auth_cfg = self._require_auth(auth)
@@ -435,7 +485,7 @@ class MacpClient:
             response = self.stub.Send(
                 core_pb2.SendRequest(envelope=envelope),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             code = rpc_err.code()
@@ -473,13 +523,13 @@ class MacpClient:
         session_id: str,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> core_pb2.GetSessionResponse:
         auth_cfg = self._require_auth(auth)
         return self.stub.GetSession(
             core_pb2.GetSessionRequest(session_id=session_id),
             metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def cancel_session(
@@ -489,7 +539,7 @@ class MacpClient:
         reason: str,
         cancelled_by: str = "",
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
         raise_on_nack: bool = True,
     ) -> envelope_pb2.Ack:
         """Terminate a session.
@@ -515,7 +565,7 @@ class MacpClient:
             response = self.stub.CancelSession(
                 core_pb2.CancelSessionRequest(**request_kwargs),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
@@ -530,7 +580,7 @@ class MacpClient:
         *,
         reason: str = "",
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
         raise_on_nack: bool = True,
     ) -> envelope_pb2.Ack:
         """Suspend an open session (macp-proto 0.1.3 / runtime 0.4.0).
@@ -552,7 +602,7 @@ class MacpClient:
             response = self.stub.SuspendSession(
                 core_pb2.SuspendSessionRequest(session_id=session_id, reason=reason),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
@@ -567,7 +617,7 @@ class MacpClient:
         *,
         reason: str = "",
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
         raise_on_nack: bool = True,
     ) -> envelope_pb2.Ack:
         """Resume a suspended session (macp-proto 0.1.3 / runtime 0.4.0).
@@ -581,7 +631,7 @@ class MacpClient:
             response = self.stub.ResumeSession(
                 core_pb2.ResumeSessionRequest(session_id=session_id, reason=reason),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
@@ -595,39 +645,39 @@ class MacpClient:
         agent_id: str = "",
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> core_pb2.GetManifestResponse:
         return self.stub.GetManifest(
             core_pb2.GetManifestRequest(agent_id=agent_id),
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def list_modes(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> core_pb2.ListModesResponse:
         return self.stub.ListModes(
             core_pb2.ListModesRequest(),
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def list_ext_modes(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> core_pb2.ListExtModesResponse:
         return self.stub.ListExtModes(
             core_pb2.ListExtModesRequest(),
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def list_roots(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> core_pb2.ListRootsResponse:
         return self.stub.ListRoots(
             core_pb2.ListRootsRequest(),
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def list_sessions(
@@ -635,7 +685,7 @@ class MacpClient:
         *,
         page_size: int = 0,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> list[core_pb2.SessionMetadata]:
         """List all active sessions known to the runtime.
 
@@ -667,7 +717,7 @@ class MacpClient:
         page_size: int = 0,
         page_token: str = "",
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> tuple[list[core_pb2.SessionMetadata], str]:
         """Fetch a single page of sessions (macp-proto >= 0.1.6).
 
@@ -679,7 +729,7 @@ class MacpClient:
         resp = self.stub.ListSessions(
             core_pb2.ListSessionsRequest(page_size=page_size, page_token=page_token),
             metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
         return list(resp.sessions), resp.next_page_token
 
@@ -687,7 +737,7 @@ class MacpClient:
         self,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> Iterator[core_pb2.WatchSessionsResponse]:
         """Server-streaming RPC: yields session lifecycle events.
 
@@ -704,7 +754,7 @@ class MacpClient:
         call = self.stub.WatchSessions(
             core_pb2.WatchSessionsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
         try:
             yield from call
@@ -716,7 +766,7 @@ class MacpClient:
         descriptor: core_pb2.ModeDescriptor,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> core_pb2.RegisterExtModeResponse:
         """Register an extension-mode descriptor with the runtime.
 
@@ -742,7 +792,7 @@ class MacpClient:
             return self.stub.RegisterExtMode(
                 core_pb2.RegisterExtModeRequest(mode_descriptor=descriptor),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._map_registry_mutation_error(
@@ -755,14 +805,14 @@ class MacpClient:
         mode: str,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> core_pb2.UnregisterExtModeResponse:
         auth_cfg = self._require_auth(auth)
         try:
             return self.stub.UnregisterExtMode(
                 core_pb2.UnregisterExtModeRequest(mode=mode),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._map_registry_mutation_error(
@@ -776,7 +826,7 @@ class MacpClient:
         promoted_mode_name: str = "",
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> core_pb2.PromoteModeResponse:
         """Promote a registered extension mode to a first-class mode.
 
@@ -790,7 +840,7 @@ class MacpClient:
             return self.stub.PromoteMode(
                 core_pb2.PromoteModeRequest(mode=mode, promoted_mode_name=promoted_mode_name),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._map_registry_mutation_error(
@@ -805,7 +855,7 @@ class MacpClient:
         descriptor: policy_pb2.PolicyDescriptor,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> policy_pb2.RegisterPolicyResponse:
         """Register a governance policy with the runtime.
 
@@ -820,7 +870,7 @@ class MacpClient:
             return self.stub.RegisterPolicy(
                 policy_pb2.RegisterPolicyRequest(policy_descriptor=descriptor),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._map_registry_mutation_error(
@@ -835,7 +885,7 @@ class MacpClient:
         policy_id: str,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> policy_pb2.UnregisterPolicyResponse:
         """Unregister a governance policy from the runtime.
 
@@ -847,7 +897,7 @@ class MacpClient:
             return self.stub.UnregisterPolicy(
                 policy_pb2.UnregisterPolicyRequest(policy_id=policy_id),
                 metadata=self._metadata(auth_cfg),
-                timeout=timeout or self.default_timeout,
+                timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._map_registry_mutation_error(
@@ -861,14 +911,14 @@ class MacpClient:
         policy_id: str,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> policy_pb2.GetPolicyResponse:
         """Retrieve a single governance policy by ID."""
         auth_cfg = self._require_auth(auth)
         return self.stub.GetPolicy(
             policy_pb2.GetPolicyRequest(policy_id=policy_id),
             metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def list_policies(
@@ -876,18 +926,18 @@ class MacpClient:
         mode: str | None = None,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> policy_pb2.ListPoliciesResponse:
         """List registered governance policies, optionally filtered by mode."""
         auth_cfg = self._require_auth(auth)
         return self.stub.ListPolicies(
             policy_pb2.ListPoliciesRequest(mode=mode or ""),
             metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def watch_policies(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> Iterator[policy_pb2.WatchPoliciesResponse]:
         """Server-streaming RPC: yields governance policy change events.
 
@@ -899,7 +949,7 @@ class MacpClient:
         call = self.stub.WatchPolicies(
             policy_pb2.WatchPoliciesRequest(),
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
         try:
             yield from call
@@ -907,17 +957,17 @@ class MacpClient:
             raise self._transport_error_from_rpc(exc) from exc
 
     def open_stream(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> MacpStream:
         auth_cfg = self._require_auth(auth)
         return MacpStream(
             self.stub,
             metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
 
     def watch_mode_registry(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> Iterator[core_pb2.WatchModeRegistryResponse]:
         """Server-streaming RPC: yields mode registry change events.
 
@@ -927,7 +977,7 @@ class MacpClient:
         call = self.stub.WatchModeRegistry(
             core_pb2.WatchModeRegistryRequest(),
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
         try:
             yield from call
@@ -935,7 +985,7 @@ class MacpClient:
             raise self._transport_error_from_rpc(exc) from exc
 
     def watch_roots(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> Iterator[core_pb2.WatchRootsResponse]:
         """Server-streaming RPC: yields root change events.
 
@@ -947,7 +997,7 @@ class MacpClient:
         call = self.stub.WatchRoots(
             core_pb2.WatchRootsRequest(),
             metadata=self._metadata(auth),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
         try:
             yield from call
@@ -955,7 +1005,7 @@ class MacpClient:
             raise self._transport_error_from_rpc(exc) from exc
 
     def watch_signals(
-        self, *, auth: AuthConfig | None = None, timeout: float | None = None
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> Iterator[core_pb2.WatchSignalsResponse]:
         """Server-streaming RPC: yields ambient signal envelopes.
 
@@ -969,7 +1019,7 @@ class MacpClient:
         call = self.stub.WatchSignals(
             core_pb2.WatchSignalsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=timeout or self.default_timeout,
+            timeout=self._resolve_timeout(timeout),
         )
         try:
             yield from call
@@ -985,7 +1035,7 @@ class MacpClient:
         correlation_session_id: str = "",
         sender: str = "",
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> envelope_pb2.Ack:
         """Send an ambient (non-session) signal to the runtime."""
         validate_signal_type(signal_type, data)
@@ -1017,7 +1067,7 @@ class MacpClient:
         target_message_id: str = "",
         sender: str = "",
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
     ) -> envelope_pb2.Ack:
         """Send a progress update.
 

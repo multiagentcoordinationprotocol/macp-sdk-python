@@ -113,7 +113,10 @@ class TestHandoffProjection:
 
     def test_accept_unknown_handoff_is_noop(self):
         """A HandoffAccept referencing a handoff_id never offered must not
-        raise and must not move ``phase`` (RFC-MACP-0010 §5 rule 2).
+        raise and must not move ``phase`` (RFC-MACP-0010 §5 rule 2). Also
+        must NOT record a ProjectionAnomaly (issue #94) -- an unknown
+        handoff_id can legitimately mean a projection that joined
+        mid-session and never saw the offer, which is not caller misuse.
         """
         p = self._proj()
         p.apply_envelope(
@@ -126,6 +129,7 @@ class TestHandoffProjection:
         )
         assert p.get_handoff("ghost") is None
         assert p.phase == "Pending"
+        assert p.anomalies == []
 
     def test_decline_unknown_handoff_is_noop(self):
         p = self._proj()
@@ -139,11 +143,14 @@ class TestHandoffProjection:
         )
         assert p.get_handoff("ghost") is None
         assert p.phase == "Pending"
+        assert p.anomalies == []
 
     def test_accept_after_accepted_is_noop(self):
         """A competing HandoffAccept after the handoff is already accepted
         does not change ``accepted_by`` or ``phase`` (RFC-MACP-0010 §5 rule
-        4 / §5.1(4) — settle once).
+        4 / §5.1(4) — settle once), and records a ``settled_handoff``
+        ProjectionAnomaly (issue #94) -- unlike an unknown handoff_id
+        (test_accept_unknown_handoff_is_noop above), this IS caller misuse.
         """
         p = self._proj()
         p.apply_envelope(
@@ -174,9 +181,15 @@ class TestHandoffProjection:
         assert handoff is not None
         assert handoff.accepted_by == "bob"
         assert p.phase == "Accepted"
+        assert len(p.anomalies) == 1
+        anomaly = p.anomalies[0]
+        assert anomaly.kind == "settled_handoff"
+        assert anomaly.subject_id == "h1"
+        assert anomaly.sender == "carol"
 
     def test_decline_after_accepted_is_noop(self):
-        """A HandoffDecline after acceptance must not flip status back."""
+        """A HandoffDecline after acceptance must not flip status back, and
+        records a ``settled_handoff`` ProjectionAnomaly (issue #94)."""
         p = self._proj()
         p.apply_envelope(
             make_envelope(
@@ -206,6 +219,11 @@ class TestHandoffProjection:
         assert handoff is not None
         assert handoff.status == "accepted"
         assert p.phase == "Accepted"
+        assert len(p.anomalies) == 1
+        anomaly = p.anomalies[0]
+        assert anomaly.kind == "settled_handoff"
+        assert anomaly.subject_id == "h1"
+        assert anomaly.sender == "bob"
 
     def test_second_decline_is_noop(self):
         p = self._proj()
@@ -237,6 +255,8 @@ class TestHandoffProjection:
         assert handoff is not None
         assert handoff.declined_by == "bob"
         assert p.phase == "Declined"
+        assert len(p.anomalies) == 1
+        assert p.anomalies[0].kind == "settled_handoff"
 
 
 class TestReplayIdempotence:

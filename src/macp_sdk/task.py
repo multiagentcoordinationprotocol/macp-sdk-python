@@ -7,7 +7,7 @@ from macp.modes.task.v1 import task_pb2
 from macp.v1 import envelope_pb2
 
 from .auth import AuthConfig
-from .base_projection import BaseProjection
+from .base_projection import ANOMALY_DUPLICATE_TASK_ACCEPT, BaseProjection
 from .base_session import BaseSession
 from .constants import MODE_TASK
 from .envelope import build_envelope, serialize_message
@@ -108,18 +108,37 @@ class TaskProjection(BaseProjection):
             )
             self._statuses[p.task_id] = "requested"
             self._progress[p.task_id] = 0.0
-            self.phase = "Requested"
+            self._set_phase("Requested")
             return
 
         if mt == "TaskAccept":
             p = task_pb2.TaskAcceptPayload()
             p.ParseFromString(envelope.payload)
-            if p.task_id in self.tasks and self.active_assignment is None:
-                assignee = p.assignee or envelope.sender
-                self.active_assignment = (envelope.sender, p.task_id)
-                self._assignees[p.task_id] = assignee
-                self._statuses[p.task_id] = "accepted"
-                self.phase = "InProgress"
+            if p.task_id in self.tasks:
+                if self.active_assignment is None:
+                    assignee = p.assignee or envelope.sender
+                    self.active_assignment = (envelope.sender, p.task_id)
+                    self._assignees[p.task_id] = assignee
+                    self._statuses[p.task_id] = "accepted"
+                    self._set_phase("InProgress")
+                else:
+                    # RFC-MACP-0009 §5 rule 3a: a second TaskAccept while the
+                    # session's one assignee slot is already held is
+                    # rejected -- this discard is caller misuse (issue #94),
+                    # unlike an unknown task_id (see the `else` branch's
+                    # absence below), which is not: a projection that joined
+                    # mid-session may legitimately never see the TaskRequest.
+                    self._record_anomaly(
+                        kind=ANOMALY_DUPLICATE_TASK_ACCEPT,
+                        message_type=envelope.message_type,
+                        message_id=envelope.message_id,
+                        sender=envelope.sender,
+                        subject_id=p.task_id,
+                        detail=(
+                            f"active assignee already designated for task {p.task_id!r}; "
+                            f"discarded competing TaskAccept from {envelope.sender!r}"
+                        ),
+                    )
             return
 
         if mt == "TaskReject":
@@ -170,7 +189,7 @@ class TaskProjection(BaseProjection):
             if p.task_id in self.tasks:
                 self._statuses[p.task_id] = "completed"
                 self._progress[p.task_id] = 1.0
-                self.phase = "Completed"
+                self._set_phase("Completed")
             return
 
         if mt == "TaskFail":
@@ -187,7 +206,7 @@ class TaskProjection(BaseProjection):
             )
             if p.task_id in self.tasks:
                 self._statuses[p.task_id] = "failed"
-                self.phase = "Failed"
+                self._set_phase("Failed")
 
     # -- State query helpers --
 

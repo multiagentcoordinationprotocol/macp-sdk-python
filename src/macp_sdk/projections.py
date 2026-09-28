@@ -81,7 +81,7 @@ class DecisionProjection(BaseProjection):
                     sender=envelope.sender,
                 )
             )
-            self.phase = "Evaluation"
+            self._set_phase("Evaluation")
             return
 
         if message_type == "Objection":
@@ -124,7 +124,7 @@ class DecisionProjection(BaseProjection):
                 reason=payload.reason,
                 sender=envelope.sender,
             )
-            self.phase = "Voting"
+            self._set_phase("Voting")
 
     # -- State query helpers (no policy enforcement) --
 
