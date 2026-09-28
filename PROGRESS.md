@@ -800,4 +800,156 @@ PR #95 merged (squash) to `main` at `32c6437`. Issues #93 and #94 closed by the 
 `multiagentcoordinationprotocol/macp-sdk-typescript#128` proposing `duplicate_task_accept` /
 `settled_handoff` for 5 of their 6 frozen `ProjectionAnomalyKind` sites — their 6th frozen site
 (`decision.ts`, late-Vote-after-Commitment) is a different scenario not covered by this decision
-and is flagged there as a separate open question. No release-please PR resulted from this merge.
+and is flagged there as a separate open question. **Correction (see next entry): this last claim
+was checked too early** — PR #97 (`chore(main): release 0.10.2`) opened shortly after this merge.
+
+## Independent post-hoc verification of PR #95, and fix-forward — 2026-09-28
+
+The self-review substitution above (PR #95's own executing fork couldn't spawn a verification
+subagent) was treated as exactly the risk it looked like: dispatched a genuinely fresh,
+independent Opus reviewer over the merged diff (`git show 32c6437`, every touched file read in
+full, not just the diff hunks) as a post-hoc `/ship` §2 gate. **Verdict: GAPS**, 10 items.
+
+**HIGH — confirmed and fixed.** `agent/strategies.py`'s `majority_voter` fix (issue #93 item 4)
+only moved the deadlock: `should_vote` correctly gates on Evaluations now, but `decide_vote` still
+read `projection.majority_winner()` — votes, guaranteed empty at the exact moment the new gate
+first passes. Simulated with a real 3-participant session: every participant ABSTAINs forever
+(ABSTAIN is excluded from `majority_winner()`'s own denominator, so it's a stable fixed point),
+`majority_committer.should_commit()` never becomes `True`, and `positive_threshold` silently went
+dead (0.0 through 99.0 all produced identical output) — its only test, `test_custom_threshold`, had
+been deleted rather than adapted. **Fix:** `decide_vote` now derives its answer from
+`projection.evaluations` for the most-recently-evaluated proposal (mirrors
+`macp-sdk-typescript`'s `majorityVoter`, which this repo's #93 fix had copied `shouldVote` from
+but not `decideVote`), filtering out `REVIEW` recommendations, comparing the approval ratio against
+`positive_threshold`, and ABSTAINing below it. `positive_threshold` is live again. New tests:
+`test_decide_vote_no_evaluations`, `test_decide_vote_uses_most_recently_evaluated_proposal`,
+`test_decide_vote_excludes_review_recommendation`, a rewritten `test_custom_threshold` (against the
+new mechanism, not the old vote-ratio one it used to gate), and — the real regression proof —
+`test_all_majority_voter_session_reaches_commitment`, which drives one shared `DecisionProjection`
+through the same `should_vote`/`decide_vote`/`should_commit`/`decide_commitment` call sequence
+`voting_handler`/`commitment_handler` make, for three participant identities, end-to-end from
+Evaluation through actual commitment (a non-default `action` value proves `decide_commitment`'s
+return is genuinely exercised, not just restating `majority_committer`'s own default).
+
+**MEDIUM — all confirmed and fixed:**
+- Phase-terminality guard (`_set_phase`, issue #93 item 5) had a real end-to-end regression test
+  only for `DecisionProjection`; `task.py`/`handoff.py`/`quorum.py`/`proposal.py` were covered only
+  by a synthetic harness in `test_base_projection.py` — reverting all 10 of their `_set_phase` call
+  sites left the full suite green. Added one real late-message-after-Commitment test to each of the
+  four projection test files.
+- The RFC citation fix (issue #93 item 3) missed two live occurrences: `docs/auth.md:196` (the
+  user-facing doc issue #93 itself was about) and `tests/unit/test_client_security.py`'s module
+  docstring. Both now cite RFC-MACP-0004 §2. A third, `CHANGELOG.md:541`, carries the same wrong
+  citation for the same claim (`secure=True` default) — deliberately left as-is: it's already-
+  released changelog history for a past version, and editing it would mean rewriting published
+  history for a cosmetic fix, not the kind of drift this pass otherwise closes.
+- Release/changelog gap: PR #95's squash subject wasn't a conventional-commit type, so
+  release-please's PR #97 (`chore(main): release 0.10.2`) credits only PR #96's `docs(progress)`
+  commit — the six defects and the #94 decision are invisible to the generated changelog despite
+  being live in `main`. **Not fixed retroactively** (would mean editing published history or
+  fighting release-please's own regeneration of a bot-owned file) — this fix-forward pass's own
+  commits use proper `fix:` subjects instead, so the *next* changelog regeneration is accurate
+  going forward. PR #97 is left untouched and unmerged; flagging the historical gap to the user
+  rather than resolving it unilaterally, per this session's standing rule that every
+  release/publish-triggering action gets explicit go-ahead.
+
+**LOW — all confirmed and fixed:** `base_projection.py` had two stale comments (one still citing
+pre-`_set_phase` line numbers, one listing only two of the now-four `_record_anomaly` call sites).
+`task.py`'s `duplicate_task_accept` anomaly `detail` interpolated the *incoming* (discarded)
+TaskAccept's task_id rather than the task the assignee slot is actually held for — misleading
+whenever they differ (a `TaskAccept` for `t2` while the slot is held for `t1`); fixed to name both,
+with a new test pinning it. `agent/runner.py`'s `_decode_extensions` raised for a bad per-value
+entry but still silently returned `{}` for a non-dict container itself (e.g. `extensions:
+[1,2,3]`) — same defect class the fix was supposed to close, and a test actively pinned the old
+silent-drop; fixed so only an absent/`None` extensions field (the common no-extensions case)
+defaults to `{}`, any other non-dict value now raises. `agent/transports.py`'s
+`GrpcTransportAdapter.timeout` param was typed `float | None`, one call-site behind `client.py`'s
+new `TimeoutValue`/`UNBOUNDED` (issue #93 item 6) — a long-lived subscribe stream is the most
+natural caller of `UNBOUNDED`, and the narrower type made that a mypy error; widened to
+`TimeoutValue`, new test confirms `UNBOUNDED` reaches `open_stream()` unchanged. `CLAUDE.md`'s
+Development Commands and `ProjectionAnomaly`/`client.py` bullets hadn't caught up with the parity
+Make targets, the two new anomaly kinds, or `UNBOUNDED`; updated.
+`docs/guides/agent-framework.md`'s strategy-composition example had three compounding bugs, not
+just the one the review flagged (`majority_voter(threshold=0.5)` — wrong kwarg): it also registered
+raw strategies directly via `participant.on(...)` instead of wrapping them in `voting_handler`/
+`commitment_handler`, and wired them to the wrong message types (`"Vote"` instead of
+`"Evaluation"`/`"Vote"` respectively). **A follow-up independent review caught that the first fix
+pass's own "rewritten correctly" claim was still false**: `@participant.on("Proposal")` used as a
+decorator is a fourth bug — `Participant.on(message_type, handler)` (`participant.py:453`) takes
+both arguments directly, it is not a decorator factory, so that line alone still raised `TypeError`
+regardless of the other three fixes. The *same* decorator misuse was also present in this doc's
+other (earlier) handler example, `on_phase_change`/`on_terminal` included — not previously in
+scope, but the identical bug in the same file, so fixed there too. Both examples' handler
+registration calls are now smoke-tested directly against a real `Participant`/`Dispatcher`
+instance (not just read for plausibility) to confirm they raise nothing. Also fixed in the same
+pass: the strategies table's `EvaluationStrategy` row said the valid recommendation set is
+`APPROVE/REJECT/ABSTAIN` — the real set (`strategies.py:28`) is `APPROVE/REVIEW/BLOCK/REJECT`, and
+`evaluation_handler` raises on `"ABSTAIN"`.
+
+**Files touched:** `src/macp_sdk/agent/strategies.py`, `src/macp_sdk/base_projection.py`,
+`src/macp_sdk/task.py`, `src/macp_sdk/agent/runner.py`, `src/macp_sdk/agent/transports.py`,
+`tests/unit/test_agent_strategies.py`, `tests/unit/test_task_projection.py`,
+`tests/unit/test_handoff_projection.py`, `tests/unit/test_quorum_projection.py`,
+`tests/unit/test_proposal_projection.py`, `tests/unit/test_agent_runner.py`,
+`tests/unit/test_agent_transports.py`, `tests/unit/test_client_security.py`, `docs/auth.md`,
+`docs/guides/agent-framework.md`, `CLAUDE.md`, `PROGRESS.md`.
+
+**Checks:** bare `pytest tests/` (unit + conformance + parity + self-skipping integration): 1758
+passed, 76 skipped (up from the pre-fix 1746/30 — unit+conformance count; parity's 19 weren't in
+that figure). `make lint` (ruff check + format, `src/ tests/ examples/`) and `make typecheck`
+(`mypy src/macp_sdk/`, strict) both clean. `make verify-parity` and `make verify-fixtures` both
+`OK` against the real spec-repo checkout.
+
+**Verifier:** this time a genuinely independent fresh Opus agent (not a fork of the executor, not
+self-review) — dispatched directly from the orchestrating session rather than from inside another
+subagent, closing the exact gap this entry exists to fix.
+
+### Round 2 — verification of this fix-forward diff itself (PR #98) — 2026-09-28
+
+Pushed the above as branch `fix/97-post-merge-review-gaps-93-94` (two commits: `248e9c8` the
+`majority_voter` fix, `7021e7f` the other nine), opened PR #98, CI green on all checks. Dispatched
+a second fresh Opus verifier — this time over the *fix-forward diff itself*, not the original #95.
+**Verdict: GAPS, 5 items** (all independently reproduced, not taken on faith):
+
+- **G1 (MEDIUM, the one worth blocking on):** the new `TaskProjection` terminality test used
+  `TaskUpdate` as its late message — the one Task message type that never calls `_set_phase` at
+  all (`task.py`'s four call sites are `TaskRequest`/`TaskAccept`/`TaskComplete`/`TaskFail`;
+  `TaskUpdate` isn't one of them). The test was vacuous: reverting every `_set_phase` call in
+  `task.py` to a direct assignment left it green. **Fixed:** swapped to `TaskComplete` (a real
+  `_set_phase` site) and re-ran the exact mutation the verifier described — reverting all four
+  `task.py` `_set_phase` calls now fails this specific test (`'Completed' == 'Committed'`
+  assertion error), confirming it actually discriminates. Restored `task.py` afterward and
+  confirmed `git diff --stat` shows no residual change.
+- **G2 (LOW/MEDIUM):** `docs/guides/agent-framework.md`'s "rewritten correctly" claim (previous
+  round) was still false — a *fourth* bug, `@participant.on("Proposal")` used as a decorator
+  (`Participant.on` takes both args directly, it's not a decorator factory), still `TypeError`s
+  regardless of the other three fixes. Also present, unfixed, in the doc's other (earlier) example.
+  Fixed both, plus the strategies table's wrong recommendation set. Smoke-tested directly against a
+  real `Participant`/`Dispatcher` instance (see inline correction above) rather than just re-read
+  for plausibility this time.
+- **G3 (LOW):** `CHANGELOG.md:541` carries a third occurrence of the same wrong RFC citation.
+  Deliberately left as released history; PROGRESS.md's wording corrected to say so explicitly
+  instead of implying the sweep was complete.
+- **G4 (LOW):** the all-`REVIEW` branch of `decide_vote` (→ `"no qualifying evaluations"`) was
+  logically checked but had no test. Added `test_decide_vote_all_review_has_no_qualifying_evaluations`.
+- **G5 (LOW):** the headline regression test's docstring overclaimed "three real participants" (it
+  drives one shared `DecisionProjection` via direct strategy calls, not three `Participant`
+  instances) and its final `decide_commitment().action == "commit"` assertion was tautological
+  (`"commit"` is `majority_committer`'s own default). Docstring corrected; `majority_committer`
+  now constructed with `action="deploy"` so the assertion is genuinely load-bearing.
+
+Two informational notes from the verifier, not treated as gaps: `decide_vote`'s parity claim holds
+only for `should_vote` (typescript-sdk's `decideVote` uses a different denominator, no REVIEW
+exclusion, no proposal_id scoping, and returns REJECT rather than ABSTAIN below threshold) — an
+undocumented divergence, not a `tests/parity/contract.json` violation (that manifest doesn't cover
+strategies); and the "reaches commitment" claim is proven in-process only, not against a live
+`Participant`/runtime, where `voting_handler` re-firing on every Evaluation would send duplicate
+Votes that a real `MacpClient.send(raise_on_nack=True)` could propagate as an exception — pre-
+existing from #95, out of scope for this pass, not filed as a new issue.
+
+**Re-checked after closing G1/G2/G4/G5:** bare `pytest tests/` 1759 passed, 76 skipped; `make
+lint`/`make typecheck` clean.
+
+**Next:** push the two additional commits closing these gaps, then merge PR #98 on green CI —
+routine, not-critical tier. PR #97 (release-please 0.10.2) remains untouched and unmerged, flagged
+for the user per the standing rule on release/publish-triggering actions.

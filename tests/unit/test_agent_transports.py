@@ -13,6 +13,7 @@ from macp_sdk.agent.transports import (
     HttpTransportAdapter,
     _envelope_to_message,
 )
+from macp_sdk.client import UNBOUNDED
 from macp_sdk.constants import MODE_DECISION, MODE_MULTI_ROUND
 from macp_sdk.envelope import new_message_id, now_unix_ms
 from macp_sdk.errors import MacpSdkError, MacpTransportError
@@ -134,6 +135,22 @@ class TestGrpcTransportAdapter:
         assert messages[0].message_type == "Proposal"
         assert messages[1].message_type == "Vote"
         mock_stream.close.assert_called_once()
+
+    def test_unbounded_timeout_passed_through_to_open_stream(self):
+        """#97 follow-up to issue #93 item 6: a long-lived subscribe stream
+        is the natural caller of client.UNBOUNDED -- the adapter's
+        ``timeout`` param must be TimeoutValue, not a plain float | None,
+        so this is expressible (and type-correct under mypy strict).
+        """
+        mock_client = MagicMock()
+        mock_stream = MagicMock()
+        mock_stream.responses.return_value = iter([])
+        mock_client.open_stream.return_value = mock_stream
+
+        adapter = GrpcTransportAdapter(mock_client, "target-session", timeout=UNBOUNDED)
+        list(adapter.start())
+
+        mock_client.open_stream.assert_called_once_with(auth=None, timeout=UNBOUNDED)
 
     def test_subscribe_sent_on_start(self):
         """RFC-MACP-0006-A1: the adapter must subscribe to the target

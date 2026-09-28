@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from macp.modes.proposal.v1 import proposal_pb2
+from macp.v1 import core_pb2
 
 from macp_sdk.constants import MODE_PROPOSAL
 from macp_sdk.proposal import ProposalProjection
@@ -28,6 +29,42 @@ class TestProposalProjection:
         p.apply_envelope(env)
         assert "p1" in p.proposals
         assert p.proposals["p1"].status == "open"
+
+    def test_late_terminal_reject_after_commitment_does_not_regress_phase(self):
+        """Issue #93 item 5: a mode message arriving after Commitment must
+        not move ``phase`` back out of "Committed" -- exercised end-to-end
+        here rather than only via the synthetic projection in
+        test_base_projection.py.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Proposal",
+                proposal_pb2.ProposalPayload(proposal_id="p1", title="A"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Commitment",
+                core_pb2.CommitmentPayload(
+                    commitment_id="c1", action="commit", authority_scope="session"
+                ),
+            )
+        )
+        assert p.phase == "Committed"
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Reject",
+                proposal_pb2.RejectPayload(proposal_id="p1", reason="late", terminal=True),
+                sender="bob",
+            )
+        )
+        assert p.phase == "Committed"
+        assert p.proposals["p1"].status == "rejected"  # the reject's own effect is not suppressed
 
     def test_counter_proposal_does_not_retire_original(self):
         """Counter-proposal does NOT retire the original — both stay live."""

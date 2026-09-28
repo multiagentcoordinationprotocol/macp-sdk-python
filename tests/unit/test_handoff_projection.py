@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from macp.modes.handoff.v1 import handoff_pb2
+from macp.v1 import core_pb2
 
 from macp_sdk.constants import MODE_HANDOFF
 from macp_sdk.handoff import HandoffProjection
@@ -16,6 +17,42 @@ class TestHandoffProjection:
         assert p.phase == "Pending"
         assert p.active_offer() is None
         assert not p.is_committed
+
+    def test_late_handoff_accept_after_commitment_does_not_regress_phase(self):
+        """Issue #93 item 5: a mode message arriving after Commitment must
+        not move ``phase`` back out of "Committed" -- exercised end-to-end
+        here rather than only via the synthetic projection in
+        test_base_projection.py.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffOffer",
+                handoff_pb2.HandoffOfferPayload(handoff_id="h1", target_participant="bob"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "Commitment",
+                core_pb2.CommitmentPayload(
+                    commitment_id="c1", action="commit", authority_scope="session"
+                ),
+            )
+        )
+        assert p.phase == "Committed"
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffAccept",
+                handoff_pb2.HandoffAcceptPayload(handoff_id="h1", accepted_by="bob"),
+                sender="bob",
+            )
+        )
+        assert p.phase == "Committed"
+        assert p.handoffs["h1"].status == "accepted"  # the accept's own effect is not suppressed
 
     def test_offer(self):
         p = self._proj()

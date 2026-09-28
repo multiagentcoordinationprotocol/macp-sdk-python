@@ -16,9 +16,20 @@ from macp_sdk.agent.runner import _decode_extensions
 
 
 class TestDecodeExtensions:
-    def test_non_dict_input_returns_empty(self):
+    def test_absent_extensions_returns_empty(self):
+        """None (the common no-extensions bootstrap, ss.get("extensions")
+        with the key missing) is the one input that legitimately means
+        'nothing to decode' -- not silently-dropped malformed input."""
         assert _decode_extensions(None) == {}
-        assert _decode_extensions([1, 2, 3]) == {}
+
+    def test_non_dict_present_value_raises(self):
+        """A *present* non-object extensions value (#97 follow-up) is
+        equally malformed as a bad per-value entry and must not be
+        silently dropped either."""
+        with pytest.raises(ValueError, match="must be an object"):
+            _decode_extensions([1, 2, 3])
+        with pytest.raises(ValueError, match="must be an object"):
+            _decode_extensions("not a map")
 
     def test_bytes_value_passes_through(self):
         assert _decode_extensions({"k": b"raw"}) == {"k": b"raw"}

@@ -250,11 +250,22 @@ def majority_voter(
     *,
     positive_threshold: float = 0.5,
 ) -> VotingStrategy:
-    """Built-in voting strategy that votes ``approve`` when the majority winner
-    matches the first proposal option, based on the decision projection.
+    """Built-in voting strategy that votes ``APPROVE`` once the fraction of
+    qualifying (non-``REVIEW``) evaluations recommending ``APPROVE``, for the
+    most recently evaluated proposal, meets ``positive_threshold`` --
+    otherwise ``ABSTAIN``.
+
+    Both ``should_vote`` and ``decide_vote`` read only from
+    ``projection.evaluations``, never from votes already cast (issue #93 item
+    4 / #97 follow-up): a decision derived from votes cannot bootstrap a
+    session where every participant runs ``majority_voter``, since
+    ``vote_totals()`` starts empty and stays empty until *someone* votes
+    first. Deriving from evaluations instead lets the first vote be cast as
+    soon as there is evaluation data to decide from.
 
     Args:
-        positive_threshold: Fraction of votes required to trigger voting
+        positive_threshold: Fraction of qualifying evaluations that must
+            recommend ``APPROVE`` for ``decide_vote`` to return ``APPROVE``
             (default ``0.5``).
     """
 
@@ -267,25 +278,47 @@ def majority_voter(
         def should_vote(self, projection: Any) -> bool:
             if projection is None:
                 return False
-            # Gate on Evaluations, not on votes already cast (issue #93 item
-            # 4): the old `vote_totals()`-based gate meant a session where
-            # every participant runs majority_voter could never cast a first
-            # vote -- vote_totals() starts empty, so total_votes > 0 was
-            # false for everyone, forever. voting_handler already only calls
-            # should_vote() on an incoming Evaluation message, so this
-            # mirrors typescript-sdk's majorityVoter.shouldVote
-            # (strategies.ts:88: `projection.evaluations.length > 0`).
-            # _threshold is unused here (it was only ever consulted by the
-            # now-removed vote-ratio gate, not by decide_vote below); kept as
-            # a constructor parameter for signature compatibility.
+            # Gate on Evaluations, not on votes already cast -- voting_handler
+            # already only calls should_vote() on an incoming Evaluation
+            # message, so this mirrors typescript-sdk's
+            # majorityVoter.shouldVote (strategies.ts:88:
+            # `projection.evaluations.length > 0`).
             evaluations = getattr(projection, "evaluations", None)
             return bool(evaluations)
 
         def decide_vote(self, projection: Any) -> VoteDecision:
-            winner = projection.majority_winner()
-            if winner:
-                return VoteDecision(vote="APPROVE", reason=f"majority winner: {winner}")
-            return VoteDecision(vote="ABSTAIN", reason="no majority winner")
+            evaluations = list(getattr(projection, "evaluations", None) or [])
+            if not evaluations:
+                return VoteDecision(vote="ABSTAIN", reason="no evaluations to decide from")
+            # The most recently evaluated proposal is the one being voted on.
+            proposal_id = evaluations[-1].proposal_id
+            qualifying = [
+                e
+                for e in evaluations
+                if e.proposal_id == proposal_id and e.recommendation.upper() != "REVIEW"
+            ]
+            if not qualifying:
+                return VoteDecision(
+                    vote="ABSTAIN",
+                    reason=f"no qualifying evaluations for {proposal_id!r}",
+                )
+            approvals = sum(1 for e in qualifying if e.recommendation.upper() == "APPROVE")
+            ratio = approvals / len(qualifying)
+            if ratio >= self._threshold:
+                return VoteDecision(
+                    vote="APPROVE",
+                    reason=(
+                        f"{approvals}/{len(qualifying)} evaluations approve "
+                        f"{proposal_id!r} (>= {self._threshold:.0%})"
+                    ),
+                )
+            return VoteDecision(
+                vote="ABSTAIN",
+                reason=(
+                    f"{approvals}/{len(qualifying)} evaluations approve "
+                    f"{proposal_id!r} (< {self._threshold:.0%})"
+                ),
+            )
 
     return _MajorityVoter(positive_threshold)
 

@@ -24,7 +24,7 @@ from macp_sdk.agent.types import (
     SessionInfo,
 )
 from macp_sdk.constants import MODE_DECISION
-from macp_sdk.projections import DecisionProjection
+from macp_sdk.projections import DecisionEvaluationRecord, DecisionProjection
 from tests.conftest import make_envelope
 
 
@@ -345,18 +345,125 @@ class TestMajorityVoter:
         strategy = majority_voter()
         assert strategy.should_vote(None) is False
 
+    @staticmethod
+    def _evaluation(proposal_id: str, recommendation: str, sender: str = "alice"):
+        return DecisionEvaluationRecord(
+            proposal_id=proposal_id,
+            recommendation=recommendation,
+            confidence=0.9,
+            reason="",
+            sender=sender,
+        )
+
     def test_decide_vote_with_winner(self):
+        """decide_vote reads evaluations, not votes (#97 follow-up to #93
+        item 4) -- 3/3 APPROVE evaluations for 'deploy-v2' meets the default
+        0.5 threshold."""
         strategy = majority_voter()
-        proj = self._mock_projection({"approve": 3}, "deploy-v2")
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("deploy-v2", "APPROVE", "a"),
+                self._evaluation("deploy-v2", "APPROVE", "b"),
+                self._evaluation("deploy-v2", "APPROVE", "c"),
+            ],
+        )
         decision = strategy.decide_vote(proj)
         assert decision.vote == "APPROVE"
         assert "deploy-v2" in decision.reason
 
     def test_decide_vote_no_winner(self):
+        """Below-threshold evaluations ABSTAIN rather than APPROVE."""
         strategy = majority_voter()
-        proj = self._mock_projection({"approve": 1, "reject": 1})
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("deploy-v2", "APPROVE", "a"),
+                self._evaluation("deploy-v2", "REJECT", "b"),
+                self._evaluation("deploy-v2", "REJECT", "c"),
+            ],
+        )
         decision = strategy.decide_vote(proj)
         assert decision.vote == "ABSTAIN"
+
+    def test_decide_vote_no_evaluations(self):
+        strategy = majority_voter()
+        proj = self._mock_projection({}, evaluations=[])
+        decision = strategy.decide_vote(proj)
+        assert decision.vote == "ABSTAIN"
+        assert "no evaluations" in decision.reason
+
+    def test_decide_vote_uses_most_recently_evaluated_proposal(self):
+        """An earlier proposal's (rejected) evaluations must not leak into
+        the decision for the proposal actually being evaluated now."""
+        strategy = majority_voter()
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("p1", "REJECT", "a"),
+                self._evaluation("p1", "REJECT", "b"),
+                self._evaluation("p2", "APPROVE", "a"),
+            ],
+        )
+        decision = strategy.decide_vote(proj)
+        assert decision.vote == "APPROVE"
+        assert "p2" in decision.reason
+        assert "p1" not in decision.reason
+
+    def test_decide_vote_excludes_review_recommendation(self):
+        """A REVIEW evaluation is informational only -- it must not count
+        toward either the numerator or denominator of the approval ratio."""
+        strategy = majority_voter()
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("p1", "APPROVE", "a"),
+                self._evaluation("p1", "REVIEW", "b"),
+            ],
+        )
+        decision = strategy.decide_vote(proj)
+        # 1/1 qualifying (REVIEW excluded) approves -> meets 0.5 threshold.
+        assert decision.vote == "APPROVE"
+
+    def test_decide_vote_all_review_has_no_qualifying_evaluations(self):
+        """The no-qualifying-evaluations path (every evaluation for the
+        proposal is REVIEW) is distinct from the no-evaluations-at-all
+        path -- both ABSTAIN, but for different stated reasons."""
+        strategy = majority_voter()
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("p1", "REVIEW", "a"),
+                self._evaluation("p1", "REVIEW", "b"),
+            ],
+        )
+        decision = strategy.decide_vote(proj)
+        assert decision.vote == "ABSTAIN"
+        assert "no qualifying evaluations" in decision.reason
+
+    def test_custom_threshold(self):
+        """positive_threshold gates decide_vote's evaluation ratio (#97
+        follow-up): the old test of this name gated should_vote on a ratio
+        of already-cast votes, which was itself the deadlock this strategy
+        no longer has -- rewritten against the fixed, evaluations-based
+        design."""
+        strategy = majority_voter(positive_threshold=0.9)
+
+        proj = self._mock_projection(
+            {},
+            evaluations=[self._evaluation("p1", "APPROVE", f"p{i}") for i in range(6)]
+            + [self._evaluation("p1", "REJECT", f"r{i}") for i in range(4)],
+        )
+        # 6/10 = 0.6, below 0.9 threshold.
+        assert strategy.decide_vote(proj).vote == "ABSTAIN"
+
+        proj2 = self._mock_projection(
+            {},
+            evaluations=[self._evaluation("p1", "APPROVE", f"p{i}") for i in range(10)]
+            + [self._evaluation("p1", "REJECT", "r0")],
+        )
+        # 10/11 = 0.91, above 0.9 threshold.
+        assert strategy.decide_vote(proj2).vote == "APPROVE"
 
     def test_all_majority_voter_session_reaches_a_first_vote(self):
         """Regression for issue #93 item 4: a Decision session in which
@@ -391,6 +498,76 @@ class TestMajorityVoter:
 
         strategy = majority_voter()
         assert strategy.should_vote(p) is True
+        # #97 follow-up: reaching should_vote()==True is necessary but not
+        # sufficient -- the original #93 fix left decide_vote() reading
+        # majority_winner() (votes), so it ABSTAINed forever even once a
+        # vote could be *attempted*. decide_vote() must actually resolve
+        # from the evaluation just applied, with zero votes cast.
+        decision = strategy.decide_vote(p)
+        assert decision.vote == "APPROVE"
+
+    def test_all_majority_voter_session_reaches_commitment(self):
+        """Regression for the deadlock an independent post-merge review
+        found: a Decision session where every participant runs
+        majority_voter + majority_committer must be able to reach an
+        actual commitment, not merely cast a non-abstaining first vote.
+
+        With decide_vote() reading votes instead of evaluations, three
+        all-ABSTAIN votes are a stable fixed point (ABSTAIN is excluded
+        from vote_totals()/majority_winner()'s denominator), so
+        majority_committer.should_commit() never becomes True. Driving
+        decide_vote() from evaluations breaks that fixed point.
+
+        Exercises the strategies directly against one shared
+        DecisionProjection (three participant identities, not three
+        Participant/dispatcher instances) -- should_vote/decide_vote/
+        should_commit/decide_commitment is exactly the call sequence
+        voting_handler/commitment_handler make, so this is a faithful
+        driver of the real deadlock without the I/O from_bootstrap()
+        would need. action="deploy" (not majority_committer's own
+        default "commit") so the final assertion actually exercises
+        decide_commitment()'s return value instead of restating the
+        default.
+        """
+        p = DecisionProjection()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="deploy"),
+                sender="planner",
+            )
+        )
+        voter = majority_voter()
+        committer = majority_committer(quorum_size=3, action="deploy")
+
+        for sender in ("alice", "bob", "carol"):
+            p.apply_envelope(
+                make_envelope(
+                    MODE_DECISION,
+                    "Evaluation",
+                    decision_pb2.EvaluationPayload(
+                        proposal_id="p1", recommendation="APPROVE", confidence=0.9, reason="ok"
+                    ),
+                    sender=sender,
+                )
+            )
+            assert voter.should_vote(p) is True
+            decision = voter.decide_vote(p)
+            assert decision.vote == "APPROVE", "must not be a permanent ABSTAIN fixed point"
+            p.apply_envelope(
+                make_envelope(
+                    MODE_DECISION,
+                    "Vote",
+                    decision_pb2.VotePayload(
+                        proposal_id="p1", vote=decision.vote, reason=decision.reason
+                    ),
+                    sender=sender,
+                )
+            )
+
+        assert committer.should_commit(p) is True
+        assert committer.decide_commitment(p).action == "deploy"
 
 
 class TestMajorityCommitter:

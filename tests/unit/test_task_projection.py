@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from macp.modes.task.v1 import task_pb2
+from macp.v1 import core_pb2
 
 from macp_sdk.constants import MODE_TASK
 from macp_sdk.task import TaskProjection
@@ -223,6 +224,87 @@ class TestTaskProjection:
         assert anomaly.kind == "duplicate_task_accept"
         assert anomaly.subject_id == "t1"
         assert anomaly.sender == "worker2"
+
+    def test_duplicate_task_accept_detail_names_the_held_task_not_the_incoming_one(self):
+        """The anomaly's detail must name the task the slot is actually held
+        for, not just the incoming (different) task_id the competing
+        TaskAccept named -- see task.py's held_task_id/held_sender fix.
+        """
+        p = self._proj()
+        for task_id in ("t1", "t2"):
+            p.apply_envelope(
+                make_envelope(
+                    MODE_TASK,
+                    "TaskRequest",
+                    task_pb2.TaskRequestPayload(task_id=task_id, title="x"),
+                    sender="planner",
+                )
+            )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t1", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t2", assignee="worker2"),
+                sender="worker2",
+            )
+        )
+        anomaly = p.anomalies[0]
+        assert anomaly.subject_id == "t2"  # the incoming (discarded) TaskAccept's own task_id
+        assert "worker1" in anomaly.detail
+        assert "t1" in anomaly.detail  # the actually-held task, not just "t2"
+
+    def test_late_task_complete_after_commitment_does_not_regress_phase(self):
+        """Issue #93 item 5: a mode message arriving after Commitment must
+        not move ``phase`` back out of "Committed" -- same terminality
+        guard as DecisionProjection's, exercised end-to-end here rather than
+        only via the synthetic projection in test_base_projection.py.
+
+        Uses ``TaskComplete``, not ``TaskUpdate``: only ``TaskRequest``
+        (:111), ``TaskAccept`` (:123), ``TaskComplete`` (:194), and
+        ``TaskFail`` (:211) call ``_set_phase`` in task.py --
+        ``TaskUpdate`` never touches ``phase`` at all, so a test built on
+        it would pass even with the guard entirely missing (confirmed: an
+        independent review reverted every ``_set_phase`` call in this file
+        to a direct ``self.phase =`` assignment and the suite stayed
+        green with the old ``TaskUpdate``-based version of this test).
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "Commitment",
+                core_pb2.CommitmentPayload(
+                    commitment_id="c1", action="commit", authority_scope="session"
+                ),
+            )
+        )
+        assert p.phase == "Committed"
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskComplete",
+                task_pb2.TaskCompletePayload(task_id="t1", assignee="worker1", summary="done"),
+                sender="worker1",
+            )
+        )
+        assert p.phase == "Committed"
+        assert p.is_completed("t1")  # the complete's own effect is not suppressed
 
     def test_task_accept_unknown_task_is_noop(self):
         """A TaskAccept for a task_id never seen in a TaskRequest must not

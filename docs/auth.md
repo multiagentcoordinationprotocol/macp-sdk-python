@@ -193,7 +193,7 @@ Priority: **method-level > session-level > client-level**
 
 ## TLS configuration
 
-TLS 1.2+ is required in production (RFC-MACP-0006 §3) and is the SDK default
+TLS 1.2+ is required in production (RFC-MACP-0004 §2, Transport Security) and is the SDK default
 in 0.2.0+. `secure=True` is implied unless you pass `allow_insecure=True`:
 
 ```python
