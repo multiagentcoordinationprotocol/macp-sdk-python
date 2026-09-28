@@ -768,3 +768,36 @@ only in the two newly-added blocks, confirming both required locations now carry
 
 - pushed docs/pin-raise-before-mutate-invariant 123e922 (2026-09-06) — /reconcile follow-ups: raise-before-mutate contract on the abstract docstring + tests/unit/test_projection_rollback_invariant.py. Docs+tests only, no behaviour change. Ship verification: Opus, 2 rounds (round 1 GAPS x3, round 2 PASS).
 - PR #59 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/59
+
+## Issue #93 (six defects + vendor parity contract) + #94 (anomaly kinds) — 2026-09-28
+
+Executed directly from a fully-specified directive (no `/plan` artifact under `plans/` — the six
+items and the #94 decision were already itemized before implementation started). Five commits on
+`fix/93-parity-contract-and-defects-94-anomaly-kinds`, shipped as one PR:
+
+1. `fix(agent)`: `_decode_extensions` raises on a non-str/bytes bootstrap extension value instead
+   of silently dropping it. New `tests/unit/test_agent_runner.py`.
+2. `fix(client)`: RFC citation fixed (RFC-MACP-0006 §3 → RFC-MACP-0004 §2); `secure`/
+   `allow_insecure` derivation documented as intentional, not decoupled; added `UNBOUNDED` timeout
+   sentinel + `_resolve_timeout()` across all ~24 timeout-accepting call sites. New
+   `tests/unit/test_client_timeout.py`.
+3. `fix(agent/strategies)`: `majority_voter.should_vote` deadlock fixed — gates on Evaluations
+   existing, not on votes already cast (was unreachable in an all-`majority_voter` session).
+4. `feat(projections)`: `BaseProjection._set_phase()` terminality guard (no regression out of
+   `"Committed"`) wired into every mode projection; plus the #94 decision — two new anomaly
+   kinds, `duplicate_task_accept` (task.py) and `settled_handoff` (handoff.py), recorded only for
+   an already-settled discard, never an unknown-id discard.
+5. `test(parity)`: vendored `schemas/parity/contract.json` (spec-repo commit
+   `99756f897cace4ae3f65ab3bdf7bdadcc6e4f13e`) into `tests/parity/` for the first time in this
+   repo, with a full contract test and `sync-parity`/`verify-parity` Make targets + CI wiring
+   (new `checks.yml` `parity` job, new step in `conformance-fixtures.yml`).
+
+Self-verified in place of a separate fresh-Opus `/ship` verification round (executing fork's own
+hard constraint forbade spawning subagents) — lint/format/mypy/full suite (1746 passed, 30
+skipped, 92.21% branch cov, gate 85%) all green before every push, and again after merge.
+
+PR #95 merged (squash) to `main` at `32c6437`. Issues #93 and #94 closed by the merge. Filed
+`multiagentcoordinationprotocol/macp-sdk-typescript#128` proposing `duplicate_task_accept` /
+`settled_handoff` for 5 of their 6 frozen `ProjectionAnomalyKind` sites — their 6th frozen site
+(`decision.ts`, late-Vote-after-Commitment) is a different scenario not covered by this decision
+and is flagged there as a separate open question. No release-please PR resulted from this merge.
