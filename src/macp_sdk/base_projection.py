@@ -10,21 +10,44 @@ from ._logging import logger
 
 # Cross-SDK contract with macp-sdk-typescript#55 — these two string values are
 # part of the wire-adjacent public API and must match the TypeScript SDK
-# byte-for-byte. Do not rename, and do not add a third without coordinating
-# there first.
+# byte-for-byte. They are also the two kinds pinned by the parity manifest
+# (schemas/parity/contract.json's projection_anomaly.kinds) as of contract
+# 1.1.1 -- an implementation both SDKs already agreed on.
 ANOMALY_DUPLICATE_VOTE = "duplicate_vote"  # RFC-MACP-0007 §5.3
 ANOMALY_DUPLICATE_BALLOT = "duplicate_ballot"  # RFC-MACP-0011 §5
+
+# Issue #94 (spec issue #148): whether a discarded competing TaskAccept or an
+# already-settled Handoff message should record an anomaly was, until now, an
+# open question the parity manifest deliberately left unpinned -- six call
+# sites in macp-sdk-typescript were marked "frozen pending cross-SDK
+# agreement with macp-sdk-python". This SDK adopts these two kinds
+# unilaterally as its side of that agreement (tracked via a matching issue
+# filed against macp-sdk-typescript, proposing the same two names) -- they
+# are NOT yet in the parity manifest's kinds list, and must not be asserted
+# against it until macp-sdk-typescript lands its matching side and the
+# manifest is bumped (a MINOR contract_version bump, per its versioning
+# rule). One kind per *mode* (not per cause): both cover only an
+# already-settled discard, never an unknown-subject-id discard -- an unknown
+# task_id/handoff_id can legitimately mean a projection that joined
+# mid-session, which is not caller misuse, so no kind is recorded for it.
+ANOMALY_DUPLICATE_TASK_ACCEPT = "duplicate_task_accept"  # RFC-MACP-0009 §5 rule 3a
+ANOMALY_SETTLED_HANDOFF = "settled_handoff"  # RFC-MACP-0010 §5 rule 4 / §5.1(4)
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectionAnomaly:
     """A discarded-message observation recorded by a projection.
 
-    Cross-SDK contract with macp-sdk-typescript#55: the field names, their
-    order, and both ``kind`` string values (``ANOMALY_DUPLICATE_VOTE``,
-    ``ANOMALY_DUPLICATE_BALLOT``) are a byte-for-byte contract shared with the
-    TypeScript SDK. Do not rename, reorder, or extend the field set without
-    coordinating there first.
+    Cross-SDK contract with macp-sdk-typescript#55: the field names and
+    their order are a byte-for-byte contract shared with the TypeScript SDK.
+    Do not rename, reorder, or extend the field set without coordinating
+    there first.
+
+    ``kind`` values in the parity manifest (agreed by both SDKs):
+    ``ANOMALY_DUPLICATE_VOTE``, ``ANOMALY_DUPLICATE_BALLOT``. ``kind`` values
+    this SDK also records, pending macp-sdk-typescript landing a matching
+    kind (issue #94): ``ANOMALY_DUPLICATE_TASK_ACCEPT``,
+    ``ANOMALY_SETTLED_HANDOFF`` -- see those constants' own comments.
 
     Honesty clause: this records an **observation**, not a spec-violation
     verdict. A projection cannot distinguish a genuinely non-conforming
@@ -264,6 +287,32 @@ class BaseProjection(ABC):
             if seen_id_added:
                 self._seen_message_ids.discard(message_id)
             raise
+
+    def _set_phase(self, phase: str) -> None:
+        """Assign ``self.phase``, guarding against regression out of the
+        terminal ``"Committed"`` state (issue #93 item 5).
+
+        ``apply_envelope`` sets ``self.phase = "Committed"`` directly on a
+        ``Commitment`` envelope and returns before ``_apply_mode_message`` is
+        ever called for it, so this method is never asked to move *into*
+        ``"Committed"`` -- only ever *out of* it, which is exactly the case
+        it exists to reject. RFC-MACP-0001 §7.2/§7.3: a conforming runtime
+        never admits a session-scoped message once the session is non-OPEN,
+        so a mode message arriving here after commitment means the caller
+        violated ``apply_envelope``'s accepted-only-history precondition
+        (e.g. an unfiltered transcript) -- in which case this projection's
+        *derived* ``phase`` must still not lie about the session having
+        un-committed. The transcript itself still records the envelope;
+        only this one derived field is protected. Every subclass
+        ``_apply_mode_message`` implementation must call this instead of
+        assigning ``self.phase`` directly (the one exception is each
+        subclass's own ``__init__``, which sets the initial phase before any
+        message has been applied and is never reachable in the "Committed"
+        state).
+        """
+        if self.phase == "Committed":
+            return
+        self.phase = phase
 
     @abstractmethod
     def _apply_mode_message(self, envelope: envelope_pb2.Envelope) -> None:

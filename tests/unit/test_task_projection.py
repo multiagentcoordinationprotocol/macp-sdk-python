@@ -185,9 +185,51 @@ class TestTaskProjection:
         assert p.current_status("t2") == "requested"
         assert len(p.transcript) == 4
 
+    def test_second_task_accept_while_slot_held_records_anomaly(self):
+        """Issue #94: a competing TaskAccept discarded because the
+        session's assignee slot is already held records a
+        `duplicate_task_accept` ProjectionAnomaly -- unlike an unknown
+        task_id (test_task_accept_unknown_task_is_noop below), which does
+        not, since it isn't caller misuse.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t1", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t1", assignee="worker2"),
+                sender="worker2",
+            )
+        )
+        assert p.current_assignee("t1") == "worker1"
+        assert len(p.anomalies) == 1
+        anomaly = p.anomalies[0]
+        assert anomaly.kind == "duplicate_task_accept"
+        assert anomaly.subject_id == "t1"
+        assert anomaly.sender == "worker2"
+
     def test_task_accept_unknown_task_is_noop(self):
         """A TaskAccept for a task_id never seen in a TaskRequest must not
-        raise, must not fabricate state, and must not move ``phase``.
+        raise, must not fabricate state, and must not move ``phase``. Also
+        must NOT record a ProjectionAnomaly (issue #94) -- an unknown
+        task_id can legitimately mean a projection that joined mid-session
+        and never saw the TaskRequest, which is not caller misuse.
         """
         p = self._proj()
         p.apply_envelope(
@@ -201,6 +243,7 @@ class TestTaskProjection:
         assert p.current_assignee("ghost") is None
         assert p.current_status("ghost") is None
         assert p.phase == "Pending"
+        assert p.anomalies == []
 
     def test_task_reject_unknown_task_is_noop(self):
         p = self._proj()

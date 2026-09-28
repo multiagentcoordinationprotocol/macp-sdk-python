@@ -4,7 +4,9 @@ from ._logging import configure_logging
 from .auth import AuthConfig
 from .base_projection import (
     ANOMALY_DUPLICATE_BALLOT,
+    ANOMALY_DUPLICATE_TASK_ACCEPT,
     ANOMALY_DUPLICATE_VOTE,
+    ANOMALY_SETTLED_HANDOFF,
     BaseProjection,
     ProjectionAnomaly,
 )
@@ -142,7 +144,9 @@ __version__ = _version("macp-sdk-python")
 
 __all__ = [
     "ANOMALY_DUPLICATE_BALLOT",
+    "ANOMALY_DUPLICATE_TASK_ACCEPT",
     "ANOMALY_DUPLICATE_VOTE",
+    "ANOMALY_SETTLED_HANDOFF",
     "DEFAULT_CONFIGURATION_VERSION",
     "DEFAULT_MODE_VERSION",
     "DEFAULT_POLICY_VERSION",
