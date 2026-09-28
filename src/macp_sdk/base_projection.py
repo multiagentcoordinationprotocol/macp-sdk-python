@@ -8,28 +8,27 @@ from macp.v1 import core_pb2, envelope_pb2
 
 from ._logging import logger
 
-# Cross-SDK contract with macp-sdk-typescript#55 — these two string values are
-# part of the wire-adjacent public API and must match the TypeScript SDK
-# byte-for-byte. They are also the two kinds pinned by the parity manifest
+# Cross-SDK contract with macp-sdk-typescript#55 — these four string values
+# are part of the wire-adjacent public API and must match the TypeScript SDK
+# byte-for-byte. They are also the four kinds pinned by the parity manifest
 # (schemas/parity/contract.json's projection_anomaly.kinds) as of contract
-# 1.1.1 -- an implementation both SDKs already agreed on.
+# 1.2.0 -- an implementation both SDKs now agree on.
 ANOMALY_DUPLICATE_VOTE = "duplicate_vote"  # RFC-MACP-0007 §5.3
 ANOMALY_DUPLICATE_BALLOT = "duplicate_ballot"  # RFC-MACP-0011 §5
 
 # Issue #94 (spec issue #148): whether a discarded competing TaskAccept or an
-# already-settled Handoff message should record an anomaly was, until now, an
-# open question the parity manifest deliberately left unpinned -- six call
-# sites in macp-sdk-typescript were marked "frozen pending cross-SDK
-# agreement with macp-sdk-python". This SDK adopts these two kinds
-# unilaterally as its side of that agreement (tracked via a matching issue
-# filed against macp-sdk-typescript, proposing the same two names) -- they
-# are NOT yet in the parity manifest's kinds list, and must not be asserted
-# against it until macp-sdk-typescript lands its matching side and the
-# manifest is bumped (a MINOR contract_version bump, per its versioning
-# rule). One kind per *mode* (not per cause): both cover only an
-# already-settled discard, never an unknown-subject-id discard -- an unknown
-# task_id/handoff_id can legitimately mean a projection that joined
-# mid-session, which is not caller misuse, so no kind is recorded for it.
+# already-settled Handoff message should record an anomaly was an open
+# question the parity manifest deliberately left unpinned -- six call sites
+# in macp-sdk-typescript were marked "frozen pending cross-SDK agreement
+# with macp-sdk-python". This SDK adopted these two kinds as its side of
+# that agreement in PR #95; macp-sdk-typescript landed the matching side in
+# its PR #134; the manifest bumped to contract 1.2.0 (spec PR #158) to
+# mirror the now-settled agreement, and both kinds are pinned by
+# tests/parity/test_contract.py accordingly. One kind per *mode* (not per
+# cause): both cover only an already-settled discard, never an
+# unknown-subject-id discard -- an unknown task_id/handoff_id can
+# legitimately mean a projection that joined mid-session, which is not
+# caller misuse, so no kind is recorded for it.
 ANOMALY_DUPLICATE_TASK_ACCEPT = "duplicate_task_accept"  # RFC-MACP-0009 §5 rule 3a
 ANOMALY_SETTLED_HANDOFF = "settled_handoff"  # RFC-MACP-0010 §5 rule 4 / §5.1(4)
 
@@ -43,10 +42,9 @@ class ProjectionAnomaly:
     Do not rename, reorder, or extend the field set without coordinating
     there first.
 
-    ``kind`` values in the parity manifest (agreed by both SDKs):
-    ``ANOMALY_DUPLICATE_VOTE``, ``ANOMALY_DUPLICATE_BALLOT``. ``kind`` values
-    this SDK also records, pending macp-sdk-typescript landing a matching
-    kind (issue #94): ``ANOMALY_DUPLICATE_TASK_ACCEPT``,
+    ``kind`` values, all four pinned by the parity manifest (agreed by both
+    SDKs) as of contract 1.2.0: ``ANOMALY_DUPLICATE_VOTE``,
+    ``ANOMALY_DUPLICATE_BALLOT``, ``ANOMALY_DUPLICATE_TASK_ACCEPT``,
     ``ANOMALY_SETTLED_HANDOFF`` -- see those constants' own comments.
 
     Honesty clause: this records an **observation**, not a spec-violation
