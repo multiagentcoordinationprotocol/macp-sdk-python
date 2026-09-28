@@ -1,6 +1,6 @@
 """Transport security defaults for MacpClient (PY-2).
 
-RFC-MACP-0006 §3 requires TLS 1.2+ in production. The SDK defaults to
+RFC-MACP-0004 §2 (Transport Security) requires TLS 1.2+ in production. The SDK defaults to
 ``secure=True`` and insists on an explicit ``allow_insecure=True`` opt-in
 before building a plaintext channel. This keeps the dev loop cheap while
 ensuring new code can't silently ship without TLS.

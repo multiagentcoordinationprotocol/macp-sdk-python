@@ -31,10 +31,18 @@ def _decode_extensions(raw: Any) -> dict[str, bytes]:
     still loads. A value that is neither ``str`` nor ``bytes`` has no
     reasonable interpretation under either path and is not silently
     dropped -- it raises, since the schema now says every value MUST be a
-    string (issue #93 item 2).
+    string (issue #93 item 2). The same applies to the container itself:
+    only an absent/``None`` ``extensions`` field (the common no-extensions
+    bootstrap) defaults to ``{}``; a *present* value of the wrong type (a
+    list, a string, ...) is equally malformed and raises rather than
+    silently vanishing (#97 follow-up).
     """
-    if not isinstance(raw, dict):
+    if raw is None:
         return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"bootstrap session_start.extensions must be an object, got {type(raw).__name__}"
+        )
     decoded: dict[str, bytes] = {}
     for key, value in raw.items():
         if isinstance(value, bytes):

@@ -132,6 +132,53 @@ class TestQuorumProjection:
             )
         assert p.is_threshold_unreachable("r1", total_eligible=3)
 
+    def test_late_approval_request_after_commitment_does_not_regress_phase(self):
+        """Issue #93 item 5: a mode message arriving after Commitment must
+        not move ``phase`` back out of "Committed". Approve/Reject/Abstain
+        never touch ``phase`` in this projection (only ApprovalRequest does,
+        via ``_set_phase("Voting")``), so the only message that could
+        regress it is a second ApprovalRequest -- itself a precondition
+        violation (RFC-MACP-0011 §5 rule 1 caps a session at one), which is
+        exactly the "unfiltered feed" scenario ``_set_phase`` defends
+        against. Exercised end-to-end here rather than only via the
+        synthetic projection in test_base_projection.py.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_QUORUM,
+                "ApprovalRequest",
+                quorum_pb2.ApprovalRequestPayload(
+                    request_id="r1", action="x", required_approvals=1
+                ),
+                sender="coordinator",
+            )
+        )
+        commitment = build_commitment_payload(
+            action="approve", authority_scope="quorum", reason="threshold met"
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_QUORUM,
+                "Commitment",
+                commitment,
+                sender="coordinator",
+            )
+        )
+        assert p.phase == "Committed"
+        p.apply_envelope(
+            make_envelope(
+                MODE_QUORUM,
+                "ApprovalRequest",
+                quorum_pb2.ApprovalRequestPayload(
+                    request_id="r2", action="y", required_approvals=1
+                ),
+                sender="coordinator",
+            )
+        )
+        assert p.phase == "Committed"
+        assert "r2" in p.requests  # the request's own effect is not suppressed
+
     def test_commitment_ready_false_after_commit(self):
         """Cross-SDK parity (matches TypeScript ``commitmentReady``):
         ``commitment_ready`` must return False once the session is Committed,

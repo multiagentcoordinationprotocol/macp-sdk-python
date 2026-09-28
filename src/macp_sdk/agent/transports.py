@@ -15,7 +15,7 @@ from typing import Any, Protocol
 
 from .._logging import logger
 from ..auth import AuthConfig
-from ..client import MacpClient
+from ..client import MacpClient, TimeoutValue
 from ..errors import MacpSdkError, MacpTransportError
 from ..retry import RetryPolicy
 from .types import IncomingMessage
@@ -42,13 +42,17 @@ class GrpcTransportAdapter:
         session_id: str,
         *,
         auth: AuthConfig | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutValue = None,
         subscribe_retry: RetryPolicy | None = None,
     ) -> None:
         self._client = client
         self._session_id = session_id
         self._auth = auth
-        self._timeout = timeout
+        # TimeoutValue (not a plain float | None, #97 follow-up to issue #93
+        # item 6): a long-lived subscribe stream is the most natural caller
+        # of client.UNBOUNDED -- passed straight through to open_stream(),
+        # which resolves it via MacpClient._resolve_timeout().
+        self._timeout: TimeoutValue = timeout
         self._stream: Any = None
         self._stopped = False
         self._subscribe_retry = subscribe_retry or RetryPolicy()

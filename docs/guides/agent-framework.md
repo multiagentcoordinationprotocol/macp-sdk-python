@@ -158,6 +158,8 @@ wraps it into a dispatcher handler:
 from macp_sdk.agent import (
     from_bootstrap,
     evaluation_handler,
+    voting_handler,
+    commitment_handler,
     majority_voter,
     majority_committer,
 )
@@ -168,11 +170,13 @@ participant = from_bootstrap("bootstrap.json")
 def evaluate(msg, ctx):
     return evaluation_handler(my_llm_strategy)(msg, ctx)
 
-participant.on("Vote", majority_voter(threshold=0.5))
-participant.on_phase_change("Voting", majority_committer(
+# voting_handler fires on Evaluation; commitment_handler fires on Vote --
+# both wrap a strategy into the MessageHandler `.on()` expects.
+participant.on("Evaluation", voting_handler(majority_voter(positive_threshold=0.5)))
+participant.on("Vote", commitment_handler(majority_committer(
     action="deployment.approved",
     authority_scope="release",
-))
+)))
 
 participant.run()
 ```

@@ -128,6 +128,7 @@ class TaskProjection(BaseProjection):
                     # unlike an unknown task_id (see the `else` branch's
                     # absence below), which is not: a projection that joined
                     # mid-session may legitimately never see the TaskRequest.
+                    held_sender, held_task_id = self.active_assignment
                     self._record_anomaly(
                         kind=ANOMALY_DUPLICATE_TASK_ACCEPT,
                         message_type=envelope.message_type,
@@ -135,8 +136,9 @@ class TaskProjection(BaseProjection):
                         sender=envelope.sender,
                         subject_id=p.task_id,
                         detail=(
-                            f"active assignee already designated for task {p.task_id!r}; "
-                            f"discarded competing TaskAccept from {envelope.sender!r}"
+                            f"active assignee slot already held by {held_sender!r} for "
+                            f"task {held_task_id!r}; discarded competing TaskAccept for "
+                            f"task {p.task_id!r} from {envelope.sender!r}"
                         ),
                     )
             return

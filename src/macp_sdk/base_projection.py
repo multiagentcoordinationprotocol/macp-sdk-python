@@ -90,9 +90,10 @@ class BaseProjection(ABC):
         # apply_envelope's docstring for the contract.
         self._seen_message_ids: set[str] = set()
         # Public: discarded-message observations recorded via _record_anomaly
-        # (Decision Vote, Quorum ballot -- see those projections' first-wins
-        # branches). See ProjectionAnomaly's docstring for the cross-SDK
-        # contract it carries.
+        # (Decision Vote and Quorum ballot first-wins discards; Task
+        # duplicate-accept and settled-Handoff discards -- see those
+        # projections' branches). See ProjectionAnomaly's docstring for the
+        # cross-SDK contract it carries.
         self.anomalies: list[ProjectionAnomaly] = []
 
     @property
@@ -228,9 +229,8 @@ class BaseProjection(ABC):
         # would silently swallow that retry, permanently losing the
         # envelope's effect while transcript still claims it is present.
         #
-        # What this does NOT cover: self.phase (assigned directly on
-        # BaseProjection by subclasses — see projections.py:84,
-        # task.py:102, handoff.py:70) and any subclass-owned collection
+        # What this does NOT cover: self.phase (assigned by subclasses via
+        # _set_phase(), below) and any subclass-owned collection
         # (evaluations, objections, accepts, rejections, updates,
         # completions, failures) are never rolled back, because this
         # method has no way to know what a subclass mutated. That is safe
@@ -375,8 +375,10 @@ class BaseProjection(ABC):
         so call sites cannot drift from the projection's own mode.
 
         Call sites: ``DecisionProjection``'s Vote branch and
-        ``QuorumProjection._set_ballot``, on first-wins discard of a genuine
-        duplicate Vote/ballot.
+        ``QuorumProjection._set_ballot`` (first-wins discard of a genuine
+        duplicate Vote/ballot), plus ``TaskProjection``'s TaskAccept branch
+        and ``HandoffProjection``'s settled-handoff branches (discard of a
+        competing TaskAccept / an action on an already-settled handoff).
         """
         anomaly = ProjectionAnomaly(
             kind=kind,
