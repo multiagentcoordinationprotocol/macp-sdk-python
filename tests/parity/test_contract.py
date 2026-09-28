@@ -25,7 +25,9 @@ from typing import ClassVar
 
 from macp_sdk.base_projection import (
     ANOMALY_DUPLICATE_BALLOT,
+    ANOMALY_DUPLICATE_TASK_ACCEPT,
     ANOMALY_DUPLICATE_VOTE,
+    ANOMALY_SETTLED_HANDOFF,
     ProjectionAnomaly,
 )
 from macp_sdk.commitment_hash import is_canonical_commitment_hash
@@ -66,11 +68,11 @@ sections = contract["sections"]
 registry = ProtoRegistry()
 
 
-def test_pins_contract_version_1_1_1_a_version_bump_means_re_reading_this_whole_file():
+def test_pins_contract_version_1_2_0_a_version_bump_means_re_reading_this_whole_file():
     # Not a manifest-content assertion: a tripwire so a future contract_version
     # bump (MINOR or MAJOR, per the manifest's own versioning rule) forces a
     # human to re-review every section below, not just whichever one changed.
-    assert contract["contract_version"] == "1.1.1"
+    assert contract["contract_version"] == "1.2.0"
 
 
 class TestProtocol:
@@ -158,13 +160,17 @@ class TestRetry:
 
 
 class TestProjectionAnomaly:
-    def test_kinds_match_the_two_manifest_pinned_constants(self):
-        # Exactly these two -- NOT this SDK's newer ANOMALY_DUPLICATE_TASK_ACCEPT
-        # / ANOMALY_SETTLED_HANDOFF (issue #94), which are this SDK's own side
-        # of a still-one-sided agreement and are deliberately absent from the
-        # manifest until macp-sdk-typescript lands a matching kind. See
+    def test_kinds_match_the_four_manifest_pinned_constants(self):
+        # All four -- the issue #94 cross-SDK agreement (ANOMALY_DUPLICATE_TASK_ACCEPT
+        # / ANOMALY_SETTLED_HANDOFF) settled at contract 1.2.0 once
+        # macp-sdk-typescript landed its matching side (PR #134). See
         # SOURCE.md "Open items" and base_projection.py's own comment.
-        expected = [ANOMALY_DUPLICATE_VOTE, ANOMALY_DUPLICATE_BALLOT]
+        expected = [
+            ANOMALY_DUPLICATE_VOTE,
+            ANOMALY_DUPLICATE_BALLOT,
+            ANOMALY_DUPLICATE_TASK_ACCEPT,
+            ANOMALY_SETTLED_HANDOFF,
+        ]
         assert sections["projection_anomaly"]["kinds"] == expected
 
     def test_fields_match_field_order_in_order(self):

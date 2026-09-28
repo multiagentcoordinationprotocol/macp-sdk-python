@@ -414,9 +414,9 @@ class TestProjectionAnomaly:
         # a typo in the constant's value would pass an `assert X == X` check.
         assert ANOMALY_DUPLICATE_VOTE == "duplicate_vote"
         assert ANOMALY_DUPLICATE_BALLOT == "duplicate_ballot"
-        # Issue #94 (spec #148): this SDK's side of the decision, pending
-        # macp-sdk-typescript landing a matching kind -- NOT yet in the
-        # parity manifest's kinds list (see base_projection.py's comment).
+        # Issue #94 (spec #148): settled cross-SDK agreement, pinned in the
+        # parity manifest's kinds list since contract 1.2.0 (see
+        # base_projection.py's comment).
         assert ANOMALY_DUPLICATE_TASK_ACCEPT == "duplicate_task_accept"
         assert ANOMALY_SETTLED_HANDOFF == "settled_handoff"
 

@@ -7,9 +7,9 @@ schemas/parity/contract.json
 ```
 
 from the spec repo (`multiagentcoordinationprotocol/multiagentcoordinationprotocol`),
-commit [`99756f897cace4ae3f65ab3bdf7bdadcc6e4f13e`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/99756f897cace4ae3f65ab3bdf7bdadcc6e4f13e)
-(spec-repo PR [#154](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/154),
-bumping `contract_version` to `1.1.1`), first vendored into this repo 2026-09-28 as
+commit [`45406ddaa562288c65fe73818c130b6cd58b58dc`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/45406ddaa562288c65fe73818c130b6cd58b58dc)
+(spec-repo PR [#158](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/158),
+bumping `contract_version` to `1.2.0`). First vendored into this repo 2026-09-28 as
 part of issue #93 item 1 -- this repo had no vendored copy at all before this, unlike
 `macp-runtime` and `macp-sdk-typescript`, both of which already vendor and assert
 against this manifest.
@@ -61,11 +61,17 @@ named RFC/registry/proto instead.
 - `contribute_acceptance` (`applies_to: [macp-runtime]` only) -- settled, not pending an
   upstream bump. This SDK's decode layer is observational, not an acceptance gate;
   `macp-runtime` alone rejects an empty `Contribute` payload.
-- `projection_anomaly.kinds` -- whether a discarded competing `TaskAccept` or an
-  already-settled `Handoff` message should also record an anomaly is the two SDKs' to
-  settle (issue #94). This repo has since adopted `duplicate_task_accept` and
-  `settled_handoff` unilaterally (see `src/macp_sdk/base_projection.py`), pending
-  `macp-sdk-typescript` landing a matching kind -- **do not add either to the assertion
-  in `test_contract.py` until the manifest itself lists them**; asserting ahead of the
-  manifest would defeat the point of a manifest that "mirrors, never originates"
-  agreement.
+- `projection_anomaly.kinds` -- settled at contract `1.2.0` (spec PR #158): whether a
+  discarded competing `TaskAccept` or an already-settled `Handoff` message should also
+  record an anomaly (issue #94) was resolved once `macp-sdk-typescript` landed its
+  matching side (PR #134) of the two kinds this SDK adopted in PR #95 (see
+  `src/macp_sdk/base_projection.py`); both are now pinned in the manifest and asserted
+  by `test_contract.py`. The one piece still genuinely open is the *sixth* of the six
+  sites `macp-sdk-typescript` had marked "frozen pending cross-SDK agreement" -- its
+  `DecisionProjection` guard against a `Vote` arriving after `Commitment`. That is a
+  session-terminality phase regression, not a settlement discard: both SDKs already
+  agree on the behaviour (this SDK's `BaseProjection._set_phase()` early-returns on
+  `"Committed"` and records nothing) and differ only on whether it should carry a
+  `ProjectionAnomalyKind` at all. It is deferred, not tracked -- `macp-sdk-typescript`
+  #128 scoped it out deliberately and is closed, and no open issue in any of the four
+  repos covers it.
