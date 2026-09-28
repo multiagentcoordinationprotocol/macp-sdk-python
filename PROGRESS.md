@@ -825,9 +825,11 @@ but not `decideVote`), filtering out `REVIEW` recommendations, comparing the app
 `test_decide_vote_no_evaluations`, `test_decide_vote_uses_most_recently_evaluated_proposal`,
 `test_decide_vote_excludes_review_recommendation`, a rewritten `test_custom_threshold` (against the
 new mechanism, not the old vote-ratio one it used to gate), and — the real regression proof —
-`test_all_majority_voter_session_reaches_commitment`, which drives three real
-`DecisionProjection`/`majority_voter`/`majority_committer` instances end-to-end from Evaluation
-through actual commitment.
+`test_all_majority_voter_session_reaches_commitment`, which drives one shared `DecisionProjection`
+through the same `should_vote`/`decide_vote`/`should_commit`/`decide_commitment` call sequence
+`voting_handler`/`commitment_handler` make, for three participant identities, end-to-end from
+Evaluation through actual commitment (a non-default `action` value proves `decide_commitment`'s
+return is genuinely exercised, not just restating `majority_committer`'s own default).
 
 **MEDIUM — all confirmed and fixed:**
 - Phase-terminality guard (`_set_phase`, issue #93 item 5) had a real end-to-end regression test
@@ -837,7 +839,10 @@ through actual commitment.
   four projection test files.
 - The RFC citation fix (issue #93 item 3) missed two live occurrences: `docs/auth.md:196` (the
   user-facing doc issue #93 itself was about) and `tests/unit/test_client_security.py`'s module
-  docstring. Both now cite RFC-MACP-0004 §2.
+  docstring. Both now cite RFC-MACP-0004 §2. A third, `CHANGELOG.md:541`, carries the same wrong
+  citation for the same claim (`secure=True` default) — deliberately left as-is: it's already-
+  released changelog history for a past version, and editing it would mean rewriting published
+  history for a cosmetic fix, not the kind of drift this pass otherwise closes.
 - Release/changelog gap: PR #95's squash subject wasn't a conventional-commit type, so
   release-please's PR #97 (`chore(main): release 0.10.2`) credits only PR #96's `docs(progress)`
   commit — the six defects and the #94 decision are invisible to the generated changelog despite
@@ -868,8 +873,18 @@ Make targets, the two new anomaly kinds, or `UNBOUNDED`; updated.
 just the one the review flagged (`majority_voter(threshold=0.5)` — wrong kwarg): it also registered
 raw strategies directly via `participant.on(...)` instead of wrapping them in `voting_handler`/
 `commitment_handler`, and wired them to the wrong message types (`"Vote"` instead of
-`"Evaluation"`/`"Vote"` respectively) — the example as written would have raised `TypeError`
-immediately if anyone ran it. Rewritten correctly.
+`"Evaluation"`/`"Vote"` respectively). **A follow-up independent review caught that the first fix
+pass's own "rewritten correctly" claim was still false**: `@participant.on("Proposal")` used as a
+decorator is a fourth bug — `Participant.on(message_type, handler)` (`participant.py:453`) takes
+both arguments directly, it is not a decorator factory, so that line alone still raised `TypeError`
+regardless of the other three fixes. The *same* decorator misuse was also present in this doc's
+other (earlier) handler example, `on_phase_change`/`on_terminal` included — not previously in
+scope, but the identical bug in the same file, so fixed there too. Both examples' handler
+registration calls are now smoke-tested directly against a real `Participant`/`Dispatcher`
+instance (not just read for plausibility) to confirm they raise nothing. Also fixed in the same
+pass: the strategies table's `EvaluationStrategy` row said the valid recommendation set is
+`APPROVE/REJECT/ABSTAIN` — the real set (`strategies.py:28`) is `APPROVE/REVIEW/BLOCK/REJECT`, and
+`evaluation_handler` raises on `"ABSTAIN"`.
 
 **Files touched:** `src/macp_sdk/agent/strategies.py`, `src/macp_sdk/base_projection.py`,
 `src/macp_sdk/task.py`, `src/macp_sdk/agent/runner.py`, `src/macp_sdk/agent/transports.py`,
@@ -888,3 +903,53 @@ that figure). `make lint` (ruff check + format, `src/ tests/ examples/`) and `ma
 **Verifier:** this time a genuinely independent fresh Opus agent (not a fork of the executor, not
 self-review) — dispatched directly from the orchestrating session rather than from inside another
 subagent, closing the exact gap this entry exists to fix.
+
+### Round 2 — verification of this fix-forward diff itself (PR #98) — 2026-09-28
+
+Pushed the above as branch `fix/97-post-merge-review-gaps-93-94` (two commits: `248e9c8` the
+`majority_voter` fix, `7021e7f` the other nine), opened PR #98, CI green on all checks. Dispatched
+a second fresh Opus verifier — this time over the *fix-forward diff itself*, not the original #95.
+**Verdict: GAPS, 5 items** (all independently reproduced, not taken on faith):
+
+- **G1 (MEDIUM, the one worth blocking on):** the new `TaskProjection` terminality test used
+  `TaskUpdate` as its late message — the one Task message type that never calls `_set_phase` at
+  all (`task.py`'s four call sites are `TaskRequest`/`TaskAccept`/`TaskComplete`/`TaskFail`;
+  `TaskUpdate` isn't one of them). The test was vacuous: reverting every `_set_phase` call in
+  `task.py` to a direct assignment left it green. **Fixed:** swapped to `TaskComplete` (a real
+  `_set_phase` site) and re-ran the exact mutation the verifier described — reverting all four
+  `task.py` `_set_phase` calls now fails this specific test (`'Completed' == 'Committed'`
+  assertion error), confirming it actually discriminates. Restored `task.py` afterward and
+  confirmed `git diff --stat` shows no residual change.
+- **G2 (LOW/MEDIUM):** `docs/guides/agent-framework.md`'s "rewritten correctly" claim (previous
+  round) was still false — a *fourth* bug, `@participant.on("Proposal")` used as a decorator
+  (`Participant.on` takes both args directly, it's not a decorator factory), still `TypeError`s
+  regardless of the other three fixes. Also present, unfixed, in the doc's other (earlier) example.
+  Fixed both, plus the strategies table's wrong recommendation set. Smoke-tested directly against a
+  real `Participant`/`Dispatcher` instance (see inline correction above) rather than just re-read
+  for plausibility this time.
+- **G3 (LOW):** `CHANGELOG.md:541` carries a third occurrence of the same wrong RFC citation.
+  Deliberately left as released history; PROGRESS.md's wording corrected to say so explicitly
+  instead of implying the sweep was complete.
+- **G4 (LOW):** the all-`REVIEW` branch of `decide_vote` (→ `"no qualifying evaluations"`) was
+  logically checked but had no test. Added `test_decide_vote_all_review_has_no_qualifying_evaluations`.
+- **G5 (LOW):** the headline regression test's docstring overclaimed "three real participants" (it
+  drives one shared `DecisionProjection` via direct strategy calls, not three `Participant`
+  instances) and its final `decide_commitment().action == "commit"` assertion was tautological
+  (`"commit"` is `majority_committer`'s own default). Docstring corrected; `majority_committer`
+  now constructed with `action="deploy"` so the assertion is genuinely load-bearing.
+
+Two informational notes from the verifier, not treated as gaps: `decide_vote`'s parity claim holds
+only for `should_vote` (typescript-sdk's `decideVote` uses a different denominator, no REVIEW
+exclusion, no proposal_id scoping, and returns REJECT rather than ABSTAIN below threshold) — an
+undocumented divergence, not a `tests/parity/contract.json` violation (that manifest doesn't cover
+strategies); and the "reaches commitment" claim is proven in-process only, not against a live
+`Participant`/runtime, where `voting_handler` re-firing on every Evaluation would send duplicate
+Votes that a real `MacpClient.send(raise_on_nack=True)` could propagate as an exception — pre-
+existing from #95, out of scope for this pass, not filed as a new issue.
+
+**Re-checked after closing G1/G2/G4/G5:** bare `pytest tests/` 1759 passed, 76 skipped; `make
+lint`/`make typecheck` clean.
+
+**Next:** push the two additional commits closing these gaps, then merge PR #98 on green CI —
+routine, not-critical tier. PR #97 (release-please 0.10.2) remains untouched and unmerged, flagged
+for the user per the standing rule on release/publish-triggering actions.

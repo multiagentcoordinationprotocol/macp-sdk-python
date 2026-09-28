@@ -261,11 +261,20 @@ class TestTaskProjection:
         assert "worker1" in anomaly.detail
         assert "t1" in anomaly.detail  # the actually-held task, not just "t2"
 
-    def test_late_task_update_after_commitment_does_not_regress_phase(self):
+    def test_late_task_complete_after_commitment_does_not_regress_phase(self):
         """Issue #93 item 5: a mode message arriving after Commitment must
         not move ``phase`` back out of "Committed" -- same terminality
         guard as DecisionProjection's, exercised end-to-end here rather than
         only via the synthetic projection in test_base_projection.py.
+
+        Uses ``TaskComplete``, not ``TaskUpdate``: only ``TaskRequest``
+        (:111), ``TaskAccept`` (:123), ``TaskComplete`` (:194), and
+        ``TaskFail`` (:211) call ``_set_phase`` in task.py --
+        ``TaskUpdate`` never touches ``phase`` at all, so a test built on
+        it would pass even with the guard entirely missing (confirmed: an
+        independent review reverted every ``_set_phase`` call in this file
+        to a direct ``self.phase =`` assignment and the suite stayed
+        green with the old ``TaskUpdate``-based version of this test).
         """
         p = self._proj()
         p.apply_envelope(
@@ -289,13 +298,13 @@ class TestTaskProjection:
         p.apply_envelope(
             make_envelope(
                 MODE_TASK,
-                "TaskUpdate",
-                task_pb2.TaskUpdatePayload(task_id="t1", status="in_progress", progress=0.5),
+                "TaskComplete",
+                task_pb2.TaskCompletePayload(task_id="t1", assignee="worker1", summary="done"),
                 sender="worker1",
             )
         )
         assert p.phase == "Committed"
-        assert p.progress_of("t1") == 0.5  # the update's own effect is not suppressed
+        assert p.is_completed("t1")  # the complete's own effect is not suppressed
 
     def test_task_accept_unknown_task_is_noop(self):
         """A TaskAccept for a task_id never seen in a TaskRequest must not

@@ -106,18 +106,21 @@ from macp_sdk.agent import from_bootstrap
 
 participant = from_bootstrap("bootstrap.json")
 
-@participant.on("Proposal")
 def on_proposal(msg, ctx):
     payload = msg.payload         # mode-specific proto message (decoded)
     ctx.actions.evaluate(payload.proposal_id, "APPROVE", confidence=0.9)
 
-@participant.on_phase_change("Voting")
 def on_voting(phase, ctx):
     ctx.log_fn("entering voting phase")
 
-@participant.on_terminal
 def on_done(result):
     print("terminal:", result.state, result.commitment)
+
+# on()/on_phase_change()/on_terminal() are plain fluent methods, not
+# decorator factories -- each takes the handler as a direct argument.
+participant.on("Proposal", on_proposal)
+participant.on_phase_change("Voting", on_voting)
+participant.on_terminal(on_done)
 
 participant.run()   # blocks until a terminal event fires or stop() is called
 ```
@@ -149,7 +152,7 @@ wraps it into a dispatcher handler:
 
 | Protocol | Helper | What it does |
 |----------|--------|--------------|
-| `EvaluationStrategy` | `evaluation_handler` / `function_evaluator` | Decide `APPROVE/REJECT/ABSTAIN` + confidence per proposal |
+| `EvaluationStrategy` | `evaluation_handler` / `function_evaluator` | Decide `APPROVE/REVIEW/BLOCK/REJECT` + confidence per proposal |
 | `VotingStrategy` | `voting_handler` / `function_voter` | Decide when to vote and which proposal to vote for |
 | `CommitmentStrategy` | `commitment_handler` / `function_committer` | Decide when the session is ready to commit and emit the Commitment |
 | `majority_voter` / `majority_committer` | built-in | Canonical majority-vote implementations |
@@ -166,12 +169,14 @@ from macp_sdk.agent import (
 
 participant = from_bootstrap("bootstrap.json")
 
-@participant.on("Proposal")
 def evaluate(msg, ctx):
     return evaluation_handler(my_llm_strategy)(msg, ctx)
 
-# voting_handler fires on Evaluation; commitment_handler fires on Vote --
-# both wrap a strategy into the MessageHandler `.on()` expects.
+# on() is a plain fluent method, not a decorator factory -- pass the
+# handler directly. voting_handler fires on Evaluation; commitment_handler
+# fires on Vote -- both wrap a strategy into the MessageHandler `.on()`
+# expects.
+participant.on("Proposal", evaluate)
 participant.on("Evaluation", voting_handler(majority_voter(positive_threshold=0.5)))
 participant.on("Vote", commitment_handler(majority_committer(
     action="deployment.approved",

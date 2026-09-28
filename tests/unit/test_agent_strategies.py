@@ -425,6 +425,22 @@ class TestMajorityVoter:
         # 1/1 qualifying (REVIEW excluded) approves -> meets 0.5 threshold.
         assert decision.vote == "APPROVE"
 
+    def test_decide_vote_all_review_has_no_qualifying_evaluations(self):
+        """The no-qualifying-evaluations path (every evaluation for the
+        proposal is REVIEW) is distinct from the no-evaluations-at-all
+        path -- both ABSTAIN, but for different stated reasons."""
+        strategy = majority_voter()
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("p1", "REVIEW", "a"),
+                self._evaluation("p1", "REVIEW", "b"),
+            ],
+        )
+        decision = strategy.decide_vote(proj)
+        assert decision.vote == "ABSTAIN"
+        assert "no qualifying evaluations" in decision.reason
+
     def test_custom_threshold(self):
         """positive_threshold gates decide_vote's evaluation ratio (#97
         follow-up): the old test of this name gated should_vote on a ratio
@@ -491,17 +507,27 @@ class TestMajorityVoter:
         assert decision.vote == "APPROVE"
 
     def test_all_majority_voter_session_reaches_commitment(self):
-        """End-to-end regression: a Decision session where every participant
-        runs majority_voter + majority_committer must be able to reach an
+        """Regression for the deadlock an independent post-merge review
+        found: a Decision session where every participant runs
+        majority_voter + majority_committer must be able to reach an
         actual commitment, not merely cast a non-abstaining first vote.
 
-        Reproduces the exact deadlock scenario the independent post-merge
-        review found: with decide_vote() reading votes instead of
-        evaluations, three all-ABSTAIN votes are a stable fixed point
-        (ABSTAIN is excluded from vote_totals()/majority_winner()'s
-        denominator), so majority_committer.should_commit() never becomes
-        True. Driving decide_vote() from evaluations breaks that fixed
-        point.
+        With decide_vote() reading votes instead of evaluations, three
+        all-ABSTAIN votes are a stable fixed point (ABSTAIN is excluded
+        from vote_totals()/majority_winner()'s denominator), so
+        majority_committer.should_commit() never becomes True. Driving
+        decide_vote() from evaluations breaks that fixed point.
+
+        Exercises the strategies directly against one shared
+        DecisionProjection (three participant identities, not three
+        Participant/dispatcher instances) -- should_vote/decide_vote/
+        should_commit/decide_commitment is exactly the call sequence
+        voting_handler/commitment_handler make, so this is a faithful
+        driver of the real deadlock without the I/O from_bootstrap()
+        would need. action="deploy" (not majority_committer's own
+        default "commit") so the final assertion actually exercises
+        decide_commitment()'s return value instead of restating the
+        default.
         """
         p = DecisionProjection()
         p.apply_envelope(
@@ -513,7 +539,7 @@ class TestMajorityVoter:
             )
         )
         voter = majority_voter()
-        committer = majority_committer(quorum_size=3)
+        committer = majority_committer(quorum_size=3, action="deploy")
 
         for sender in ("alice", "bob", "carol"):
             p.apply_envelope(
@@ -541,7 +567,7 @@ class TestMajorityVoter:
             )
 
         assert committer.should_commit(p) is True
-        assert committer.decide_commitment(p).action == "commit"
+        assert committer.decide_commitment(p).action == "deploy"
 
 
 class TestMajorityCommitter:
