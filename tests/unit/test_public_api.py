@@ -144,20 +144,22 @@ class TestDeprecatedAliasSurfaceWholeFeature:
     """Issue #103 finalization: each phase's own tests only exercised its own
     1-2 renamed symbols in isolation. This class covers the seam *between*
     phases -- the aggregate surface no single phase's tests could see, since
-    it only exists once all 3 phases have landed.
+    it only exists once all 4 phases (issues #103, #108) have landed.
 
-    The 5 renamed symbols split across two ``__getattr__`` namespaces:
-    ``RejectRecord``/``AcceptRecord``/``SessionLifecycle`` at the top-level
-    ``macp_sdk`` package (Phases 2-3), and ``VoteDecision``/
-    ``CommitmentDecision`` at ``macp_sdk.agent`` (Phase 1) -- both packages,
-    so both exhibit the 2x CPython `_handle_fromlist` warning count for a
-    `from ... import OldName` statement.
+    The 6 renamed symbols split across two ``__getattr__`` namespaces:
+    ``RejectRecord``/``AcceptRecord``/``SessionLifecycle``/``TaskRequestRecord``
+    at the top-level ``macp_sdk`` package (issue #103 Phases 2-3, issue #108),
+    and ``VoteDecision``/``CommitmentDecision`` at ``macp_sdk.agent`` (issue
+    #103 Phase 1) -- both packages, so both exhibit the 2x CPython
+    `_handle_fromlist` warning count for a `from ... import OldName`
+    statement.
     """
 
     _TOP_LEVEL_ALIASES: typing.ClassVar[dict[str, str]] = {
         "RejectRecord": "ProposalRejectRecord",
         "AcceptRecord": "ProposalAcceptRecord",
         "SessionLifecycle": "SessionLifecycleEvent",
+        "TaskRequestRecord": "TaskRecord",
     }
     _AGENT_ALIASES: typing.ClassVar[dict[str, str]] = {
         "VoteDecision": "VoteResult",
@@ -165,7 +167,7 @@ class TestDeprecatedAliasSurfaceWholeFeature:
     }
 
     def test_no_deprecated_name_is_left_in_either_all(self):
-        """None of the 5 old names may sit alongside their replacement in
+        """None of the 6 old names may sit alongside their replacement in
         __all__ -- a regression here would mean `from macp_sdk import *`
         silently hands out a name this feature is meant to be warning about.
         """
@@ -186,8 +188,8 @@ class TestDeprecatedAliasSurfaceWholeFeature:
         exec("from macp_sdk.agent import *", agent_ns)
         assert not set(self._AGENT_ALIASES) & set(agent_ns)
 
-    def test_all_five_deprecated_names_resolve_and_warn(self):
-        """One consolidated check that every renamed symbol from all 3
+    def test_all_six_deprecated_names_resolve_and_warn(self):
+        """One consolidated check that every renamed symbol from all 4
         phases still resolves to its replacement, by identity, with exactly
         one DeprecationWarning via a plain `getattr` call (which -- unlike a
         `from ... import` statement -- is unaffected by the package-level
@@ -204,7 +206,7 @@ class TestDeprecatedAliasSurfaceWholeFeature:
 
     def test_bare_import_of_macp_sdk_is_silent_under_strict_warning_filter(self):
         """A fresh interpreter importing macp_sdk (eagerly pulling in every
-        submodule, including the 3 that now carry deprecated aliases) must
+        submodule, including the 4 that now carry deprecated aliases) must
         not itself trigger any DeprecationWarning -- only resolving an old
         *name* should, never merely importing the package. Run in a real
         subprocess so this is a genuinely cold interpreter, not reusing this

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from typing import Any
 
 from macp.modes.task.v1 import task_pb2
 from macp.v1 import envelope_pb2
@@ -19,7 +20,7 @@ from .validation import validate_required_field
 
 
 @dataclass(slots=True)
-class TaskRequestRecord:
+class TaskRecord:
     task_id: str
     title: str
     instructions: str
@@ -83,7 +84,7 @@ class TaskProjection(BaseProjection):
     def __init__(self) -> None:
         super().__init__()
         self.phase = "Pending"
-        self.tasks: dict[str, TaskRequestRecord] = {}
+        self.tasks: dict[str, TaskRecord] = {}
         self.updates: list[TaskUpdateRecord] = []
         self.rejections: list[TaskRejectRecord] = []
         self.completions: list[TaskCompleteRecord] = []
@@ -102,7 +103,7 @@ class TaskProjection(BaseProjection):
         if mt == "TaskRequest":
             p = task_pb2.TaskRequestPayload()
             p.ParseFromString(envelope.payload)
-            self.tasks[p.task_id] = TaskRequestRecord(
+            self.tasks[p.task_id] = TaskRecord(
                 task_id=p.task_id,
                 title=p.title,
                 instructions=p.instructions,
@@ -232,7 +233,7 @@ class TaskProjection(BaseProjection):
 
     # -- State query helpers --
 
-    def get_task(self, task_id: str) -> TaskRequestRecord | None:
+    def get_task(self, task_id: str) -> TaskRecord | None:
         """Return the task request record for *task_id*, or None."""
         return self.tasks.get(task_id)
 
@@ -270,7 +271,7 @@ class TaskProjection(BaseProjection):
     def latest_progress(self) -> float | None:
         return self.updates[-1].progress if self.updates else None
 
-    def active_tasks(self) -> list[TaskRequestRecord]:
+    def active_tasks(self) -> list[TaskRecord]:
         """Return task records that are not in a terminal state."""
         active_statuses = {"requested", "accepted", "in_progress"}
         return [t for t in self.tasks.values() if t.status in active_statuses]
@@ -501,3 +502,27 @@ class TaskSession(BaseSession):
             stacklevel=2,
         )
         return self.fail_task(*args, **kwargs)  # type: ignore[arg-type]
+
+
+# ── Deprecated aliases (issue #108) ───────────────────────────────────────
+#
+# ``TaskRequestRecord`` is the pre-rename name, kept as a module-level lazy
+# alias (PEP 562) for one minor version, removed at this SDK's next major.
+# Same mechanism and reasoning as ``proposal.py``'s own alias dict -- see the
+# comment there for the full rationale. This module has no ``__path__`` (a
+# plain file, not a package), so ``from macp_sdk.task import
+# TaskRequestRecord`` resolves via a single ``getattr`` call -- the warning
+# fires exactly once per such import.
+_DEPRECATED_ALIASES = {
+    "TaskRequestRecord": "TaskRecord",
+}
+
+
+def __getattr__(name: str) -> Any:
+    new_name = _DEPRECATED_ALIASES.get(name)
+    if new_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    warnings.warn(
+        f"{name} is deprecated; use {new_name} instead.", DeprecationWarning, stacklevel=2
+    )
+    return globals()[new_name]

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib
+import warnings
+
 from macp.modes.task.v1 import task_pb2
 from macp.v1 import core_pb2
 
@@ -819,3 +822,66 @@ class TestReplayIdempotence:
         assert p.current_assignee("t1") is None
         assert p.current_status("t1") == "rejected"
         assert len(p.transcript) == 3
+
+
+class TestDeprecatedAliases:
+    """Issue #108: ``TaskRequestRecord`` -> ``TaskRecord``, kept as a
+    deprecated lazy alias.
+
+    ``macp_sdk.task`` is a plain module (no ``__path__``): a `from ...
+    import OldName` resolves via a single ``getattr`` call, one warning.
+    ``macp_sdk`` (top-level) is a package: CPython's import machinery probes
+    it with an internal ``hasattr`` call before the statement's own getattr,
+    so the same import shape fires the module's ``__getattr__`` twice — same
+    asymmetry issue #103 established empirically, see
+    ``src/macp_sdk/task.py``'s own alias comment. Both counts are asserted
+    here, not "exactly one" uniformly.
+    """
+
+    def test_task_request_record_alias_from_task_module(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.task import TaskRequestRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 1
+        assert "TaskRecord" in str(deprecation_warnings[0].message)
+        task_module = importlib.import_module("macp_sdk.task")
+        assert TaskRequestRecord is task_module.TaskRecord
+
+    def test_task_request_record_alias_from_macp_sdk_package(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk import TaskRequestRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 2
+        assert all("TaskRecord" in str(w.message) for w in deprecation_warnings)
+        macp_sdk = importlib.import_module("macp_sdk")
+        assert TaskRequestRecord is macp_sdk.TaskRecord
+
+    def test_repeated_plain_attribute_access_warns_each_time(self):
+        task_module = importlib.import_module("macp_sdk.task")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ = task_module.TaskRequestRecord
+            _ = task_module.TaskRequestRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 2
+
+    def test_unrecognized_name_still_raises_attribute_error(self):
+        task_module = importlib.import_module("macp_sdk.task")
+        macp_sdk = importlib.import_module("macp_sdk")
+        try:
+            _ = task_module.TotallyBogusName
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError("expected AttributeError")
+        try:
+            _ = macp_sdk.TotallyBogusName
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError("expected AttributeError")
