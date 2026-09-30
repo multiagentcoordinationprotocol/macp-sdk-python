@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.11.0...v0.12.0) (2026-09-30)
+
+
+### Features
+
+* enrich Task Mode's per-task record and rename TaskRequestRecord to TaskRecord ([#109](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/109)) ([601fb95](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/601fb951cd9a7cf3c445f8fa767f55be8eb59dd5))
+
 ## [0.11.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.10.2...v0.11.0) (2026-09-30)
 
 
