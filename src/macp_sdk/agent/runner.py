@@ -155,9 +155,9 @@ def from_bootstrap(bootstrap_path: str | None = None) -> Participant:
             participants=[str(p) for p in ss.get("participants", participants)],
             ttl_ms=int(ss.get("ttl_ms", 300000)),
             # Runtime v0.5.0 per-session suspension cap; absent → 0 (runtime
-            # default). The TypeScript bootstrap schema does not yet map this
-            # key, so it is Python-only for now; a bootstrap that omits it
-            # behaves identically in both SDKs.
+            # default). macp-sdk-typescript's BootstrapPayload also declares
+            # and maps this key (src/agent/runner.ts:28,103); a bootstrap
+            # that omits it behaves identically in both SDKs.
             max_suspend_ms=int(ss.get("max_suspend_ms", 0)),
             context_id=str(ss.get("context_id", "")),
             extensions=_decode_extensions(ss.get("extensions")),
