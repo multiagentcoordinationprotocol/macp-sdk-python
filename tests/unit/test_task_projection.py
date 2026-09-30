@@ -363,8 +363,8 @@ class TestTaskProjection:
         only via the synthetic projection in test_base_projection.py.
 
         Uses ``TaskComplete``, not ``TaskUpdate``: only ``TaskRequest``
-        (:119), ``TaskAccept`` (:131), ``TaskComplete`` (:214), and
-        ``TaskFail`` (:231) call ``_set_phase`` in task.py --
+        (:120), ``TaskAccept`` (:132), ``TaskComplete`` (:215), and
+        ``TaskFail`` (:232) call ``_set_phase`` in task.py --
         ``TaskUpdate`` never touches ``phase`` at all, so a test built on
         it would pass even with the guard entirely missing (confirmed: an
         independent review reverted every ``_set_phase`` call in this file
@@ -712,8 +712,8 @@ class TestReplayIdempotence:
     Separate bug from vote/ballot cardinality: BaseProjection.apply_envelope's
     message_id dedup guard (Phase 1) also fixes seven previously-unguarded
     ``.append(`` sites across Decision/Proposal/Task, including this file's
-    ``updates`` (task.py:187), ``completions`` (task.py:203), and ``failures``
-    (task.py:220).
+    ``updates`` (task.py:188), ``completions`` (task.py:204), and ``failures``
+    (task.py:221).
 
     Real-world trigger: src/macp_sdk/agent/transports.py:60 subscribes with
     after_sequence defaulting to 0, so every (re)subscribe replays the full

@@ -234,7 +234,12 @@ class TaskProjection(BaseProjection):
     # -- State query helpers --
 
     def get_task(self, task_id: str) -> TaskRecord | None:
-        """Return the task request record for *task_id*, or None."""
+        """Return the task's current record for *task_id*, or None.
+
+        Reflects live state, not just the original request: ``status``,
+        ``progress``, and ``assignee`` update in place as later messages
+        (TaskAccept/TaskUpdate/TaskComplete/TaskFail/TaskReject) arrive.
+        """
         return self.tasks.get(task_id)
 
     def current_assignee(self, task_id: str) -> str | None:
