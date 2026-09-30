@@ -8,9 +8,13 @@ expose — these tests make that a loud failure instead.
 from __future__ import annotations
 
 import dataclasses
+import subprocess
+import sys
 import typing
+import warnings
 
 import macp_sdk
+import macp_sdk.agent
 from macp_sdk.decision import DecisionSession
 from macp_sdk.handoff import HandoffProjection, HandoffSession
 from macp_sdk.projections import DecisionProjection
@@ -134,3 +138,81 @@ class TestVersionAndTimeHelper:
         ts = now_unix_ms()
         assert isinstance(ts, int)
         assert ts > 0
+
+
+class TestDeprecatedAliasSurfaceWholeFeature:
+    """Issue #103 finalization: each phase's own tests only exercised its own
+    1-2 renamed symbols in isolation. This class covers the seam *between*
+    phases -- the aggregate surface no single phase's tests could see, since
+    it only exists once all 3 phases have landed.
+
+    The 5 renamed symbols split across two ``__getattr__`` namespaces:
+    ``RejectRecord``/``AcceptRecord``/``SessionLifecycle`` at the top-level
+    ``macp_sdk`` package (Phases 2-3), and ``VoteDecision``/
+    ``CommitmentDecision`` at ``macp_sdk.agent`` (Phase 1) -- both packages,
+    so both exhibit the 2x CPython `_handle_fromlist` warning count for a
+    `from ... import OldName` statement.
+    """
+
+    _TOP_LEVEL_ALIASES: typing.ClassVar[dict[str, str]] = {
+        "RejectRecord": "ProposalRejectRecord",
+        "AcceptRecord": "ProposalAcceptRecord",
+        "SessionLifecycle": "SessionLifecycleEvent",
+    }
+    _AGENT_ALIASES: typing.ClassVar[dict[str, str]] = {
+        "VoteDecision": "VoteResult",
+        "CommitmentDecision": "CommitmentResult",
+    }
+
+    def test_no_deprecated_name_is_left_in_either_all(self):
+        """None of the 5 old names may sit alongside their replacement in
+        __all__ -- a regression here would mean `from macp_sdk import *`
+        silently hands out a name this feature is meant to be warning about.
+        """
+        stale_top_level = set(self._TOP_LEVEL_ALIASES) & set(macp_sdk.__all__)
+        stale_agent = set(self._AGENT_ALIASES) & set(macp_sdk.agent.__all__)
+        assert not stale_top_level, f"deprecated names still in macp_sdk.__all__: {stale_top_level}"
+        assert not stale_agent, f"deprecated names still in macp_sdk.agent.__all__: {stale_agent}"
+
+    def test_star_import_leaks_no_deprecated_name(self):
+        """`__getattr__` (PEP 562) is bypassed entirely by `import *`, which
+        only ever sees `__all__` -- proves that bypass holds for the real
+        top-level surface, not just per-module in isolation."""
+        top_level_ns: dict[str, object] = {}
+        exec("from macp_sdk import *", top_level_ns)
+        assert not set(self._TOP_LEVEL_ALIASES) & set(top_level_ns)
+
+        agent_ns: dict[str, object] = {}
+        exec("from macp_sdk.agent import *", agent_ns)
+        assert not set(self._AGENT_ALIASES) & set(agent_ns)
+
+    def test_all_five_deprecated_names_resolve_and_warn(self):
+        """One consolidated check that every renamed symbol from all 3
+        phases still resolves to its replacement, by identity, with exactly
+        one DeprecationWarning via a plain `getattr` call (which -- unlike a
+        `from ... import` statement -- is unaffected by the package-level
+        double-warning asymmetry, since CPython's fromlist probe is specific
+        to import statements)."""
+        for old_name, new_name in {**self._TOP_LEVEL_ALIASES, **self._AGENT_ALIASES}.items():
+            module = macp_sdk if old_name in self._TOP_LEVEL_ALIASES else macp_sdk.agent
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                resolved = getattr(module, old_name)
+            assert [w.category for w in caught] == [DeprecationWarning], old_name
+            assert new_name in str(caught[0].message)
+            assert resolved is getattr(module, new_name)
+
+    def test_bare_import_of_macp_sdk_is_silent_under_strict_warning_filter(self):
+        """A fresh interpreter importing macp_sdk (eagerly pulling in every
+        submodule, including the 3 that now carry deprecated aliases) must
+        not itself trigger any DeprecationWarning -- only resolving an old
+        *name* should, never merely importing the package. Run in a real
+        subprocess so this is a genuinely cold interpreter, not reusing this
+        process's already-populated sys.modules cache."""
+        result = subprocess.run(
+            [sys.executable, "-W", "error::DeprecationWarning", "-c", "import macp_sdk"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stderr

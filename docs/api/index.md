@@ -37,7 +37,7 @@ Auto-generated from docstrings.
 ::: macp_sdk.watchers.PolicyWatcher
 ::: macp_sdk.watchers.PolicyChange
 ::: macp_sdk.watchers.SessionLifecycleWatcher
-::: macp_sdk.watchers.SessionLifecycle
+::: macp_sdk.watchers.SessionLifecycleEvent
 ::: macp_sdk.watchers.SignalWatcher
 
 ## Policy builders

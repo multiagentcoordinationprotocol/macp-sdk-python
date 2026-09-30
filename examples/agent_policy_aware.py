@@ -16,7 +16,7 @@ from macp_sdk import MacpClient
 from macp_sdk.agent import (
     EvaluationResult,
     Participant,
-    VoteDecision,
+    VoteResult,
     evaluation_handler,
     function_evaluator,
     function_voter,
@@ -61,11 +61,11 @@ def should_vote(projection) -> bool:
     return bool(projection and projection.proposals)
 
 
-def decide_vote(projection) -> VoteDecision:
+def decide_vote(projection) -> VoteResult:
     """Vote based on the proposals in the projection."""
     if projection.proposals:
-        return VoteDecision(vote="APPROVE", reason="proposal looks good")
-    return VoteDecision(vote="ABSTAIN", reason="no proposals to evaluate")
+        return VoteResult(vote="APPROVE", reason="proposal looks good")
+    return VoteResult(vote="ABSTAIN", reason="no proposals to evaluate")
 
 
 # ── Demo: simulate events for a policy-aware participant ─────────────

@@ -16,7 +16,7 @@ import pytest
 
 from macp_sdk import (
     DecisionSession,
-    SessionLifecycle,
+    SessionLifecycleEvent,
     SessionLifecycleWatcher,
     new_session_id,
 )
@@ -68,7 +68,7 @@ class TestWatchSessions:
         observer.initialize()
         watcher = SessionLifecycleWatcher(observer)
 
-        seen: list[SessionLifecycle] = []
+        seen: list[SessionLifecycleEvent] = []
         ready = threading.Event()
 
         def consume() -> None:

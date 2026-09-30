@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import importlib
+import warnings
 from typing import Any
 from unittest.mock import MagicMock
 
 from macp.modes.decision.v1 import decision_pb2
 
 from macp_sdk.agent.strategies import (
-    CommitmentDecision,
+    CommitmentResult,
     EvaluationResult,
-    VoteDecision,
+    VoteResult,
     commitment_handler,
     evaluation_handler,
     function_committer,
@@ -116,7 +118,7 @@ class TestVotingStrategy:
     def test_function_voter(self):
         strategy = function_voter(
             should_vote_fn=lambda p: True,
-            decide_fn=lambda p: VoteDecision("approve", "good proposal"),
+            decide_fn=lambda p: VoteResult("approve", "good proposal"),
         )
         assert strategy.should_vote(None) is True
         decision = strategy.decide_vote(None)
@@ -126,7 +128,7 @@ class TestVotingStrategy:
     def test_voting_handler_votes_when_ready(self):
         strategy = function_voter(
             should_vote_fn=lambda p: True,
-            decide_fn=lambda p: VoteDecision("approve", "all clear"),
+            decide_fn=lambda p: VoteResult("approve", "all clear"),
         )
         handler = voting_handler(strategy)
         ctx = _make_context()
@@ -143,7 +145,7 @@ class TestVotingStrategy:
     def test_voting_handler_skips_when_not_ready(self):
         strategy = function_voter(
             should_vote_fn=lambda p: False,
-            decide_fn=lambda p: VoteDecision("approve", ""),
+            decide_fn=lambda p: VoteResult("approve", ""),
         )
         handler = voting_handler(strategy)
         ctx = _make_context()
@@ -157,7 +159,7 @@ class TestVotingStrategy:
         message, even one that would otherwise pass should_vote()."""
         strategy = function_voter(
             should_vote_fn=lambda p: True,
-            decide_fn=lambda p: VoteDecision("approve", "all clear"),
+            decide_fn=lambda p: VoteResult("approve", "all clear"),
         )
         handler = voting_handler(strategy)
         ctx = _make_context()
@@ -166,8 +168,8 @@ class TestVotingStrategy:
         assert len(logs) == 0
         ctx.actions.vote.assert_not_called()
 
-    def test_vote_decision_frozen(self):
-        d = VoteDecision("approve", "ok")
+    def test_vote_result_frozen(self):
+        d = VoteResult("approve", "ok")
         try:
             d.vote = "reject"  # type: ignore[misc]
             raise AssertionError("Should have raised")
@@ -179,7 +181,7 @@ class TestCommitmentStrategy:
     def test_function_committer(self):
         strategy = function_committer(
             should_commit_fn=lambda p: True,
-            decide_fn=lambda p: CommitmentDecision("deploy", "release", "quorum met"),
+            decide_fn=lambda p: CommitmentResult("deploy", "release", "quorum met"),
         )
         assert strategy.should_commit(None) is True
         decision = strategy.decide_commitment(None)
@@ -190,7 +192,7 @@ class TestCommitmentStrategy:
     def test_commitment_handler_commits_when_ready(self):
         strategy = function_committer(
             should_commit_fn=lambda p: True,
-            decide_fn=lambda p: CommitmentDecision("approve", "full", "done"),
+            decide_fn=lambda p: CommitmentResult("approve", "full", "done"),
         )
         handler = commitment_handler(strategy)
         ctx = _make_context()
@@ -209,7 +211,7 @@ class TestCommitmentStrategy:
     def test_commitment_handler_skips_when_not_ready(self):
         strategy = function_committer(
             should_commit_fn=lambda p: False,
-            decide_fn=lambda p: CommitmentDecision("x", "y", "z"),
+            decide_fn=lambda p: CommitmentResult("x", "y", "z"),
         )
         handler = commitment_handler(strategy)
         ctx = _make_context()
@@ -223,7 +225,7 @@ class TestCommitmentStrategy:
         message, even one that would otherwise pass should_commit()."""
         strategy = function_committer(
             should_commit_fn=lambda p: True,
-            decide_fn=lambda p: CommitmentDecision("approve", "full", "done"),
+            decide_fn=lambda p: CommitmentResult("approve", "full", "done"),
         )
         handler = commitment_handler(strategy)
         ctx = _make_context()
@@ -233,12 +235,12 @@ class TestCommitmentStrategy:
         ctx.actions.commit.assert_not_called()
 
     def test_commitment_handler_infers_outcome_positive_when_unset(self):
-        """Phase 2 item 4: a CommitmentDecision that leaves
+        """Phase 2 item 4: a CommitmentResult that leaves
         outcome_positive unset must get it inferred from the action name,
         not silently default to True."""
         strategy = function_committer(
             should_commit_fn=lambda p: True,
-            decide_fn=lambda p: CommitmentDecision("task_rejected", "full", "no quorum"),
+            decide_fn=lambda p: CommitmentResult("task_rejected", "full", "no quorum"),
         )
         handler = commitment_handler(strategy)
         ctx = _make_context()
@@ -255,7 +257,7 @@ class TestCommitmentStrategy:
         even for an action name that would infer True."""
         strategy = function_committer(
             should_commit_fn=lambda p: True,
-            decide_fn=lambda p: CommitmentDecision(
+            decide_fn=lambda p: CommitmentResult(
                 "approve", "full", "manual override", outcome_positive=False
             ),
         )
@@ -269,8 +271,8 @@ class TestCommitmentStrategy:
             outcome_positive=False,
         )
 
-    def test_commitment_decision_frozen(self):
-        d = CommitmentDecision("a", "b", "c")
+    def test_commitment_result_frozen(self):
+        d = CommitmentResult("a", "b", "c")
         try:
             d.action = "x"  # type: ignore[misc]
             raise AssertionError("Should have raised")
@@ -285,7 +287,7 @@ class TestStrategyComposition:
         eval_strategy = function_evaluator(lambda p, c: EvaluationResult("APPROVE", 0.9, "fine"))
         vote_strategy = function_voter(
             should_vote_fn=lambda p: True,
-            decide_fn=lambda p: VoteDecision("approve", "evaluation passed"),
+            decide_fn=lambda p: VoteResult("approve", "evaluation passed"),
         )
         eval_h = evaluation_handler(eval_strategy)
         vote_h = voting_handler(vote_strategy)
@@ -716,3 +718,95 @@ class TestMajorityStrategiesUnderFirstWins:
 
         strategy = majority_committer(quorum_size=1)
         assert strategy.should_commit(p) is False
+
+
+class TestDeprecatedAliases:
+    """Issue #103 / multiagentcoordinationprotocol#135: ``VoteDecision``/
+    ``CommitmentDecision`` are kept as deprecated aliases for ``VoteResult``/
+    ``CommitmentResult`` for one minor version. Old names are resolved
+    *inside* ``catch_warnings`` -- never at module level, which would fail
+    test *collection* under this repo's ``filterwarnings = ["error", ...]``
+    (pyproject.toml) before any test body ran.
+
+    Uses real ``from ... import OldName`` statements (not attribute access)
+    since that is what the plan's acceptance criteria describe and what
+    real callers do. The submodule path (``macp_sdk.agent.strategies``, a
+    plain file, no ``__path__``) and the package path (``macp_sdk.agent``,
+    has ``__path__``) genuinely differ in warning count -- confirmed
+    empirically, not assumed -- because CPython's import machinery probes a
+    *package*'s fromlist name with an internal ``hasattr`` call before the
+    statement's own getattr (see the comment beside ``agent/__init__.py``'s
+    ``__getattr__``); a plain module has no such probe. Both still return an
+    object ``is`` its ``*Result`` counterpart either way.
+    """
+
+    def test_vote_decision_alias_from_strategies_module(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.agent.strategies import VoteDecision
+        assert [w.category for w in caught] == [DeprecationWarning]
+        assert "VoteResult" in str(caught[0].message)
+        module = importlib.import_module("macp_sdk.agent.strategies")
+        assert VoteDecision is module.VoteResult
+
+    def test_commitment_decision_alias_from_strategies_module(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.agent.strategies import CommitmentDecision
+        assert [w.category for w in caught] == [DeprecationWarning]
+        assert "CommitmentResult" in str(caught[0].message)
+        module = importlib.import_module("macp_sdk.agent.strategies")
+        assert CommitmentDecision is module.CommitmentResult
+
+    def test_vote_decision_alias_from_agent_package(self):
+        """The package path triggers CPython's fromlist hasattr-probe twice
+        (see agent/__init__.py's __getattr__ comment) -- this asserts the
+        real, verified count (2) rather than the naively-expected one, so a
+        future change to the import machinery's behavior surfaces as a
+        failing test instead of a silently-wrong docstring."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.agent import VoteDecision
+        assert [w.category for w in caught] == [DeprecationWarning, DeprecationWarning]
+        assert all("VoteResult" in str(w.message) for w in caught)
+        module = importlib.import_module("macp_sdk.agent")
+        assert VoteDecision is module.VoteResult
+
+    def test_commitment_decision_alias_from_agent_package(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.agent import CommitmentDecision
+        assert [w.category for w in caught] == [DeprecationWarning, DeprecationWarning]
+        assert all("CommitmentResult" in str(w.message) for w in caught)
+        module = importlib.import_module("macp_sdk.agent")
+        assert CommitmentDecision is module.CommitmentResult
+
+    def test_repeated_plain_attribute_access_warns_each_time(self):
+        """PEP 562 results aren't cached in the module's __dict__ -- unlike
+        the `from ... import` form (bound once as a local/global), plain
+        attribute-style access (module.OldName, no `from` import) re-warns
+        on every access. Documented in strategies.py's alias comment;
+        proven here rather than only asserted."""
+        module = importlib.import_module("macp_sdk.agent.strategies")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ = module.VoteDecision
+            _ = module.VoteDecision
+        assert [w.category for w in caught] == [DeprecationWarning, DeprecationWarning]
+
+    def test_unrecognized_name_still_raises_attribute_error(self):
+        """Coverage for __getattr__'s fallthrough branch (not just the
+        matched-name branch) -- required to hold the 85% branch floor."""
+        module = importlib.import_module("macp_sdk.agent.strategies")
+        try:
+            _ = module.TotallyBogusName
+            raise AssertionError("Should have raised")
+        except AttributeError:
+            pass
+
+        pkg = importlib.import_module("macp_sdk.agent")
+        try:
+            _ = pkg.TotallyBogusName
+            raise AssertionError("Should have raised")
+        except AttributeError:
+            pass

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -86,7 +87,7 @@ def function_evaluator(
 
 
 @dataclass(frozen=True, slots=True)
-class VoteDecision:
+class VoteResult:
     """Result of a voting decision."""
 
     vote: str
@@ -98,7 +99,7 @@ class VotingStrategy(Protocol):
 
     def should_vote(self, projection: Any) -> bool: ...
 
-    def decide_vote(self, projection: Any) -> VoteDecision: ...
+    def decide_vote(self, projection: Any) -> VoteResult: ...
 
 
 def voting_handler(strategy: VotingStrategy) -> MessageHandler:
@@ -132,7 +133,7 @@ def voting_handler(strategy: VotingStrategy) -> MessageHandler:
 
 def function_voter(
     should_vote_fn: Callable[[Any], bool],
-    decide_fn: Callable[[Any], VoteDecision],
+    decide_fn: Callable[[Any], VoteResult],
 ) -> VotingStrategy:
     """Wrap plain functions as a VotingStrategy."""
 
@@ -142,7 +143,7 @@ def function_voter(
         def __init__(
             self,
             should_fn: Callable[[Any], bool],
-            decide_fn: Callable[[Any], VoteDecision],
+            decide_fn: Callable[[Any], VoteResult],
         ) -> None:
             self._should_fn = should_fn
             self._decide_fn = decide_fn
@@ -150,7 +151,7 @@ def function_voter(
         def should_vote(self, projection: Any) -> bool:
             return self._should_fn(projection)
 
-        def decide_vote(self, projection: Any) -> VoteDecision:
+        def decide_vote(self, projection: Any) -> VoteResult:
             return self._decide_fn(projection)
 
     return _FnVoter(should_vote_fn, decide_fn)
@@ -160,7 +161,7 @@ def function_voter(
 
 
 @dataclass(frozen=True, slots=True)
-class CommitmentDecision:
+class CommitmentResult:
     """Result of a commitment decision."""
 
     action: str
@@ -174,7 +175,7 @@ class CommitmentStrategy(Protocol):
 
     def should_commit(self, projection: Any) -> bool: ...
 
-    def decide_commitment(self, projection: Any) -> CommitmentDecision: ...
+    def decide_commitment(self, projection: Any) -> CommitmentResult: ...
 
 
 def commitment_handler(strategy: CommitmentStrategy) -> MessageHandler:
@@ -219,7 +220,7 @@ def commitment_handler(strategy: CommitmentStrategy) -> MessageHandler:
 
 def function_committer(
     should_commit_fn: Callable[[Any], bool],
-    decide_fn: Callable[[Any], CommitmentDecision],
+    decide_fn: Callable[[Any], CommitmentResult],
 ) -> CommitmentStrategy:
     """Wrap plain functions as a CommitmentStrategy."""
 
@@ -229,7 +230,7 @@ def function_committer(
         def __init__(
             self,
             should_fn: Callable[[Any], bool],
-            decide_fn: Callable[[Any], CommitmentDecision],
+            decide_fn: Callable[[Any], CommitmentResult],
         ) -> None:
             self._should_fn = should_fn
             self._decide_fn = decide_fn
@@ -237,7 +238,7 @@ def function_committer(
         def should_commit(self, projection: Any) -> bool:
             return self._should_fn(projection)
 
-        def decide_commitment(self, projection: Any) -> CommitmentDecision:
+        def decide_commitment(self, projection: Any) -> CommitmentResult:
             return self._decide_fn(projection)
 
     return _FnCommitter(should_commit_fn, decide_fn)
@@ -286,10 +287,10 @@ def majority_voter(
             evaluations = getattr(projection, "evaluations", None)
             return bool(evaluations)
 
-        def decide_vote(self, projection: Any) -> VoteDecision:
+        def decide_vote(self, projection: Any) -> VoteResult:
             evaluations = list(getattr(projection, "evaluations", None) or [])
             if not evaluations:
-                return VoteDecision(vote="ABSTAIN", reason="no evaluations to decide from")
+                return VoteResult(vote="ABSTAIN", reason="no evaluations to decide from")
             # The most recently evaluated proposal is the one being voted on.
             proposal_id = evaluations[-1].proposal_id
             qualifying = [
@@ -298,21 +299,21 @@ def majority_voter(
                 if e.proposal_id == proposal_id and e.recommendation.upper() != "REVIEW"
             ]
             if not qualifying:
-                return VoteDecision(
+                return VoteResult(
                     vote="ABSTAIN",
                     reason=f"no qualifying evaluations for {proposal_id!r}",
                 )
             approvals = sum(1 for e in qualifying if e.recommendation.upper() == "APPROVE")
             ratio = approvals / len(qualifying)
             if ratio >= self._threshold:
-                return VoteDecision(
+                return VoteResult(
                     vote="APPROVE",
                     reason=(
                         f"{approvals}/{len(qualifying)} evaluations approve "
                         f"{proposal_id!r} (>= {self._threshold:.0%})"
                     ),
                 )
-            return VoteDecision(
+            return VoteResult(
                 vote="ABSTAIN",
                 reason=(
                     f"{approvals}/{len(qualifying)} evaluations approve "
@@ -355,9 +356,9 @@ def majority_committer(
                 return False
             return projection.majority_winner() is not None
 
-        def decide_commitment(self, projection: Any) -> CommitmentDecision:
+        def decide_commitment(self, projection: Any) -> CommitmentResult:
             winner = projection.majority_winner()
-            return CommitmentDecision(
+            return CommitmentResult(
                 action=self._action,
                 authority_scope=self._scope,
                 reason=f"majority winner: {winner}",
@@ -365,3 +366,34 @@ def majority_committer(
             )
 
     return _MajorityCommitter(quorum_size, action, authority_scope)
+
+
+# ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────
+#
+# ``VoteDecision``/``CommitmentDecision`` are the pre-rename names, kept as
+# module-level lazy aliases (PEP 562) for one minor version, removed at this
+# SDK's next major. A plain assignment (``VoteDecision = VoteResult``) would
+# be silent; a wrapper subclass would fight ``frozen=True, slots=True``. This
+# module has no ``__path__`` (a plain file, not a package), so CPython's
+# ``from ... import VoteDecision`` resolves via a single ``getattr`` call --
+# the warning fires exactly once per such import, not per call. (Contrast
+# ``agent/__init__.py``'s own alias dict: a *package* import goes through an
+# extra internal ``hasattr`` probe first, firing this pattern twice -- see
+# the comment there.) Plain attribute access (``strategies.VoteDecision``,
+# no ``from`` import) is not cached in ``globals()`` and re-warns on every
+# such access -- the returned object ``is`` its ``*Result`` counterpart
+# either way.
+_DEPRECATED_ALIASES = {
+    "VoteDecision": "VoteResult",
+    "CommitmentDecision": "CommitmentResult",
+}
+
+
+def __getattr__(name: str) -> Any:
+    new_name = _DEPRECATED_ALIASES.get(name)
+    if new_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    warnings.warn(
+        f"{name} is deprecated; use {new_name} instead.", DeprecationWarning, stacklevel=2
+    )
+    return globals()[new_name]

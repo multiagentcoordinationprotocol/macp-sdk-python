@@ -118,7 +118,7 @@ proj.proposals["p1"].disposition  # "live" | "withdrawn"
 proj.proposals["p2"].supersedes   # "p1"
 
 # Accepts
-proj.accepts                    # dict[sender, AcceptRecord]
+proj.accepts                    # list[ProposalAcceptRecord]
 proj.accepted_proposal()        # proposal_id if all senders' latest accepts agree, else None
 
 # Rejections and withdrawals

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib
+import warnings
+
 from macp.modes.proposal.v1 import proposal_pb2
 from macp.v1 import core_pb2
 
@@ -301,3 +304,88 @@ class TestReplayIdempotence:
         assert p.is_accepted("p1") is False
         assert len(p.accepts) == 2
         assert len(p.transcript) == 2
+
+
+class TestDeprecatedAliases:
+    """Issue #103: ``RejectRecord``/``AcceptRecord`` -> ``ProposalRejectRecord``/
+    ``ProposalAcceptRecord``, kept as deprecated lazy aliases.
+
+    ``macp_sdk.proposal`` is a plain module (no ``__path__``): a `from ...
+    import OldName` resolves via a single ``getattr`` call, one warning.
+    ``macp_sdk`` (top-level) is a package: CPython's import machinery probes
+    it with an internal ``hasattr`` call before the statement's own getattr,
+    so the same import shape fires the module's ``__getattr__`` twice —
+    verified empirically in Phase 1, see ``src/macp_sdk/__init__.py``'s own
+    alias comment. Both counts are asserted here, not "exactly one"
+    uniformly.
+    """
+
+    def test_reject_record_alias_from_proposal_module(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.proposal import RejectRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 1
+        assert "ProposalRejectRecord" in str(deprecation_warnings[0].message)
+        proposal_module = importlib.import_module("macp_sdk.proposal")
+        assert RejectRecord is proposal_module.ProposalRejectRecord
+
+    def test_accept_record_alias_from_proposal_module(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.proposal import AcceptRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 1
+        assert "ProposalAcceptRecord" in str(deprecation_warnings[0].message)
+        proposal_module = importlib.import_module("macp_sdk.proposal")
+        assert AcceptRecord is proposal_module.ProposalAcceptRecord
+
+    def test_reject_record_alias_from_macp_sdk_package(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk import RejectRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 2
+        assert all("ProposalRejectRecord" in str(w.message) for w in deprecation_warnings)
+        macp_sdk = importlib.import_module("macp_sdk")
+        assert RejectRecord is macp_sdk.ProposalRejectRecord
+
+    def test_accept_record_alias_from_macp_sdk_package(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk import AcceptRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 2
+        assert all("ProposalAcceptRecord" in str(w.message) for w in deprecation_warnings)
+        macp_sdk = importlib.import_module("macp_sdk")
+        assert AcceptRecord is macp_sdk.ProposalAcceptRecord
+
+    def test_repeated_plain_attribute_access_warns_each_time(self):
+        proposal_module = importlib.import_module("macp_sdk.proposal")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ = proposal_module.RejectRecord
+            _ = proposal_module.RejectRecord
+
+        deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecation_warnings) == 2
+
+    def test_unrecognized_name_still_raises_attribute_error(self):
+        proposal_module = importlib.import_module("macp_sdk.proposal")
+        macp_sdk = importlib.import_module("macp_sdk")
+        try:
+            _ = proposal_module.TotallyBogusName
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError("expected AttributeError")
+        try:
+            _ = macp_sdk.TotallyBogusName
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError("expected AttributeError")
