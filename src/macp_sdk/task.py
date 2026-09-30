@@ -25,6 +25,11 @@ class TaskRequestRecord:
     instructions: str
     requested_assignee: str
     requester: str
+    status: str = "requested"
+    progress: float = 0.0
+    assignee: str | None = None
+    deadline_unix_ms: int = 0
+    input: bytes = b""
 
 
 @dataclass(slots=True)
@@ -80,16 +85,14 @@ class TaskProjection(BaseProjection):
         self.phase = "Pending"
         self.tasks: dict[str, TaskRequestRecord] = {}
         self.updates: list[TaskUpdateRecord] = []
+        self.rejections: list[TaskRejectRecord] = []
         self.completions: list[TaskCompleteRecord] = []
         self.failures: list[TaskFailRecord] = []
-        # Per-task mutable state (reporting view — what a caller reads)
-        self._assignees: dict[str, str] = {}  # task_id -> assignee
-        self._statuses: dict[str, str] = {}  # task_id -> status
-        self._progress: dict[str, float] = {}  # task_id -> progress
         # Session-scoped single-assignee slot (RFC-MACP-0009 §5 rule 3: "Only
         # one assignee may become active for the Session in base v1" — scoped
         # to the whole session, not to a task_id). This is the exclusivity
-        # guard; ``_assignees`` above remains the per-task reporting view.
+        # guard; each task's own ``assignee`` field on ``self.tasks`` remains
+        # the per-task reporting view.
         # Mirrors typescript-sdk's ``activeAssignment`` field.
         self.active_assignment: tuple[str, str] | None = None  # (sender, task_id)
 
@@ -105,9 +108,14 @@ class TaskProjection(BaseProjection):
                 instructions=p.instructions,
                 requested_assignee=p.requested_assignee,
                 requester=envelope.sender,
+                status="requested",
+                progress=0.0,
+                assignee=None,
+                deadline_unix_ms=p.deadline_unix_ms,
+                input=p.input,
             )
-            self._statuses[p.task_id] = "requested"
-            self._progress[p.task_id] = 0.0
+            if self.active_assignment is not None and self.active_assignment[1] == p.task_id:
+                self.active_assignment = None
             self._set_phase("Requested")
             return
 
@@ -118,8 +126,8 @@ class TaskProjection(BaseProjection):
                 if self.active_assignment is None:
                     assignee = p.assignee or envelope.sender
                     self.active_assignment = (envelope.sender, p.task_id)
-                    self._assignees[p.task_id] = assignee
-                    self._statuses[p.task_id] = "accepted"
+                    self.tasks[p.task_id].assignee = assignee
+                    self.tasks[p.task_id].status = "accepted"
                     self._set_phase("InProgress")
                 else:
                     # RFC-MACP-0009 §5 rule 3a: a second TaskAccept while the
@@ -146,15 +154,27 @@ class TaskProjection(BaseProjection):
         if mt == "TaskReject":
             p = task_pb2.TaskRejectPayload()
             p.ParseFromString(envelope.payload)
-            # Status write is gated on the task being known (task.ts:136's
-            # `if (task)`); slot-freeing is a SEPARATE, unconditional check on
-            # sender alone (task.ts:158-161) — a slot-holder's TaskReject
-            # naming an unknown task_id still frees their held slot.
+            # The rejection record is kept unconditionally (mirrors updates/
+            # completions/failures' own audit-trail convention); only the
+            # per-task status write is gated on the task being known
+            # (task.ts:136's `if (task)`). Slot-freeing is a SEPARATE,
+            # unconditional check on sender alone (task.ts:158-161) — a
+            # slot-holder's TaskReject naming an unknown task_id still frees
+            # their held slot.
+            self.rejections.append(
+                TaskRejectRecord(
+                    task_id=p.task_id,
+                    assignee=p.assignee or envelope.sender,
+                    reason=p.reason,
+                )
+            )
             if p.task_id in self.tasks:
-                self._statuses[p.task_id] = "rejected"
+                self.tasks[p.task_id].status = "rejected"
             slot = self.active_assignment
             if slot is not None and slot[0] == envelope.sender:
-                self._assignees.pop(slot[1], None)
+                held = self.tasks.get(slot[1])
+                if held is not None:
+                    held.assignee = None
                 self.active_assignment = None
             return
 
@@ -173,8 +193,8 @@ class TaskProjection(BaseProjection):
                 )
             )
             if p.task_id in self.tasks:
-                self._statuses[p.task_id] = "in_progress"
-                self._progress[p.task_id] = p.progress
+                self.tasks[p.task_id].status = "in_progress"
+                self.tasks[p.task_id].progress = p.progress
             return
 
         if mt == "TaskComplete":
@@ -189,8 +209,8 @@ class TaskProjection(BaseProjection):
                 )
             )
             if p.task_id in self.tasks:
-                self._statuses[p.task_id] = "completed"
-                self._progress[p.task_id] = 1.0
+                self.tasks[p.task_id].status = "completed"
+                self.tasks[p.task_id].progress = 1.0
                 self._set_phase("Completed")
             return
 
@@ -207,7 +227,7 @@ class TaskProjection(BaseProjection):
                 )
             )
             if p.task_id in self.tasks:
-                self._statuses[p.task_id] = "failed"
+                self.tasks[p.task_id].status = "failed"
                 self._set_phase("Failed")
 
     # -- State query helpers --
@@ -218,21 +238,25 @@ class TaskProjection(BaseProjection):
 
     def current_assignee(self, task_id: str) -> str | None:
         """Return the current assignee for *task_id*, or None if unassigned."""
-        return self._assignees.get(task_id)
+        rec = self.tasks.get(task_id)
+        return rec.assignee if rec is not None else None
 
     def current_status(self, task_id: str) -> str | None:
         """Return the current status for *task_id*, or None if unknown."""
-        return self._statuses.get(task_id)
+        rec = self.tasks.get(task_id)
+        return rec.status if rec is not None else None
 
     def is_accepted(self, task_id: str) -> bool:
-        status = self._statuses.get(task_id)
-        return status == "accepted" or status == "in_progress"
+        rec = self.tasks.get(task_id)
+        return rec is not None and rec.status in ("accepted", "in_progress")
 
     def is_completed(self, task_id: str) -> bool:
-        return self._statuses.get(task_id) == "completed"
+        rec = self.tasks.get(task_id)
+        return rec is not None and rec.status == "completed"
 
     def is_failed(self, task_id: str) -> bool:
-        return self._statuses.get(task_id) == "failed"
+        rec = self.tasks.get(task_id)
+        return rec is not None and rec.status == "failed"
 
     def is_retryable(self, task_id: str) -> bool:
         """True if the task failed with ``retryable=True``."""
@@ -240,7 +264,8 @@ class TaskProjection(BaseProjection):
 
     def progress_of(self, task_id: str) -> float:
         """Return the latest progress value for *task_id*, or 0 if unknown."""
-        return self._progress.get(task_id, 0.0)
+        rec = self.tasks.get(task_id)
+        return rec.progress if rec is not None else 0.0
 
     def latest_progress(self) -> float | None:
         return self.updates[-1].progress if self.updates else None
@@ -248,7 +273,7 @@ class TaskProjection(BaseProjection):
     def active_tasks(self) -> list[TaskRequestRecord]:
         """Return task records that are not in a terminal state."""
         active_statuses = {"requested", "accepted", "in_progress"}
-        return [t for t in self.tasks.values() if self._statuses.get(t.task_id) in active_statuses]
+        return [t for t in self.tasks.values() if t.status in active_statuses]
 
 
 # ---------------------------------------------------------------------------

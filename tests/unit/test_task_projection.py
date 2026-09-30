@@ -31,13 +31,78 @@ class TestTaskProjection:
                     title="Analyze data",
                     instructions="run the pipeline",
                     requested_assignee="worker",
+                    input=b"payload-bytes",
+                    deadline_unix_ms=1234567890,
                 ),
                 sender="planner",
             )
         )
-        assert p.get_task("t1") is not None
-        assert p.get_task("t1").task_id == "t1"
+        task = p.get_task("t1")
+        assert task is not None
+        assert task.task_id == "t1"
+        assert task.status == "requested"
+        assert task.progress == 0.0
+        assert task.assignee is None
+        assert task.deadline_unix_ms == 1234567890
+        assert task.input == b"payload-bytes"
         assert p.phase == "Requested"
+
+    def test_repeat_task_request_fully_resets_the_record(self):
+        """A second TaskRequest for an existing task_id replaces the record
+        wholesale -- status/progress/assignee/deadline/input all come from
+        the new request, not merged with prior state. If the task_id was
+        holding the session's active_assignment slot, that slot is freed
+        too, keeping the two pieces of per-session state consistent (a
+        naive field-reset alone would otherwise desync them and make the
+        task permanently unclaimable via ANOMALY_DUPLICATE_TASK_ACCEPT).
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="first"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t1", assignee="worker1"),
+                sender="worker1",
+            )
+        )
+        assert p.current_assignee("t1") == "worker1"
+        assert p.active_assignment == ("worker1", "t1")
+
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="second"),
+                sender="planner",
+            )
+        )
+        task = p.get_task("t1")
+        assert task is not None
+        assert task.title == "second"
+        assert task.status == "requested"
+        assert task.progress == 0.0
+        assert task.assignee is None
+        assert p.active_assignment is None
+
+        # Slot is genuinely free -- a new accept can claim it.
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskAccept",
+                task_pb2.TaskAcceptPayload(task_id="t1", assignee="worker2"),
+                sender="worker2",
+            )
+        )
+        assert p.current_assignee("t1") == "worker2"
+        assert p.anomalies == []
 
     def test_accept(self):
         p = self._proj()
@@ -79,6 +144,33 @@ class TestTaskProjection:
             )
         )
         assert not p.is_accepted("t1")
+
+    def test_reject_known_task_populates_rejection_record(self):
+        """TaskRejectRecord was previously defined and exported but never
+        instantiated -- this proves it's actually wired up.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskReject",
+                task_pb2.TaskRejectPayload(task_id="t1", assignee="worker", reason="busy"),
+                sender="worker",
+            )
+        )
+        assert len(p.rejections) == 1
+        rejection = p.rejections[0]
+        assert rejection.task_id == "t1"
+        assert rejection.assignee == "worker"
+        assert rejection.reason == "busy"
 
     def test_update(self):
         p = self._proj()
@@ -268,8 +360,8 @@ class TestTaskProjection:
         only via the synthetic projection in test_base_projection.py.
 
         Uses ``TaskComplete``, not ``TaskUpdate``: only ``TaskRequest``
-        (:111), ``TaskAccept`` (:123), ``TaskComplete`` (:194), and
-        ``TaskFail`` (:211) call ``_set_phase`` in task.py --
+        (:119), ``TaskAccept`` (:131), ``TaskComplete`` (:214), and
+        ``TaskFail`` (:231) call ``_set_phase`` in task.py --
         ``TaskUpdate`` never touches ``phase`` at all, so a test built on
         it would pass even with the guard entirely missing (confirmed: an
         independent review reverted every ``_set_phase`` call in this file
@@ -339,6 +431,9 @@ class TestTaskProjection:
         )
         assert p.current_status("ghost") is None
         assert p.phase == "Pending"
+        # The rejection record itself is kept unconditionally, matching
+        # updates/completions/failures' own audit-trail convention.
+        assert len(p.rejections) == 1
 
     def test_task_update_unknown_task_is_noop(self):
         """A TaskUpdate for a task_id never seen in a TaskRequest must not
@@ -614,8 +709,8 @@ class TestReplayIdempotence:
     Separate bug from vote/ballot cardinality: BaseProjection.apply_envelope's
     message_id dedup guard (Phase 1) also fixes seven previously-unguarded
     ``.append(`` sites across Decision/Proposal/Task, including this file's
-    ``updates`` (task.py:123), ``completions`` (task.py:138), and ``failures``
-    (task.py:154).
+    ``updates`` (task.py:187), ``completions`` (task.py:203), and ``failures``
+    (task.py:220).
 
     Real-world trigger: src/macp_sdk/agent/transports.py:60 subscribes with
     after_sequence defaulting to 0, so every (re)subscribe replays the full
