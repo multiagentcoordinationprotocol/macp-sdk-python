@@ -112,8 +112,8 @@ from .task import (
     TaskCompleteRecord,
     TaskFailRecord,
     TaskProjection,
+    TaskRecord,
     TaskRejectRecord,
-    TaskRequestRecord,
     TaskSession,
     TaskUpdateRecord,
 )
@@ -233,8 +233,8 @@ __all__ = [
     "TaskCompletionRules",
     "TaskFailRecord",
     "TaskProjection",
+    "TaskRecord",
     "TaskRejectRecord",
-    "TaskRequestRecord",
     "TaskSession",
     "TaskUpdateRecord",
     "VotingRules",
@@ -299,17 +299,19 @@ __all__ = [
 # happens either. Only an explicit `simplefilter("always")` capture (as in
 # this repo's own deprecation tests) observes both. By contrast, resolving
 # the same old name from its *defining* submodule (`macp_sdk.proposal`,
-# `macp_sdk.watchers` -- plain files, no __path__) fires this pattern once.
+# `macp_sdk.watchers`, `macp_sdk.task` -- plain files, no __path__) fires
+# this pattern once.
 #
-# One dict, one __getattr__, covering all three renamed top-level exports
-# (issue #103 items 3-5) -- each entry's defining submodule (proposal.py,
-# watchers.py) owns its own identical-shaped __getattr__ for direct
+# One dict, one __getattr__, covering all renamed top-level exports (issue
+# #103 items 3-5, issue #108) -- each entry's defining submodule (proposal.py,
+# watchers.py, task.py) owns its own identical-shaped __getattr__ for direct
 # submodule imports; this one is only reached via the `macp_sdk` top-level
 # package path.
 _DEPRECATED_ALIASES = {
     "RejectRecord": "ProposalRejectRecord",
     "AcceptRecord": "ProposalAcceptRecord",
     "SessionLifecycle": "SessionLifecycleEvent",
+    "TaskRequestRecord": "TaskRecord",
 }
 
 

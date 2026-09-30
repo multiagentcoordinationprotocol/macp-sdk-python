@@ -153,36 +153,68 @@ if proj.is_completed("t1"):
 proj = session.task_projection
 task_id = "t1"
 
-# Task metadata
-proj.task                    # TaskRequestRecord or None
-proj.task.task_id            # "t1"
-proj.task.requested_assignee # "analyst-agent"
+# Per-task current state (original request fields + live status/progress/assignee)
+proj.tasks                        # dict[str, TaskRecord] -- every task_id seen this session
+proj.get_task(task_id)            # TaskRecord or None
+proj.get_task(task_id).task_id            # "t1"
+proj.get_task(task_id).title              # "Q4 Sales Analysis"
+proj.get_task(task_id).instructions       # as sent in TaskRequest
+proj.get_task(task_id).requested_assignee # "analyst-agent" -- who was asked for
+proj.get_task(task_id).requester          # the TaskRequest's sender
+proj.get_task(task_id).deadline_unix_ms   # optional soft deadline, or 0
+proj.get_task(task_id).input              # bytes payload the request carried
+proj.get_task(task_id).status     # "requested" | "accepted" | "in_progress" |
+                                   # "completed" | "failed" | "rejected"
+proj.get_task(task_id).progress   # 0.0-1.0
+proj.get_task(task_id).assignee   # str or None -- who actually accepted (may
+                                   # differ from requested_assignee above)
+proj.active_tasks()               # list[TaskRecord] with status in
+                                   # {"requested", "accepted", "in_progress"}
+proj.active_assignment            # (sender, task_id) or None -- the session-scoped
+                                   # single-assignee slot (RFC-MACP-0009 §5 rule 3),
+                                   # distinct from a per-task `.assignee` field above
 
-# Assignment
-proj.active_assignee         # "analyst-agent" or None
-proj.is_accepted(task_id)    # True after a TaskAccept claims the session's one assignee slot
+# Convenience reads (equivalent to the fields above, kept for existing callers).
+# For an unknown task_id these return None/0.0 rather than raising, unlike
+# get_task(task_id) itself, which returns None and would raise on attribute
+# access.
+proj.current_status(task_id)      # same as get_task(task_id).status, or None
+proj.current_assignee(task_id)    # same as get_task(task_id).assignee, or None
+proj.progress_of(task_id)         # same as get_task(task_id).progress, or 0.0
+proj.is_accepted(task_id)         # status in {"accepted", "in_progress"}
+proj.is_completed(task_id)        # status == "completed"
+proj.is_failed(task_id)           # status == "failed"
+proj.is_retryable(task_id)        # True if it failed with retryable=True
 
-# Progress
-proj.updates                 # list[TaskUpdateRecord]
-proj.latest_progress()       # 0.7 (last reported)
-
-# Terminal report
-proj.terminal_report         # TaskCompleteRecord | TaskFailRecord | None
-proj.is_completed(task_id)   # True if TaskComplete received
-proj.is_failed(task_id)      # True if TaskFail received
-
-# Rejections (before acceptance)
-proj.rejections              # list[TaskRejectRecord]
+# Full audit trails
+proj.updates                      # list[TaskUpdateRecord]
+proj.rejections                   # list[TaskRejectRecord]
+proj.completions                  # list[TaskCompleteRecord]
+proj.failures                     # list[TaskFailRecord]
+proj.latest_progress()            # 0.7 (from proj.updates[-1], or None)
 
 # Lifecycle
-proj.phase                   # "Pending" | "Requested" | "InProgress" | "Completed" | "Failed" | "Committed"
+proj.phase                        # "Pending" | "Requested" | "InProgress" |
+                                   # "Completed" | "Failed" | "Committed"
 ```
+
+> **`TaskUpdateRecord.status` is not `TaskRecord.status`.** The former is
+> the raw wire value a worker reported in a `TaskUpdate` (e.g. `"running"`,
+> whatever string the caller chose); the latter is the projection's own
+> derived lifecycle state (`"requested"` | `"accepted"` | `"in_progress"` |
+> `"completed"` | `"failed"` | `"rejected"`). They share a field name, not
+> a meaning.
+
+> **`get_task()` and `active_tasks()` return the projection's own live
+> record objects, not copies.** Treat them as read-only — mutating a
+> returned `TaskRecord` mutates the projection's internal state directly
+> (same as `ProposalProjection`'s equivalent accessors).
 
 ## Handling task failures
 
 ```python
 if proj.is_failed(task_id):
-    report = proj.terminal_report
+    report = proj.failures[-1]  # the most recent TaskFailRecord
     print(f"Task failed: {report.error_code} — {report.reason}")
     if report.retryable:
         # Create a new session for retry
