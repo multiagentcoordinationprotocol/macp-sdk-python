@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
+from typing import Any
 
 from macp.modes.proposal.v1 import proposal_pb2
 from macp.v1 import envelope_pb2
@@ -30,7 +32,7 @@ class ProposalRecord:
 
 
 @dataclass(slots=True)
-class RejectRecord:
+class ProposalRejectRecord:
     proposal_id: str
     reason: str
     sender: str
@@ -38,7 +40,7 @@ class RejectRecord:
 
 
 @dataclass(slots=True)
-class AcceptRecord:
+class ProposalAcceptRecord:
     proposal_id: str
     reason: str
     sender: str
@@ -58,8 +60,8 @@ class ProposalProjection(BaseProjection):
         super().__init__()
         self.phase = "Negotiating"
         self.proposals: dict[str, ProposalRecord] = {}
-        self.accepts: list[AcceptRecord] = []
-        self.rejections: list[RejectRecord] = []
+        self.accepts: list[ProposalAcceptRecord] = []
+        self.rejections: list[ProposalRejectRecord] = []
         # Tracks each sender's most recent Accept, so a later Accept from the
         # same sender supersedes an earlier one (RFC-MACP-0008 §5 rule 5).
         # `self.accepts` remains the full audit trail; this is the derived
@@ -102,7 +104,7 @@ class ProposalProjection(BaseProjection):
             p = proposal_pb2.AcceptPayload()
             p.ParseFromString(envelope.payload)
             self.accepts.append(
-                AcceptRecord(
+                ProposalAcceptRecord(
                     proposal_id=p.proposal_id,
                     reason=p.reason,
                     sender=envelope.sender,
@@ -115,7 +117,7 @@ class ProposalProjection(BaseProjection):
             p = proposal_pb2.RejectPayload()
             p.ParseFromString(envelope.payload)
             self.rejections.append(
-                RejectRecord(
+                ProposalRejectRecord(
                     proposal_id=p.proposal_id,
                     reason=p.reason,
                     sender=envelope.sender,
@@ -326,3 +328,29 @@ class ProposalSession(BaseSession):
             payload=serialize_message(payload),
         )
         return self._send_and_track(envelope, auth=auth)
+
+
+# ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────
+#
+# ``RejectRecord``/``AcceptRecord`` are the pre-rename names, kept as
+# module-level lazy aliases (PEP 562) for one minor version, removed at this
+# SDK's next major. Same mechanism and reasoning as ``agent/strategies.py``'s
+# own alias dict -- see the comment there for the full rationale (plain
+# assignment is silent; a wrapper subclass is unnecessary complexity here
+# too). This module has no ``__path__`` (a plain file, not a package), so
+# ``from macp_sdk.proposal import RejectRecord`` resolves via a single
+# ``getattr`` call -- the warning fires exactly once per such import.
+_DEPRECATED_ALIASES = {
+    "RejectRecord": "ProposalRejectRecord",
+    "AcceptRecord": "ProposalAcceptRecord",
+}
+
+
+def __getattr__(name: str) -> Any:
+    new_name = _DEPRECATED_ALIASES.get(name)
+    if new_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    warnings.warn(
+        f"{name} is deprecated; use {new_name} instead.", DeprecationWarning, stacklevel=2
+    )
+    return globals()[new_name]

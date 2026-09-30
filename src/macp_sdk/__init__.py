@@ -1,4 +1,6 @@
+import warnings
 from importlib.metadata import version as _version
+from typing import Any as _Any
 
 from ._logging import configure_logging
 from .auth import AuthConfig
@@ -97,11 +99,11 @@ from .projections import (
     DecisionVoteRecord,
 )
 from .proposal import (
-    AcceptRecord,
+    ProposalAcceptRecord,
     ProposalProjection,
     ProposalRecord,
+    ProposalRejectRecord,
     ProposalSession,
-    RejectRecord,
 )
 from .proto_registry import ProtoRegistry
 from .quorum import ApprovalRequestRecord, BallotRecord, QuorumProjection, QuorumSession
@@ -176,7 +178,6 @@ __all__ = [
     "UNKNOWN_POLICY_VERSION",
     "UNSUPPORTED_PROTOCOL_VERSION",
     "AbstentionRules",
-    "AcceptRecord",
     "AckFailure",
     "ApprovalRequestRecord",
     "AuthConfig",
@@ -211,15 +212,16 @@ __all__ = [
     "PolicyChange",
     "PolicyWatcher",
     "ProjectionAnomaly",
+    "ProposalAcceptRecord",
     "ProposalAcceptanceRules",
     "ProposalProjection",
     "ProposalRecord",
+    "ProposalRejectRecord",
     "ProposalSession",
     "ProtoRegistry",
     "QuorumProjection",
     "QuorumSession",
     "QuorumThreshold",
-    "RejectRecord",
     "RejectionRules",
     "RetryPolicy",
     "RootsWatcher",
@@ -273,3 +275,47 @@ __all__ = [
     "validate_ttl_ms",
     "validate_vote",
 ]
+
+# ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────
+#
+# Kept out of __all__ deliberately -- a deprecated name should not appear in
+# `from macp_sdk import *` or in generated API docs. Does not delegate to the
+# defining submodule's own __getattr__ (proposal.py's, watchers.py's): doing
+# so would point the warning's stacklevel at this module's frame instead of
+# the caller's, since `from macp_sdk import OldName` (this top-level package)
+# is the far more common import path -- same reasoning as agent/__init__.py's
+# own alias dict.
+#
+# This module IS a package (`macp_sdk/`, has __path__), like agent/__init__.py.
+# CPython's import machinery (`importlib._bootstrap._handle_fromlist`) probes
+# any fromlist name against a package with `hasattr(module, name)` *before*
+# the `from ... import` statement's own bytecode-level getattr -- so a
+# deprecated name accessed via `from macp_sdk import RejectRecord` triggers
+# this __getattr__ twice (confirmed empirically in Phase 1), not once. Under
+# Python's default warning filters the two are deduplicated by (message,
+# category, location) and a caller sees a single printed line regardless;
+# under a strict `error` filter (as this repo's own test suite runs under)
+# the first `warnings.warn()` call raises immediately, so the second never
+# happens either. Only an explicit `simplefilter("always")` capture (as in
+# this repo's own deprecation tests) observes both. By contrast, resolving
+# the same old name from its *defining* submodule (`macp_sdk.proposal`,
+# `macp_sdk.watchers` -- plain files, no __path__) fires this pattern once.
+#
+# Phase 3 extends this dict with its one entry ("SessionLifecycle":
+# "SessionLifecycleEvent") rather than adding a second __getattr__ -- Python
+# only honors the last __getattr__ defined in a module, so a second one would
+# silently shadow this one.
+_DEPRECATED_ALIASES = {
+    "RejectRecord": "ProposalRejectRecord",
+    "AcceptRecord": "ProposalAcceptRecord",
+}
+
+
+def __getattr__(name: str) -> _Any:
+    new_name = _DEPRECATED_ALIASES.get(name)
+    if new_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    warnings.warn(
+        f"{name} is deprecated; use {new_name} instead.", DeprecationWarning, stacklevel=2
+    )
+    return globals()[new_name]
