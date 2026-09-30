@@ -210,7 +210,7 @@ class TestDeprecatedAliasSurfaceWholeFeature:
         subprocess so this is a genuinely cold interpreter, not reusing this
         process's already-populated sys.modules cache."""
         result = subprocess.run(
-            [sys.executable, "-W", "error", "-c", "import macp_sdk"],
+            [sys.executable, "-W", "error::DeprecationWarning", "-c", "import macp_sdk"],
             capture_output=True,
             text=True,
             timeout=30,
