@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.11.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.10.2...v0.11.0) (2026-09-30)
+
+
+### Features
+
+* rename VoteDecision/CommitmentDecision/RejectRecord/AcceptRecord/SessionLifecycle for cross-SDK naming consistency ([5f85638](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/5f856386144b90c6f0e975d95adf3fd8aeae280c)), closes [#103](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/103)
+
+
+### Bug Fixes
+
+* **parity:** re-vendor contract.json at 1.2.0, settle issue [#94](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/94)'s kinds ([#100](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/100)) ([1bba0c4](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1bba0c43ed3c6204f3b6f82b3c82f805dd3298ac))
+
+
+### Documentation
+
+* fix stale max_suspend_ms comment in agent/runner.py ([#105](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/105)) ([e55a791](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/e55a79112edd01bf9e3947686fb46239cbd8b732)), closes [#104](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/104)
+
 ## [0.10.2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.10.1...v0.10.2) (2026-09-28)
 
 
