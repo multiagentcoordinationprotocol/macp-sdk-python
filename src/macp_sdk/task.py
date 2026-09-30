@@ -239,6 +239,11 @@ class TaskProjection(BaseProjection):
         Reflects live state, not just the original request: ``status``,
         ``progress``, and ``assignee`` update in place as later messages
         (TaskAccept/TaskUpdate/TaskComplete/TaskFail/TaskReject) arrive.
+
+        The returned object is this projection's own record, not a copy --
+        treat it as read-only. Mutating it mutates projection state directly
+        (same contract as :meth:`ProposalProjection.live_proposals`'s
+        returned records).
         """
         return self.tasks.get(task_id)
 
@@ -277,7 +282,11 @@ class TaskProjection(BaseProjection):
         return self.updates[-1].progress if self.updates else None
 
     def active_tasks(self) -> list[TaskRecord]:
-        """Return task records that are not in a terminal state."""
+        """Return task records that are not in a terminal state.
+
+        Returns this projection's own records, not copies -- see
+        :meth:`get_task`'s docstring for the read-only contract.
+        """
         active_statuses = {"requested", "accepted", "in_progress"}
         return [t for t in self.tasks.values() if t.status in active_statuses]
 

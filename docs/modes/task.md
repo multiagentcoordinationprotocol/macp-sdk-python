@@ -153,13 +153,21 @@ if proj.is_completed("t1"):
 proj = session.task_projection
 task_id = "t1"
 
-# Per-task current state (request fields + live status/progress/assignee)
+# Per-task current state (original request fields + live status/progress/assignee)
 proj.tasks                        # dict[str, TaskRecord] -- every task_id seen this session
 proj.get_task(task_id)            # TaskRecord or None
+proj.get_task(task_id).task_id            # "t1"
+proj.get_task(task_id).title              # "Q4 Sales Analysis"
+proj.get_task(task_id).instructions       # as sent in TaskRequest
+proj.get_task(task_id).requested_assignee # "analyst-agent" -- who was asked for
+proj.get_task(task_id).requester          # the TaskRequest's sender
+proj.get_task(task_id).deadline_unix_ms   # optional soft deadline, or 0
+proj.get_task(task_id).input              # bytes payload the request carried
 proj.get_task(task_id).status     # "requested" | "accepted" | "in_progress" |
                                    # "completed" | "failed" | "rejected"
 proj.get_task(task_id).progress   # 0.0-1.0
-proj.get_task(task_id).assignee   # str or None
+proj.get_task(task_id).assignee   # str or None -- who actually accepted (may
+                                   # differ from requested_assignee above)
 proj.active_tasks()               # list[TaskRecord] with status in
                                    # {"requested", "accepted", "in_progress"}
 proj.active_assignment            # (sender, task_id) or None -- the session-scoped
