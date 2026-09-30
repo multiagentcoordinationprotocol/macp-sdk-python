@@ -137,7 +137,7 @@ from .watchers import (
     PolicyChange,
     PolicyWatcher,
     RootsWatcher,
-    SessionLifecycle,
+    SessionLifecycleEvent,
     SessionLifecycleWatcher,
     SignalWatcher,
 )
@@ -225,7 +225,7 @@ __all__ = [
     "RejectionRules",
     "RetryPolicy",
     "RootsWatcher",
-    "SessionLifecycle",
+    "SessionLifecycleEvent",
     "SessionLifecycleWatcher",
     "SignalWatcher",
     "TaskAssignmentRules",
@@ -301,13 +301,15 @@ __all__ = [
 # the same old name from its *defining* submodule (`macp_sdk.proposal`,
 # `macp_sdk.watchers` -- plain files, no __path__) fires this pattern once.
 #
-# Phase 3 extends this dict with its one entry ("SessionLifecycle":
-# "SessionLifecycleEvent") rather than adding a second __getattr__ -- Python
-# only honors the last __getattr__ defined in a module, so a second one would
-# silently shadow this one.
+# One dict, one __getattr__, covering all three renamed top-level exports
+# (issue #103 items 3-5) -- each entry's defining submodule (proposal.py,
+# watchers.py) owns its own identical-shaped __getattr__ for direct
+# submodule imports; this one is only reached via the `macp_sdk` top-level
+# package path.
 _DEPRECATED_ALIASES = {
     "RejectRecord": "ProposalRejectRecord",
     "AcceptRecord": "ProposalAcceptRecord",
+    "SessionLifecycle": "SessionLifecycleEvent",
 }
 
 

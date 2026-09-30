@@ -8,6 +8,8 @@ a misleading handshake.
 
 from __future__ import annotations
 
+import importlib
+import warnings
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,7 +18,7 @@ from macp.v1 import core_pb2
 from macp_sdk.auth import AuthConfig
 from macp_sdk.client import MacpClient, _default_capabilities
 from macp_sdk.errors import MacpSdkError, MacpTransportError
-from macp_sdk.watchers import SessionLifecycle, SessionLifecycleWatcher
+from macp_sdk.watchers import SessionLifecycleEvent, SessionLifecycleWatcher
 from tests.conftest import FakeRpcError
 from tests.conftest import client_with_stub as _client_with_stub
 
@@ -183,7 +185,7 @@ class TestSessionLifecycleWatcher:
         r = _lifecycle_response(core_pb2.SessionLifecycleEvent.EVENT_TYPE_CREATED, "s1")
         client.watch_sessions.return_value = iter([r])
         watcher = SessionLifecycleWatcher(client)
-        seen: list[SessionLifecycle] = []
+        seen: list[SessionLifecycleEvent] = []
         watcher.watch(seen.append)
         assert len(seen) == 1 and seen[0].is_created
 
@@ -214,6 +216,61 @@ class TestSessionLifecycleWatcher:
         auth = AuthConfig.for_bearer("tok-override")
         list(SessionLifecycleWatcher(client, auth=auth).changes())
         client.watch_sessions.assert_called_once_with(auth=auth)
+
+
+class TestDeprecatedAliases:
+    """Issue #103: ``SessionLifecycle`` -> ``SessionLifecycleEvent``, kept as a
+    deprecated lazy alias.
+
+    ``macp_sdk.watchers`` is a plain module (no ``__path__``): a `from ...
+    import OldName` resolves via a single ``getattr`` call, one warning.
+    ``macp_sdk`` (top-level) is a package: CPython's import machinery probes
+    it with an internal ``hasattr`` call before the statement's own getattr,
+    so the same import shape fires the module's ``__getattr__`` twice —
+    verified in Phases 1 and 2, see ``src/macp_sdk/__init__.py``'s own alias
+    comment. Both counts are asserted here, not "exactly one" uniformly.
+    """
+
+    def test_session_lifecycle_alias_from_watchers_module(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk.watchers import SessionLifecycle
+        assert [w.category for w in caught] == [DeprecationWarning]
+        assert "SessionLifecycleEvent" in str(caught[0].message)
+        module = importlib.import_module("macp_sdk.watchers")
+        assert SessionLifecycle is module.SessionLifecycleEvent
+
+    def test_session_lifecycle_alias_from_macp_sdk_package(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from macp_sdk import SessionLifecycle
+        assert [w.category for w in caught] == [DeprecationWarning, DeprecationWarning]
+        assert all("SessionLifecycleEvent" in str(w.message) for w in caught)
+        macp_sdk = importlib.import_module("macp_sdk")
+        assert SessionLifecycle is macp_sdk.SessionLifecycleEvent
+
+    def test_repeated_plain_attribute_access_warns_each_time(self):
+        module = importlib.import_module("macp_sdk.watchers")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ = module.SessionLifecycle
+            _ = module.SessionLifecycle
+        assert [w.category for w in caught] == [DeprecationWarning, DeprecationWarning]
+
+    def test_unrecognized_name_still_raises_attribute_error(self):
+        module = importlib.import_module("macp_sdk.watchers")
+        try:
+            _ = module.TotallyBogusName
+            raise AssertionError("Should have raised")
+        except AttributeError:
+            pass
+
+        pkg = importlib.import_module("macp_sdk")
+        try:
+            _ = pkg.TotallyBogusName
+            raise AssertionError("Should have raised")
+        except AttributeError:
+            pass
 
 
 class TestReadOnlyRpcsAcceptAuth:

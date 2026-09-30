@@ -8,6 +8,7 @@ Each watcher provides three consumption patterns:
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -26,11 +27,12 @@ class PolicyChange:
 
 
 @dataclass(slots=True)
-class SessionLifecycle:
+class SessionLifecycleEvent:
     """A single session lifecycle event from ``WatchSessions``.
 
-    Runtime event types (per ``SessionLifecycleEvent.EventType``, since
-    macp-proto 0.1.3): ``CREATED`` on SessionStart acceptance (also emitted
+    Runtime event types (per the wire message's own
+    ``SessionLifecycleEvent.EventType`` enum, since macp-proto 0.1.3):
+    ``CREATED`` on SessionStart acceptance (also emitted
     for pre-existing sessions at subscribe time), ``RESOLVED`` on
     mode-determined terminal outcome, ``EXPIRED`` on TTL/policy expiry,
     ``CANCELLED`` on an accepted ``CancelSession`` (previously surfaced as
@@ -158,7 +160,8 @@ _SESSION_EVENT_PREFIX = "EVENT_TYPE_"
 
 
 def _session_event_name(event_type: int) -> str:
-    """Map ``SessionLifecycleEvent.EventType`` enum ints to short string names.
+    """Map the wire message's ``SessionLifecycleEvent.EventType`` enum ints to
+    short string names.
 
     The proto enum spells values as ``EVENT_TYPE_CREATED``; strip the
     prefix so consumers can compare against ``"CREATED"`` without
@@ -176,7 +179,7 @@ class SessionLifecycleWatcher:
     """Watch for session lifecycle events from the runtime.
 
     Wraps ``MacpClient.watch_sessions()`` and normalises each response into
-    a ``SessionLifecycle`` record carrying the event type as a short
+    a ``SessionLifecycleEvent`` record carrying the event type as a short
     string (``CREATED`` / ``RESOLVED`` / ``EXPIRED`` / ``CANCELLED`` /
     ``SUSPENDED`` / ``RESUMED``) and the full ``SessionMetadata``. The
     runtime emits an initial CREATED event for every already-open session at
@@ -188,24 +191,24 @@ class SessionLifecycleWatcher:
         self._client = client
         self._auth = auth
 
-    def changes(self) -> Iterator[SessionLifecycle]:
-        """Yield ``SessionLifecycle`` items from the runtime stream."""
+    def changes(self) -> Iterator[SessionLifecycleEvent]:
+        """Yield ``SessionLifecycleEvent`` items from the runtime stream."""
         for response in self._client.watch_sessions(auth=self._auth):
             event = getattr(response, "event", None)
             if event is None:
                 continue
-            yield SessionLifecycle(
+            yield SessionLifecycleEvent(
                 event_type=_session_event_name(event.event_type),
                 observed_at_unix_ms=event.observed_at_unix_ms,
                 session=event.session,
             )
 
-    def watch(self, handler: Callable[[SessionLifecycle], None]) -> None:
+    def watch(self, handler: Callable[[SessionLifecycleEvent], None]) -> None:
         """Block and invoke *handler* for each lifecycle event."""
         for change in self.changes():
             handler(change)
 
-    def next_change(self) -> SessionLifecycle:
+    def next_change(self) -> SessionLifecycleEvent:
         """Pull a single lifecycle event from the stream and return it."""
         for change in self.changes():
             return change
@@ -236,3 +239,27 @@ class PolicyWatcher:
         for change in self.changes():
             return change
         raise RuntimeError("stream ended before receiving a policy change")
+
+
+# ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────
+#
+# ``SessionLifecycle`` is the pre-rename name, kept as a module-level lazy
+# alias (PEP 562) for one minor version, removed at this SDK's next major.
+# Same mechanism and reasoning as ``agent/strategies.py``'s own alias dict --
+# see the comment there for the full rationale. This module has no
+# ``__path__`` (a plain file, not a package), so
+# ``from macp_sdk.watchers import SessionLifecycle`` resolves via a single
+# ``getattr`` call -- the warning fires exactly once per such import.
+_DEPRECATED_ALIASES = {
+    "SessionLifecycle": "SessionLifecycleEvent",
+}
+
+
+def __getattr__(name: str) -> Any:
+    new_name = _DEPRECATED_ALIASES.get(name)
+    if new_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    warnings.warn(
+        f"{name} is deprecated; use {new_name} instead.", DeprecationWarning, stacklevel=2
+    )
+    return globals()[new_name]
