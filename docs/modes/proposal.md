@@ -178,6 +178,15 @@ proj.is_committed                 # True after Commitment
 > projection's internal state directly (same as `TaskProjection`'s equivalent
 > accessors).
 
+> **A terminal `Reject` naming a `proposal_id` this projection never saw records the
+> rejection but does not move `phase`.** `proj.has_terminal_rejection()` and
+> `proj.is_terminally_rejected(proposal_id)` still return `True` — they read
+> `proj.rejections`, not `phase` — but `proj.phase` stays `"Negotiating"`, because the
+> projection has no record to terminalize. This matters beyond bookkeeping:
+> `"TerminalRejected"` is a terminal phase for `Participant.run()`, so moving into it
+> for an unknown `proposal_id` would end a live event loop for a session that never
+> actually terminated. (Issue #119.)
+
 ## Error cases
 
 | Error | When | How to handle |
