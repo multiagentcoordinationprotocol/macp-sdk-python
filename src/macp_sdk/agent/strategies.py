@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..envelope import infer_outcome_positive
+from ..validation import validate_confidence, validate_recommendation
 from .types import HandlerContext, IncomingMessage, MessageHandler, SessionInfo
 
 # ── Evaluation ───────────────────────────────────────────────────────
@@ -26,9 +27,6 @@ class EvaluationStrategy(Protocol):
     def evaluate(self, proposal: dict[str, Any], context: SessionInfo) -> EvaluationResult: ...
 
 
-_VALID_RECOMMENDATIONS = frozenset({"APPROVE", "REVIEW", "BLOCK", "REJECT"})
-
-
 def evaluation_handler(strategy: EvaluationStrategy) -> MessageHandler:
     """Create a MessageHandler that evaluates proposals using the given strategy.
 
@@ -41,14 +39,8 @@ def evaluation_handler(strategy: EvaluationStrategy) -> MessageHandler:
         if message.message_type != "Proposal":
             return
         result = strategy.evaluate(message.payload, ctx.session)
-        recommendation = result.recommendation.upper()
-        if recommendation not in _VALID_RECOMMENDATIONS:
-            raise ValueError(
-                f"invalid recommendation {result.recommendation!r}: "
-                "must be one of APPROVE, REVIEW, BLOCK, REJECT"
-            )
-        if not (0.0 <= result.confidence <= 1.0):
-            raise ValueError(f"confidence must be in [0.0, 1.0], got {result.confidence}")
+        recommendation = validate_recommendation(result.recommendation)
+        validate_confidence(result.confidence)
         ctx.log(
             "evaluation: recommendation=%s confidence=%.2f reason=%s",
             recommendation,

@@ -26,6 +26,7 @@ from macp_sdk.agent.types import (
     SessionInfo,
 )
 from macp_sdk.constants import MODE_DECISION
+from macp_sdk.errors import MacpSdkError, MacpSessionError
 from macp_sdk.projections import DecisionEvaluationRecord, DecisionProjection
 from tests.conftest import make_envelope
 
@@ -636,8 +637,9 @@ class TestEvaluationValidation:
         try:
             handler(_make_message(), ctx)
             raise AssertionError("Should have raised")
-        except ValueError as exc:
+        except MacpSessionError as exc:
             assert "invalid recommendation" in str(exc)
+            assert isinstance(exc, MacpSdkError)
 
     def test_confidence_above_one_raises(self):
         strategy = function_evaluator(lambda p, c: EvaluationResult("APPROVE", 1.5, "too high"))
@@ -646,8 +648,9 @@ class TestEvaluationValidation:
         try:
             handler(_make_message(), ctx)
             raise AssertionError("Should have raised")
-        except ValueError as exc:
+        except MacpSessionError as exc:
             assert "confidence" in str(exc)
+            assert isinstance(exc, MacpSdkError)
 
     def test_confidence_below_zero_raises(self):
         strategy = function_evaluator(lambda p, c: EvaluationResult("APPROVE", -0.1, "too low"))
@@ -656,8 +659,26 @@ class TestEvaluationValidation:
         try:
             handler(_make_message(), ctx)
             raise AssertionError("Should have raised")
-        except ValueError as exc:
+        except MacpSessionError as exc:
             assert "confidence" in str(exc)
+            assert isinstance(exc, MacpSdkError)
+
+    def test_confidence_nan_raises(self):
+        # Regression gate for issue #121 item 1 ordering: validate_confidence
+        # must reject NaN here exactly as it did before the de-duplication
+        # (Phase 1 of plans/sdk-parity-sync-121.md landed the non-finite
+        # guard this depends on).
+        strategy = function_evaluator(
+            lambda p, c: EvaluationResult("APPROVE", float("nan"), "not a number")
+        )
+        handler = evaluation_handler(strategy)
+        ctx = _make_context()
+        try:
+            handler(_make_message(), ctx)
+            raise AssertionError("Should have raised")
+        except MacpSessionError as exc:
+            assert "confidence" in str(exc)
+            assert isinstance(exc, MacpSdkError)
 
 
 class TestMajorityStrategiesUnderFirstWins:

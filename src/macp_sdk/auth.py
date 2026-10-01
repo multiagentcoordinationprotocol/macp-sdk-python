@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .errors import MacpSessionError
+
 
 @dataclass(frozen=True)
 class AuthConfig:
@@ -23,7 +25,7 @@ class AuthConfig:
 
     def __post_init__(self) -> None:
         if not self.bearer_token:
-            raise ValueError("bearer_token is required")
+            raise MacpSessionError("bearer_token is required")
 
     @classmethod
     def for_dev_agent(cls, agent_id: str, *, expected_sender: str | None = None) -> AuthConfig:
