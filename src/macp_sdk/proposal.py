@@ -27,7 +27,12 @@ class ProposalRecord:
     summary: str
     proposer: str
     supersedes: str  # "" if original
-    status: str  # "open" | "accepted" | "rejected" | "withdrawn"
+    # Reachable values only. An Accept is recorded on the projection's
+    # ``accepts`` list (and surfaced via ``accepted_proposal`` /
+    # ``is_accepted``), never on this field -- no code path assigns
+    # "accepted" here. A non-terminal Reject likewise leaves this "open";
+    # only ``terminal=True`` sets "rejected".
+    status: str  # "open" | "rejected" | "withdrawn"
     tags: list[str]
 
 

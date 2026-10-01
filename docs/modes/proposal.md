@@ -41,7 +41,10 @@ Commitment → RESOLVED
 
 ### Key semantics
 
-- **CounterProposal** supersedes a referenced proposal — the original becomes `withdrawn`
+- **CounterProposal** mints a new proposal that references the one it supersedes
+  (`ProposalRecord.supersedes`). The SDK projection does **not** retire the original:
+  it stays `status="open"` and stays in `live_proposals()` — see the note below the
+  projection-query block. Only an explicit `Withdraw` sets `"withdrawn"`.
 - **Accept** records a participant's acceptance of a specific proposal
 - **Reject** with `terminal=True` signals a final rejection — no further negotiation
 - **Withdraw** removes a proposal from consideration
@@ -112,23 +115,60 @@ if proj.accepted_proposal() == "p2":
 proj = session.proposal_projection
 
 # Proposals
-proj.proposals                  # dict[str, ProposalRecord]
-proj.live_proposals()           # Only proposals with disposition="live"
-proj.proposals["p1"].disposition  # "live" | "withdrawn"
-proj.proposals["p2"].supersedes   # "p1"
+proj.proposals                    # dict[str, ProposalRecord] -- every proposal_id seen
+proj.proposals["p1"].proposal_id  # "p1"
+proj.proposals["p1"].title        # "Standard Package"
+proj.proposals["p1"].summary      # "$100k/year, basic SLA"
+proj.proposals["p1"].proposer     # the Proposal/CounterProposal envelope's sender
+proj.proposals["p1"].tags         # list[str] (always [] for a CounterProposal)
+proj.proposals["p1"].status       # "open" | "rejected" | "withdrawn"
+proj.proposals["p2"].supersedes   # "p1" -- or "" for an original Proposal
+proj.live_proposals()             # dict[str, ProposalRecord] -- status != "withdrawn"
+proj.active_proposals()           # list[ProposalRecord] -- status == "open" only
+proj.latest_proposal()            # ProposalRecord or None -- last one inserted
 
-# Accepts
-proj.accepts                    # list[ProposalAcceptRecord]
-proj.accepted_proposal()        # proposal_id if all senders' latest accepts agree, else None
+# Accepts -- an Accept is recorded here, never on a ProposalRecord's status
+proj.accepts                      # list[ProposalAcceptRecord] (proposal_id/reason/sender)
+proj.accepted_proposal()          # proposal_id if all senders' latest accepts agree, else None
+proj.is_accepted("p2")            # True if p2 is some sender's current (latest) accept
 
-# Rejections and withdrawals
-proj.terminal_rejections        # list[TerminalRejectRecord]
-proj.has_terminal_rejection()   # True if any terminal rejection exists
+# Rejections -- only a terminal Reject changes a proposal's status
+proj.rejections                   # list[ProposalRejectRecord]
+                                   # (proposal_id/reason/sender/terminal)
+proj.has_terminal_rejection()     # True if any rejection has terminal=True
+proj.is_terminally_rejected("p1") # True if p1 specifically was terminally rejected
 
 # Lifecycle
-proj.phase                      # "Negotiating" | "TerminalRejected" | "Committed"
-proj.is_committed               # True after Commitment
+proj.phase                        # "Negotiating" | "TerminalRejected" | "Committed"
+proj.is_committed                 # True after Commitment
 ```
+
+> **An `Accept` never changes a proposal's `status`.** Acceptance lives in
+> `proj.accepts`, `accepted_proposal()` and `is_accepted()` only — a proposal every
+> party has accepted still reads `status == "open"`. Likewise, a **non-terminal**
+> `Reject` is recorded in `proj.rejections` but leaves `status == "open"`; only
+> `terminal=True` sets `"rejected"`. The three values a `ProposalRecord.status` can
+> ever hold are `"open"`, `"rejected"` and `"withdrawn"`.
+
+> **`live_proposals()` and `active_proposals()` are not the same query.**
+> `live_proposals()` returns a **dict** of everything not `"withdrawn"` — which still
+> includes proposals already marked `"rejected"`. `active_proposals()` returns a
+> **list** of only those still `"open"`. A counter-proposal's superseded original
+> appears in both, since a `CounterProposal` does not change the original's status.
+
+> **`accepted_proposal()` does not verify participant coverage.** It compares only
+> the senders who have actually accepted, so it returns a `proposal_id` as soon as
+> *those* senders agree — even if one of three declared participants has accepted
+> and the other two are silent. Enforcing "all declared participants accepted" (the
+> `all_parties` criterion described under [Authorization & termination](#authorization-termination))
+> is the runtime's job at commit time, and the orchestrator's if it wants to gate
+> earlier; it is not what this helper checks.
+
+> **`proj.proposals`, `live_proposals()`, `active_proposals()` and
+> `latest_proposal()` hand back the projection's own live record objects, not copies.**
+> Treat them as read-only — mutating a returned `ProposalRecord` mutates the
+> projection's internal state directly (same as `TaskProjection`'s equivalent
+> accessors).
 
 ## Error cases
 
