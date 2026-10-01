@@ -149,6 +149,14 @@ proj.is_committed                 # True after Commitment
 > `Reject` is recorded in `proj.rejections` but leaves `status == "open"`; only
 > `terminal=True` sets `"rejected"`. The three values a `ProposalRecord.status` can
 > ever hold are `"open"`, `"rejected"` and `"withdrawn"`.
+>
+> This mirrors the protocol's own state model rather than omitting something: the
+> runtime's proposal disposition is `Live` or `Withdrawn` only, with acceptance held in
+> a separate per-sender map, and `tests/conformance/proposal_happy_path.json` shows a
+> proposal that every party accepted *and* that was then committed still reading
+> `Live`. Acceptance is a per-sender, supersedable relation (RFC-MACP-0008 §5 rule 5),
+> which §7 treats as a derived set distinct from the live-proposal set — so it is
+> tracked per sender, not denormalized onto a record. (Issue #112.)
 
 > **`live_proposals()` and `active_proposals()` are not the same query.**
 > `live_proposals()` returns a **dict** of everything not `"withdrawn"` — which still

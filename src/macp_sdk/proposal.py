@@ -32,6 +32,16 @@ class ProposalRecord:
     # ``is_accepted``), never on this field -- no code path assigns
     # "accepted" here. A non-terminal Reject likewise leaves this "open";
     # only ``terminal=True`` sets "rejected".
+    #
+    # That is by design, not an omission (issue #112). Acceptance is a
+    # per-sender, supersedable relation (RFC-MACP-0008 §5 rule 5), not a
+    # per-proposal fact, so a scalar field here cannot hold it: "alice
+    # accepts p2 while bob still accepts p1" is a legal state. This mirrors
+    # the runtime, whose ``ProposalDisposition`` is {Live, Withdrawn} with
+    # acceptance in a separate ``accepts`` map, and typescript-sdk's
+    # ``projections/proposal.ts``, which also never assigns "accepted".
+    # ``task.py``/``handoff.py`` do set "accepted" because their acceptance
+    # is one actor claiming one slot. See docs/modes/proposal.md.
     status: str  # "open" | "rejected" | "withdrawn"
     tags: list[str]
 
