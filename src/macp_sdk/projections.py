@@ -132,7 +132,10 @@ class DecisionProjection(BaseProjection):
         """Count votes per proposal, keyed by proposal_id.
 
         ABSTAIN votes are tracked but excluded from the totals returned
-        here (which counts only APPROVE votes).
+        here (which counts only APPROVE votes). A proposal_id that received
+        no votes at all is **absent** from the returned dict -- not present
+        with a 0 value. Use ``.get(proposal_id, 0)`` when checking an
+        arbitrary proposal_id.
         """
         totals: dict[str, int] = {}
         for proposal_id, sender_votes in self.votes.items():

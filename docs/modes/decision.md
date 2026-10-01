@@ -115,6 +115,8 @@ proj.proposals["p1"].option       # "deploy v2.1"
 
 # Evaluations
 proj.evaluations                  # list[DecisionEvaluationRecord]
+proj.review_evaluations()         # list[DecisionEvaluationRecord] with recommendation == "REVIEW"
+proj.qualifying_evaluations()     # list[DecisionEvaluationRecord] -- recommendation != "REVIEW"
 
 # Objections
 proj.objections                   # list[DecisionObjectionRecord]
@@ -122,14 +124,46 @@ proj.has_blocking_objection("p1") # True if any "p1" objection has severity "cri
 
 # Votes
 proj.votes                        # dict[proposal_id, dict[sender, DecisionVoteRecord]]
-proj.vote_totals()                # {"p1": 2, "p2": 0}
-proj.majority_winner()            # "p1" (most positive votes)
+proj.vote_totals()                # {"p1": 2} -- only proposals that received a Vote appear as keys
+proj.majority_winner()            # "p1" -- strict majority (>50%) of non-abstain votes, else None
+proj.vote_ratio("p1")             # 1.0 -- APPROVE ratio of non-abstain votes on "p1"
 
 # Lifecycle
 proj.phase                        # "Proposal" | "Evaluation" | "Voting" | "Committed"
 proj.is_committed                 # True after Commitment accepted
 proj.commitment                   # CommitmentPayload or None
 proj.transcript                   # list[Envelope] — accepted history as fed, deduplicated by message_id
+
+# Anomalies -- discarded second Votes (see "First vote stands" below)
+proj.anomalies                    # list[ProjectionAnomaly]
+proj.has_anomalies                # True if any Vote for this session was discarded
+```
+
+## First vote stands
+
+Each sender may cast **at most one Vote per proposal** — the first vote stands and a
+second, distinct Vote from the same sender on the same `proposal_id` is discarded.
+Unlike Quorum mode (RFC-MACP-0011 §5 is silent on which of two ballots stands),
+RFC-MACP-0007 §5.3 says this directly: "the first accepted `Vote` stands."
+
+Against a conforming runtime, a second Vote from the same sender on the same proposal
+never reaches the projection at all — the runtime rejects it and `session.vote(...)`
+returns an `Ack` with `ok=False`, so `_send_and_track` never calls `apply_envelope` for
+it. The discard-and-record behavior below is what runs when a projection is fed votes
+directly — a hand-built fixture, a captured/edited transcript, or any other
+non-runtime-mediated `apply_envelope` call:
+
+```python
+proj.apply_envelope(first_vote_envelope)   # accepted -- alice's vote on "p1" is "approve"
+proj.apply_envelope(second_vote_envelope)  # discarded -- alice already voted on "p1"
+
+proj.votes["p1"]["alice"].vote   # "approve" (first vote stands)
+proj.vote_totals().get("p1", 0)  # unaffected by the discarded second vote
+
+proj.anomalies[-1].kind          # "duplicate_vote"
+proj.anomalies[-1].sender        # "alice"
+proj.anomalies[-1].subject_id    # "p1"
+proj.has_anomalies               # True
 ```
 
 ## Error cases
