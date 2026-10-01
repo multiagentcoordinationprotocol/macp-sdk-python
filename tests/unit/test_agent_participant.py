@@ -412,12 +412,17 @@ class TestParticipantActionsValidationParity:
     BaseSession.start) already reject, via the same shared validators in
     macp_sdk.validation."""
 
-    def test_start_session_empty_intent_raises(self):
+    def test_start_session_empty_intent_accepted(self):
+        # Deliberate relaxation (RFC-MACP-0001 §7.1, issue #121 item 2): the
+        # runtime does not require a non-empty intent, so this must not raise.
         client = _make_mock_client()
         actions = ParticipantActions(client, "s1", None, mode=MODE_TASK)
-        with pytest.raises(MacpSessionError, match="intent must be non-empty"):
-            actions.start_session("", ["a", "b"], 1000)
-        client.send.assert_not_called()
+        actions.start_session("", ["a", "b"], 1000)
+        client.send.assert_called_once()
+        sent_envelope = client.send.call_args[0][0]
+        payload = core_pb2.SessionStartPayload()
+        payload.ParseFromString(sent_envelope.payload)
+        assert payload.intent == ""
 
     def test_start_session_decision_mode_allows_empty_participants(self):
         client = _make_mock_client()

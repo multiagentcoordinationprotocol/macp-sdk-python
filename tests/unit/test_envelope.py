@@ -51,6 +51,25 @@ class TestBuildSessionStartPayload:
         assert payload.ttl_ms == 60000
         assert payload.mode_version == "1.0.0"
 
+    def test_negative_max_suspend_ms_raises(self):
+        # Proves the extraction to validate_max_suspend_ms preserved behaviour.
+        with pytest.raises(MacpSessionError, match="max_suspend_ms"):
+            build_session_start_payload(
+                intent="test",
+                participants=["a"],
+                ttl_ms=60000,
+                max_suspend_ms=-1,
+            )
+
+    def test_non_finite_max_suspend_ms_raises(self):
+        with pytest.raises(MacpSessionError, match="max_suspend_ms"):
+            build_session_start_payload(
+                intent="test",
+                participants=["a"],
+                ttl_ms=60000,
+                max_suspend_ms=float("nan"),
+            )
+
 
 class TestBuildCommitmentPayload:
     def test_basic(self):

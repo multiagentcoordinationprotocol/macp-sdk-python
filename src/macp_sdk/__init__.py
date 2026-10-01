@@ -120,6 +120,7 @@ from .task import (
 from .validation import (
     validate_commitment_hash,
     validate_confidence,
+    validate_max_suspend_ms,
     validate_participant_count,
     validate_participants,
     validate_progress_scope,
@@ -263,6 +264,7 @@ __all__ = [
     "serialize_message",
     "validate_commitment_hash",
     "validate_confidence",
+    "validate_max_suspend_ms",
     "validate_participant_count",
     "validate_participants",
     "validate_progress_scope",
