@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.13.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.12.1...v0.13.0) (2026-10-01)
+
+
+### Features
+
+* rename ProposalRecord.proposer to .sender, deprecate old name ([#120](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/120)) ([#126](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/126)) ([9409cee](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/9409cee0dc265989c346d704a43d5baf33131702))
+
+
+### Bug Fixes
+
+* gate ProposalProjection's TerminalRejected phase flip on the proposal existing ([#125](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/125)) ([8a99277](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/8a99277c50644ccb7a9b7abc4eac55c3986f3455))
+
+
+### Documentation
+
+* audit decision.md/quorum.md for doc-symbol drift, fix 4 findings ([#118](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/118)) ([#123](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/123)) ([2e30b27](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/2e30b27fca191fa9af70046b12372aec84596b69))
+
 ## [0.12.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.12.0...v0.12.1) (2026-10-01)
 
 
