@@ -138,10 +138,11 @@ class TestStartAndTracking:
         assert session.projection.is_committed
         assert session.projection.phase == "Committed"
 
-    def test_empty_intent_rejected(self):
+    def test_empty_intent_accepted(self):
+        # Deliberate relaxation (RFC-MACP-0001 §7.1, issue #121 item 2): the
+        # runtime does not require a non-empty intent, so this must not raise.
         session = _Session(_mock_client(), auth=AuthConfig.for_dev_agent("alice"))
-        with pytest.raises(MacpSessionError, match="intent"):
-            session.start(intent="", participants=["alice"], ttl_ms=1000)
+        session.start(intent="", participants=["alice"], ttl_ms=1000)
 
     def test_bad_ttl_rejected(self):
         session = _Session(_mock_client(), auth=AuthConfig.for_dev_agent("alice"))

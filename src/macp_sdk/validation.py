@@ -5,6 +5,7 @@ All validation functions raise ``MacpSessionError`` on failure.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 
@@ -96,7 +97,10 @@ def validate_recommendation(value: str) -> str:
 
 def validate_confidence(value: float) -> None:
     """Validate that *value* is in [0.0, 1.0]."""
-    if value < 0.0 or value > 1.0:
+    # NaN < 0.0 and NaN > 1.0 are both False, so a bare range check silently
+    # *accepts* NaN; inf was already rejected incidentally by > 1.0 and is
+    # now rejected explicitly.
+    if not math.isfinite(value) or value < 0.0 or value > 1.0:
         raise MacpSessionError(f"confidence must be in [0.0, 1.0], got {value}")
 
 
@@ -160,8 +164,24 @@ def validate_progress_scope(session_id: str, mode: str) -> None:
 
 def validate_ttl_ms(ttl_ms: int) -> None:
     """Validate that *ttl_ms* is in [1, 86_400_000]."""
-    if ttl_ms < 1 or ttl_ms > _MAX_TTL_MS:
+    if not math.isfinite(ttl_ms) or ttl_ms < 1 or ttl_ms > _MAX_TTL_MS:
         raise MacpSessionError(f"ttl_ms must be in [1, {_MAX_TTL_MS}], got {ttl_ms}")
+
+
+def validate_max_suspend_ms(max_suspend_ms: int) -> None:
+    """Validate that *max_suspend_ms* is >= 0 (``0`` selects the runtime default).
+
+    No upper bound is imposed: the runtime does not cap the value either
+    -- ``macp-runtime/src/runtime.rs:487-495`` binds whatever positive
+    value it is given as the session's ``bound_max_suspend_ms`` and only
+    falls back to its own 7-day default when the field is ``0``. The
+    sibling TypeScript SDK's ``validateMaxSuspendMs``
+    (``src/validation.ts:134-139``) is identical, deliberately.
+    """
+    if not math.isfinite(max_suspend_ms) or max_suspend_ms < 0:
+        raise MacpSessionError(
+            f"max_suspend_ms must be >= 0 (0 selects the runtime default), got {max_suspend_ms}"
+        )
 
 
 def validate_participants(participants: Sequence[str], *, allow_empty: bool = False) -> None:
@@ -205,7 +225,15 @@ def validate_session_start(
     ``allow_empty_participants`` forwards to :func:`validate_participants` --
     see its docstring for why Decision mode is the one caller that sets it.
     """
-    validate_required_field("intent", intent)
+    # RFC-MACP-0001 §7.1 does not require a non-empty intent, and the
+    # runtime accepts an empty one. ``intent`` is kept in the signature
+    # because this function is public and exported (``__init__.py``), so
+    # removing the parameter would be a breaking change for a fix whose
+    # entire point is to be *less* strict. ``del`` rather than an ARG001
+    # suppression comment: ruff's ARG rules apply to ``src/`` (per-file-
+    # ignores covers ``tests/**`` only), and this states the intent
+    # instead of silencing the check.
+    del intent  # accepted but deliberately unvalidated (RFC-MACP-0001 §7.1)
     validate_participants(participants, allow_empty=allow_empty_participants)
     validate_ttl_ms(ttl_ms)
     validate_required_field("mode_version", mode_version)

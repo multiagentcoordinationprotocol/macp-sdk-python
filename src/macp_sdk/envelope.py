@@ -14,7 +14,7 @@ from .constants import (
     MACP_VERSION,
 )
 from .errors import MacpSessionError
-from .validation import validate_commitment_hash
+from .validation import validate_commitment_hash, validate_max_suspend_ms
 
 # ── Outcome inference ────────────────────────────────────────────────
 
@@ -79,10 +79,7 @@ def build_session_start_payload(
     client-side here with a clear message. proto3 does not serialize a scalar
     ``0``, so the default keeps byte-compatibility with pre-0.1.5 payloads.
     """
-    if max_suspend_ms < 0:
-        raise MacpSessionError(
-            f"max_suspend_ms must be >= 0 (0 selects the runtime default), got {max_suspend_ms}"
-        )
+    validate_max_suspend_ms(max_suspend_ms)
     kwargs: dict[str, object] = dict(
         intent=intent,
         participants=list(participants),

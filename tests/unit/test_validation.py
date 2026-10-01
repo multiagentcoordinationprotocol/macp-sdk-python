@@ -15,6 +15,7 @@ from macp_sdk.errors import MacpSessionError
 from macp_sdk.validation import (
     validate_commitment_hash,
     validate_confidence,
+    validate_max_suspend_ms,
     validate_participant_count,
     validate_participants,
     validate_progress_scope,
@@ -92,7 +93,7 @@ class TestConfidence:
     def test_valid(self, v):
         validate_confidence(v)
 
-    @pytest.mark.parametrize("v", [-0.01, 1.01, 10.0])
+    @pytest.mark.parametrize("v", [-0.01, 1.01, 10.0, float("nan"), float("inf"), float("-inf")])
     def test_invalid(self, v):
         with pytest.raises(MacpSessionError, match="confidence"):
             validate_confidence(v)
@@ -174,10 +175,28 @@ class TestTtlMs:
     def test_valid(self, v):
         validate_ttl_ms(v)
 
-    @pytest.mark.parametrize("v", [0, -1, 86_400_001])
+    @pytest.mark.parametrize("v", [0, -1, 86_400_001, float("nan"), float("inf"), float("-inf")])
     def test_invalid(self, v):
         with pytest.raises(MacpSessionError, match="ttl_ms"):
             validate_ttl_ms(v)
+
+
+class TestMaxSuspendMs:
+    def test_zero_passes_selects_runtime_default(self):
+        validate_max_suspend_ms(0)
+
+    def test_large_positive_passes_no_upper_bound(self):
+        # Deliberate: the runtime does not cap max_suspend_ms either
+        # (macp-runtime/src/runtime.rs:487-495), so this SDK must not
+        # invent a cap that would reject a session the runtime accepts.
+        # Pinned here so a future reader cannot "fix" this by adding one
+        # without failing this test.
+        validate_max_suspend_ms(30 * 86_400_000)
+
+    @pytest.mark.parametrize("v", [-1, float("nan"), float("inf")])
+    def test_invalid(self, v):
+        with pytest.raises(MacpSessionError, match="max_suspend_ms"):
+            validate_max_suspend_ms(v)
 
 
 class TestRequiredField:
@@ -241,6 +260,17 @@ class TestSessionStartComposite:
             mode_version="m",
             configuration_version="c",
             allow_empty_participants=True,
+        )
+
+    def test_empty_intent_accepted_rfc_0001_7_1(self):
+        # Deliberate relaxation (RFC-MACP-0001 §7.1): the runtime does not
+        # require a non-empty intent, so this must not raise.
+        validate_session_start(
+            intent="",
+            participants=["a"],
+            ttl_ms=1000,
+            mode_version="m",
+            configuration_version="c",
         )
 
 
