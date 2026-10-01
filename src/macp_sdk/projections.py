@@ -100,6 +100,17 @@ class DecisionProjection(BaseProjection):
         if message_type == "Vote":
             payload = decision_pb2.VotePayload()
             payload.ParseFromString(envelope.payload)
+            if payload.proposal_id not in self.proposals:
+                # A Vote for a proposal this projection never saw is ignored
+                # entirely -- no vote record, no phase advance, and deliberately
+                # NO anomaly. Rejecting an unknown proposal_id is the runtime's
+                # obligation (it has the full session state); a projection is a
+                # local, possibly partial view, and a mid-session joiner whose
+                # replay window starts after the Proposal legitimately never saw
+                # it. Recording an anomaly here would fire on conforming
+                # sessions. Same split, same shape as the guard issue #119
+                # shipped in proposal.py's Reject branch.
+                return
             existing = self.votes.get(payload.proposal_id, {}).get(envelope.sender)
             if existing is not None:
                 # First-wins (RFC-MACP-0007 §5.3: "the first accepted Vote

@@ -84,6 +84,13 @@ class TestDecisionProjection:
 
     def test_vote_and_totals(self):
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         for sender, vote_val in [("alice", "approve"), ("bob", "approve"), ("carol", "reject")]:
             env = make_envelope(
                 MODE_DECISION,
@@ -108,6 +115,13 @@ class TestDecisionProjection:
         being violated by an unfiltered feed.
         """
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         p.apply_envelope(
             make_envelope(
                 MODE_DECISION,
@@ -160,6 +174,13 @@ class TestDecisionProjection:
     def test_abstain_excluded_from_majority(self):
         """ABSTAIN votes are excluded from the ratio denominator."""
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         for sender, vote_val in [
             ("alice", "APPROVE"),
             ("bob", "REJECT"),
@@ -178,6 +199,13 @@ class TestDecisionProjection:
 
     def test_abstain_only_returns_none(self):
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         env = make_envelope(
             MODE_DECISION,
             "Vote",
@@ -420,6 +448,13 @@ class TestVoteCardinality:
         p.apply_envelope(
             make_envelope(
                 MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
                 "Vote",
                 decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
                 sender="alice",
@@ -453,6 +488,13 @@ class TestVoteCardinality:
         """majority_winner() under a duplicate-vote feed returns the
         first-wins answer, not one inflated by the discarded second vote."""
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         for sender, vote_val in [("alice", "approve"), ("bob", "approve"), ("carol", "reject")]:
             p.apply_envelope(
                 make_envelope(
@@ -486,6 +528,13 @@ class TestVoteCardinality:
         Phase 1's dedup regresses; do not weaken it.
         """
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         envelope = make_envelope(
             MODE_DECISION,
             "Vote",
@@ -499,6 +548,13 @@ class TestVoteCardinality:
 
     def test_anomaly_shape_and_warning_log(self, caplog):
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         p.apply_envelope(
             make_envelope(
                 MODE_DECISION,
@@ -541,6 +597,13 @@ class TestVoteCardinality:
         produce an anomaly).
         """
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         first_vote = make_envelope(
             MODE_DECISION,
             "Vote",
@@ -567,3 +630,110 @@ class TestVoteCardinality:
         assert replay.votes == p.votes
         assert replay.phase == p.phase
         assert replay.anomalies == p.anomalies
+
+
+class TestVoteForUnknownProposal:
+    """Issue #121 Phase 3: a Vote naming a proposal_id this projection never
+    saw a Proposal for is ignored entirely -- no vote record, no phase
+    advance, no anomaly. See projections.py's Vote branch for the guard and
+    its rationale.
+    """
+
+    def _proj(self) -> DecisionProjection:
+        return DecisionProjection()
+
+    def test_vote_for_unseen_proposal_is_ignored(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
+                sender="alice",
+            )
+        )
+        assert p.votes == {}
+        assert p.vote_totals() == {}
+        assert p.majority_winner() is None
+        assert p.phase == "Proposal"
+        assert p.has_anomalies is False
+
+    def test_fabrication_vote_for_never_proposed_id_does_not_win(self):
+        """The fabrication case: a Vote for an id absent from p.proposals
+        must never be returned as the majority_winner -- before this guard,
+        it was (the single worst output this projection could produce)."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p9", vote="approve"),
+                sender="alice",
+            )
+        )
+        assert p.majority_winner() is None
+        assert p.vote_totals() == {}
+        assert p.phase == "Proposal"
+
+    def test_orphan_vote_does_not_suppress_real_winner(self):
+        """The suppression case: an orphan vote for an unproposed id must not
+        inflate the non-abstain denominator and push a real proposal's ratio
+        below the majority threshold."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p9", vote="approve"),
+                sender="bob",
+            )
+        )
+        assert p.majority_winner() == "p1"
+        assert p.vote_totals() == {"p1": 1}
+
+    def test_second_orphan_vote_from_same_sender_records_no_anomaly(self):
+        """Pins the guard's placement: it must run BEFORE the duplicate-vote
+        check, so a second orphan vote from the same sender is ignored too
+        -- not treated as a duplicate of an entry that was never recorded."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="reject"),
+                sender="alice",
+            )
+        )
+        assert p.votes == {}
+        assert p.has_anomalies is False
+        assert len(p.anomalies) == 0
