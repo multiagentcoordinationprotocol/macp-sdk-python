@@ -245,6 +245,75 @@ class TestParticipantEventProcessing:
         assert isinstance(proj, DecisionProjection)
         assert "p1" in proj.proposals
 
+    def test_terminal_reject_of_known_proposal_fires_terminal(self):
+        """Issue #119, positive case: a terminal Reject for a proposal this
+        participant's projection has actually seen fires on_terminal and
+        stops the participant -- proves the wiring works, paired with the
+        negative case below so that test proves something rather than
+        merely that nothing happened.
+        """
+        from macp.modes.proposal.v1 import proposal_pb2
+
+        client = _make_mock_client()
+        terminal_results: list[TerminalResult] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_PROPOSAL,
+            client=client,
+        )
+        p.on_terminal(lambda r: terminal_results.append(r))
+
+        p.process_event(
+            _make_envelope(
+                "Proposal",
+                proposal_pb2.ProposalPayload(proposal_id="p1", title="A"),
+                mode=MODE_PROPOSAL,
+                sender="alice",
+            )
+        )
+        p.process_event(
+            _make_envelope(
+                "Reject",
+                proposal_pb2.RejectPayload(proposal_id="p1", terminal=True, reason="no deal"),
+                mode=MODE_PROPOSAL,
+                sender="bob",
+            )
+        )
+        assert p.is_stopped
+        assert len(terminal_results) == 1
+        assert terminal_results[0].state == "TerminalRejected"
+
+    def test_terminal_reject_of_unknown_proposal_does_not_fire_terminal(self):
+        """Issue #119, negative case: a terminal Reject naming a proposal_id
+        this participant's projection never saw must not fire on_terminal or
+        stop the participant -- the session has not actually terminated.
+        """
+        from macp.modes.proposal.v1 import proposal_pb2
+
+        client = _make_mock_client()
+        terminal_results: list[TerminalResult] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_PROPOSAL,
+            client=client,
+        )
+        p.on_terminal(lambda r: terminal_results.append(r))
+
+        p.process_event(
+            _make_envelope(
+                "Reject",
+                proposal_pb2.RejectPayload(
+                    proposal_id="p-unknown", terminal=True, reason="no deal"
+                ),
+                mode=MODE_PROPOSAL,
+                sender="bob",
+            )
+        )
+        assert p.is_stopped is False
+        assert terminal_results == []
+
 
 class TestParticipantActions:
     def test_send_envelope(self):

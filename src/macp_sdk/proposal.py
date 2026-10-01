@@ -141,9 +141,20 @@ class ProposalProjection(BaseProjection):
             )
             if p.terminal:
                 rec = self.proposals.get(p.proposal_id)
+                # A terminal Reject must name a proposal this projection has
+                # actually seen (RFC-MACP-0008 §5 rule 3) before it ends the
+                # negotiation. "TerminalRejected" is in TERMINAL_PHASES
+                # (agent/participant.py:57-59), so moving phase here for an
+                # unknown proposal_id would fire a Participant's on_terminal
+                # and tear down its stream for a session that never actually
+                # terminated. Same shape as task.py's per-task gates
+                # (:172/:196/:212): gate the state transition, keep the
+                # audit append above unconditional. has_terminal_rejection()
+                # / is_terminally_rejected() deliberately still read
+                # self.rejections, not phase, so they stay True either way.
                 if rec is not None:
                     rec.status = "rejected"
-                self._set_phase("TerminalRejected")
+                    self._set_phase("TerminalRejected")
             return
 
         if mt == "Withdraw":

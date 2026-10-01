@@ -157,8 +157,20 @@ class TestProposalProjection:
         )
         assert p.accepted_proposal() is None
 
-    def test_terminal_rejection(self):
+    def test_terminal_rejection_of_known_proposal(self):
+        """Issue #119: a terminal Reject only ends the negotiation (moves
+        ``phase`` to "TerminalRejected") when it names a proposal this
+        projection has actually seen (RFC-MACP-0008 §5 rule 3).
+        """
         p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Proposal",
+                proposal_pb2.ProposalPayload(proposal_id="p1", title="A"),
+                sender="alice",
+            )
+        )
         p.apply_envelope(
             make_envelope(
                 MODE_PROPOSAL,
@@ -169,6 +181,75 @@ class TestProposalProjection:
         )
         assert p.has_terminal_rejection()
         assert p.phase == "TerminalRejected"
+        assert p.proposals["p1"].status == "rejected"
+
+    def test_terminal_rejection_of_unknown_proposal_does_not_move_phase(self):
+        """Issue #119: a terminal Reject naming a proposal_id this projection
+        never saw must not flip ``phase`` to "TerminalRejected" -- that phase
+        is in agent/participant.py's TERMINAL_PHASES, and moving into it ends
+        a live Participant.run() loop for a session that never actually
+        terminated. typescript-sdk's projections/proposal.ts already fixes
+        this identically.
+
+        The rejection is still recorded (audit trail is unconditional, and
+        has_terminal_rejection()/is_terminally_rejected() deliberately still
+        read self.rejections, not phase) -- only the phase transition and the
+        (nonexistent) record mutation are gated on the proposal being known.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Reject",
+                proposal_pb2.RejectPayload(
+                    proposal_id="p-unknown", terminal=True, reason="no deal"
+                ),
+                sender="bob",
+            )
+        )
+        assert p.phase == "Negotiating"
+        assert "p-unknown" not in p.proposals
+        assert len(p.rejections) == 1
+        assert p.rejections[0].terminal is True
+        assert p.has_terminal_rejection() is True
+        assert p.is_terminally_rejected("p-unknown") is True
+        assert p.anomalies == []
+
+    def test_terminal_rejection_unknown_then_known_moves_phase_on_second(self):
+        """Edge case (issue #119): an unknown-id terminal Reject followed by
+        a known-id one is an ordering a replay could produce. The first
+        leaves phase unmoved; the second moves it, exactly as it would if it
+        had arrived alone.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Reject",
+                proposal_pb2.RejectPayload(proposal_id="p-unknown", terminal=True, reason="n/a"),
+                sender="bob",
+            )
+        )
+        assert p.phase == "Negotiating"
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Proposal",
+                proposal_pb2.ProposalPayload(proposal_id="p1", title="A"),
+                sender="alice",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Reject",
+                proposal_pb2.RejectPayload(proposal_id="p1", terminal=True, reason="no deal"),
+                sender="bob",
+            )
+        )
+        assert p.phase == "TerminalRejected"
+        assert p.proposals["p1"].status == "rejected"
+        assert len(p.rejections) == 2
 
     def test_rejection_audit_trail(self):
         """Both terminal and non-terminal rejections are tracked."""
