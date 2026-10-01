@@ -107,6 +107,36 @@ class TestProposalProjection:
             )
         assert p.accepted_proposal() == "p1"
 
+    def test_accept_does_not_set_record_status(self):
+        """By design (issue #112): an Accept never writes ProposalRecord.status.
+
+        Acceptance is a per-sender, supersedable relation (RFC-MACP-0008 §5
+        rule 5) tracked in ``accepts`` / ``_latest_accept_by_sender``, not a
+        per-proposal fact. Mirrors the runtime (ProposalDisposition is
+        {Live, Withdrawn}) and typescript-sdk's projections/proposal.ts.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_PROPOSAL,
+                "Proposal",
+                proposal_pb2.ProposalPayload(proposal_id="p1", title="A"),
+                sender="alice",
+            )
+        )
+        for sender in ["alice", "bob"]:
+            p.apply_envelope(
+                make_envelope(
+                    MODE_PROPOSAL,
+                    "Accept",
+                    proposal_pb2.AcceptPayload(proposal_id="p1"),
+                    sender=sender,
+                )
+            )
+        assert p.accepted_proposal() == "p1"
+        assert p.proposals["p1"].status == "open"
+        assert p.proposals["p1"] in p.active_proposals()
+
     def test_accept_divergence(self):
         p = self._proj()
         p.apply_envelope(
