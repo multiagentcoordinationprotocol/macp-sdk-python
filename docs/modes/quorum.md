@@ -129,11 +129,16 @@ request_id = "r1"
 proj.requests.get(request_id)                     # ApprovalRequestRecord or None
 proj.requests[request_id].required_approvals      # 3
 proj.requests[request_id].action                  # "security-policy-tls13"
+proj.requests[request_id].summary                 # "Enforce TLS 1.3 minimum across all services"
+proj.requests[request_id].requester               # "coordinator"
 
 # Ballots -- keyed request_id -> sender -> BallotRecord
 proj.ballots                                       # dict[request_id, dict[sender, BallotRecord]]
 proj.ballots[request_id]["alice"].vote             # "approve"
 proj.ballots[request_id]["bob"].vote               # "reject"
+proj.ballots[request_id]["alice"].request_id       # "r1"
+proj.ballots[request_id]["alice"].reason           # "long overdue improvement"
+proj.ballots[request_id]["alice"].sender           # "alice"
 
 # Counts
 proj.approval_count(request_id)                    # 3
@@ -161,15 +166,18 @@ proj.has_anomalies                        # True if any ballot for this session 
 
 Each eligible participant gets **at most one ballot per request**, across
 `Approve`, `Reject`, and `Abstain` combined — enforced by the single funnel
-`QuorumProjection._set_ballot` (`quorum.py:92`) that all three call. RFC-MACP-0011
+`QuorumProjection._set_ballot` (`quorum.py:93`) that all three call. RFC-MACP-0011
 §5 opens "Implementations MUST enforce the following," and rule 3 caps a
 participant at one ballot across the three ballot types — that cap is firm.
 **RFC-0011 itself is silent on *which* of two ballots stands** if a sender
 somehow submits two; that gap is not filled by the RFC. This SDK infers
 first-wins from parity with RFC-MACP-0007 §5.3 ("the first accepted `Vote`
-stands") and from what the only conforming runtime actually does
-(`quorum.rs:164/184/204`, which NACK a second ballot from the same sender
-with `INVALID_ENVELOPE` before it ever reaches a projection).
+stands") and from what the only conforming runtime actually does — the three
+same-sender ballot guards in `macp-runtime`'s
+`crates/macp-modes/src/mode/quorum.rs` (`QuorumMode`'s `Approve`/`Reject`/
+`Abstain` arms, each rejecting when `state.ballots.contains_key(&env.sender)`,
+confirmed at runtime `v0.8.6`), which NACK a second ballot from the same
+sender with `INVALID_ENVELOPE` before it ever reaches a projection.
 
 Against a conforming runtime, a second ballot from the same sender never
 reaches the projection at all — the runtime rejects it and

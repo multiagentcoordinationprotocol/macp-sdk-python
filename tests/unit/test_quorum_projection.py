@@ -230,9 +230,11 @@ class TestQuorumProjection:
         RFC-MACP-0011 §5 rule 3: "Each eligible participant MAY cast at most one
         ballot across Approve, Reject, or Abstain." RFC-0011 does NOT say which of
         two stands -- first-wins is taken from parity with RFC-MACP-0007 §5.3 ("the
-        first accepted Vote stands") and from what the only runtime enforces
-        (macp-runtime crates/macp-modes/src/mode/quorum.rs:164/184/204 reject a
-        second ballot outright).
+        first accepted Vote stands") and from what the only runtime enforces: the
+        three same-sender ballot guards in macp-runtime's
+        crates/macp-modes/src/mode/quorum.rs (QuorumMode's Approve/Reject/Abstain
+        arms, each rejecting when state.ballots.contains_key(&env.sender),
+        confirmed at runtime v0.8.6).
 
         WHY THE OLD INTENT WAS WRONG: this test previously asserted "latest ballot
         supersedes previous" and expected approval_count == 1. Vote-changing is not
