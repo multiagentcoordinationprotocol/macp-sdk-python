@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.12.0...v0.12.1) (2026-10-01)
+
+
+### Documentation
+
+* fix handoff.md's non-existent proj.offers / proj.contexts API surface ([#115](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/115)) ([41d6bf7](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/41d6bf7883532e1b79ccef83b097e25f25b0f1ee))
+* fix proposal.md's non-existent .disposition / terminal_rejections API surface ([#113](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/113)) ([de86375](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/de86375147694526b026de96838aa37a007e4ebd))
+* record why Accept never sets ProposalRecord.status="accepted" (issue [#112](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/112)) ([#116](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/116)) ([4b07ca5](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/4b07ca53673009d780ec24023bf03e3d1fcfb159))
+
 ## [0.12.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.11.0...v0.12.0) (2026-09-30)
 
 
