@@ -30,9 +30,11 @@ class HandoffRecord:
     declined_by: str | None
     # True when the acceptance was an implicit accept synthesized by the
     # runtime (RFC-MACP-0010 §5.1) rather than an explicit client HandoffAccept.
-    # Runtime >= 0.8.0 emits these automatically for every session (no
-    # server-side opt-in exists) when an offer's implicit_accept_timeout_ms
-    # elapses unactioned. Client-submitted accepts are always
+    # Runtime >= 0.8.0 emits these only for sessions whose bound governance
+    # policy declares a non-zero ``acceptance.implicit_accept_timeout_ms``
+    # (RFC-MACP-0010 §5.1, RFC-MACP-0012 §4.5), once that timeout elapses
+    # unactioned; with no policy bound the timeout resolves to 0 and no
+    # implicit accept ever fires. Client-submitted accepts are always
     # ``implicit=False`` (the runtime rejects a forged True).
     implicit: bool = False
 
@@ -177,9 +179,10 @@ class HandoffProjection(BaseProjection):
         """True if *handoff_id* was accepted by a runtime implicit accept.
 
         Distinguishes a timeout-driven implicit accept (RFC-MACP-0010 §5.1)
-        from an explicit client ``HandoffAccept``. Runtime >= 0.8.0 emits
-        these automatically for every session once an offer's
-        ``implicit_accept_timeout_ms`` elapses unactioned.
+        from an explicit client ``HandoffAccept``. Runtime >= 0.8.0 emits one
+        only when the session's bound governance policy declares a non-zero
+        ``acceptance.implicit_accept_timeout_ms`` and that timeout elapses
+        unactioned; sessions with no such policy never see one.
         """
         handoff = self.handoffs.get(handoff_id)
         return handoff is not None and handoff.status == "accepted" and handoff.implicit
@@ -275,7 +278,7 @@ class HandoffSession(BaseSession):
         # ``implicit=true`` for runtime-synthesized accepts and the runtime
         # rejects a client-submitted True. Client accepts always leave the
         # field at its proto3 default (False). See the regression test in
-        # tests/unit/test_handoff.py.
+        # tests/unit/test_absorb_runtime_v050.py.
         validate_required_field("handoff_id", handoff_id)
         payload = handoff_pb2.HandoffAcceptPayload(
             handoff_id=handoff_id,

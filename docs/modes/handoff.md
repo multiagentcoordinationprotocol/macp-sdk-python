@@ -101,26 +101,78 @@ if proj.is_accepted("h1"):
 ```python
 proj = session.handoff_projection
 
-# Offers
-proj.offers                      # dict[handoff_id, HandoffOfferRecord]
-proj.offers["h1"].target_participant  # "owner-b"
-proj.offers["h1"].scope          # "service-xyz-oncall"
-proj.offers["h1"].disposition    # "offered" | "accepted" | "declined"
+# Per-handoff current state (offer fields + live settlement)
+proj.handoffs                                 # dict[str, HandoffRecord] -- every handoff_id seen
+proj.get_handoff("h1")                        # HandoffRecord or None
+proj.get_handoff("h1").handoff_id             # "h1"
+proj.get_handoff("h1").target_participant     # "owner-b" -- who was offered the handoff
+proj.get_handoff("h1").scope                  # "service-xyz-oncall"
+proj.get_handoff("h1").reason                 # "scheduled rotation"
+proj.get_handoff("h1").sender                 # the HandoffOffer envelope's sender (the owner)
+proj.get_handoff("h1").status                 # "offered" | "context_sent" | "accepted" |
+                                               # "declined"
+proj.get_handoff("h1").context_content_type   # "application/json", or None if no
+                                               # HandoffContext arrived
+proj.get_handoff("h1").accepted_by            # str or None -- HandoffAcceptPayload.accepted_by
+proj.get_handoff("h1").declined_by            # str or None -- HandoffDeclinePayload.declined_by
+proj.get_handoff("h1").implicit               # True only for a runtime-synthesized
+                                               # implicit accept (RFC-MACP-0010 §5.1)
 
-# Active offer (most recent with disposition="offered")
-proj.active_offer()              # HandoffOfferRecord or None
-
-# Acceptance/decline
-proj.is_accepted("h1")           # True
-proj.is_declined("h1")           # False
-
-# Attached context
-proj.contexts                    # dict[handoff_id, list[HandoffContextRecord]]
-proj.contexts["h1"][0].content_type  # "application/json"
+# Convenience reads
+proj.active_offer()                           # HandoffRecord or None -- the last-inserted
+                                               # handoff still "offered" or "context_sent"
+proj.pending_handoffs()                       # list[HandoffRecord] with status in
+                                               # {"offered", "context_sent"}
+proj.is_accepted("h1")                        # status == "accepted"
+proj.is_declined("h1")                        # status == "declined"
+proj.has_accepted_offer()                     # True if ANY handoff is accepted
+proj.has_accepted_offer("h1")                 # same as is_accepted("h1")
+proj.is_implicitly_accepted("h1")             # accepted AND implicit
 
 # Lifecycle
-proj.phase                       # "Pending" | "OfferPending" | "Accepted" | "Declined" | "Committed"
+proj.phase                                    # "Pending" | "OfferPending" |
+                                               # "ContextSharing" | "Accepted" |
+                                               # "Declined" | "Committed"
+proj.is_committed                             # True after Commitment
 ```
+
+> **There is no separate `offers` or `contexts` collection.** Everything about a
+> handoff — the offer's fields, the attached context's content type, and the
+> settlement — lives on one `HandoffRecord` in `proj.handoffs`. Only the
+> *content type* of a `HandoffContext` is projected; the context **bytes are not
+> retained** by the projection, so read them from the `HandoffContext` envelope in
+> `proj.transcript` if you need them. And only the **latest** content type survives:
+> a second `HandoffContext` for the same `handoff_id` overwrites it.
+
+> **`status` has four values, and `"context_sent"` is the one readers miss.** A
+> `HandoffContext` for a still-`"offered"` handoff moves it to `"context_sent"` (and,
+> whenever `phase` is `"OfferPending"`, moves `phase` to `"ContextSharing"`), so
+> `status == "offered"` is **not** the same test as
+> "still pending". Use `active_offer()`, `pending_handoffs()`, `is_accepted()` or
+> `is_declined()` rather than comparing `status` to `"offered"`.
+
+> **`phase` is not monotonic — only `"Committed"` is sticky.** Every `HandoffOffer`
+> sets `phase` back to `"OfferPending"`, so the decline-and-re-offer flow below moves
+> it from `"Declined"` to `"OfferPending"` again. One consequence is worth knowing: the
+> agent framework's `Participant` treats both `"Accepted"` and `"Declined"` as terminal
+> phases and ends `run()` on entering one, so a decline-then-re-offer sequence is a
+> `HandoffSession`-level pattern, not something a single `Participant.run()` loop
+> carries through.
+
+> **An accept or decline that arrives after the handoff already settled is silently
+> discarded.** `status`, `accepted_by`/`declined_by` and `phase` all keep their
+> first-settled values (RFC-MACP-0010 §5 rule 4 / §5.1(4)). Nothing raises and no return value
+> changes — the only signal is a `settled_handoff` entry in `proj.anomalies` (inherited
+> from `BaseProjection`; see the API reference). By contrast, an accept or decline
+> naming a `handoff_id` this projection never saw is a plain no-op that records **no**
+> anomaly, deliberately: a projection that joined mid-session may legitimately never
+> have seen the offer.
+
+> **`proj.handoffs`, `get_handoff()`, `active_offer()` and `pending_handoffs()` hand
+> back the projection's own live record objects, not copies.** Treat them as read-only
+> — mutating a returned `HandoffRecord` mutates the projection's internal state
+> directly (same as `TaskProjection`'s and `ProposalProjection`'s equivalent
+> accessors).
 
 ## Handling declines and re-offers
 
