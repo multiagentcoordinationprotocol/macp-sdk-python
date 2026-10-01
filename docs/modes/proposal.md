@@ -119,7 +119,7 @@ proj.proposals                    # dict[str, ProposalRecord] -- every proposal_
 proj.proposals["p1"].proposal_id  # "p1"
 proj.proposals["p1"].title        # "Standard Package"
 proj.proposals["p1"].summary      # "$100k/year, basic SLA"
-proj.proposals["p1"].proposer     # the Proposal/CounterProposal envelope's sender
+proj.proposals["p1"].sender       # the Proposal/CounterProposal envelope's sender
 proj.proposals["p1"].tags         # list[str] (always [] for a CounterProposal)
 proj.proposals["p1"].status       # "open" | "rejected" | "withdrawn"
 proj.proposals["p2"].supersedes   # "p1" -- or "" for an original Proposal
