@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from macp_sdk.auth import AuthConfig
+from macp_sdk.errors import MacpSdkError, MacpSessionError
 
 
 class TestAuthConfig:
@@ -45,8 +46,9 @@ class TestAuthConfig:
         assert auth.expected_sender == "alice"
 
     def test_missing_bearer_raises(self):
-        with pytest.raises(ValueError, match="bearer_token is required"):
+        with pytest.raises(MacpSessionError, match="bearer_token is required") as exc_info:
             AuthConfig()
+        assert isinstance(exc_info.value, MacpSdkError)
 
     def test_metadata_dev_agent(self):
         auth = AuthConfig.for_dev_agent("alice")
