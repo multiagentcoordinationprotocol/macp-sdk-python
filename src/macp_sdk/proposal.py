@@ -25,7 +25,7 @@ class ProposalRecord:
     proposal_id: str
     title: str
     summary: str
-    proposer: str
+    sender: str
     supersedes: str  # "" if original
     # Reachable values only. An Accept is recorded on the projection's
     # ``accepts`` list (and surfaced via ``accepted_proposal`` /
@@ -44,6 +44,30 @@ class ProposalRecord:
     # is one actor claiming one slot. See docs/modes/proposal.md.
     status: str  # "open" | "rejected" | "withdrawn"
     tags: list[str]
+
+    # ── Deprecated alias (issue #120 / multiagentcoordinationprotocol#177) ──
+    # ``proposer`` is kept as a read-only, INSTANCE-level property alias for
+    # one minor version, removed at this SDK's next major version. This is a
+    # different mechanism from the module-level ``__getattr__``/PEP 562
+    # aliases below (``RejectRecord``/``AcceptRecord``, issue #103): those
+    # intercept MODULE attribute access (``macp_sdk.proposal.RejectRecord``);
+    # PEP 562 has no bearing on INSTANCE attribute access
+    # (``some_record.proposer``), which is what this field needs. A
+    # ``@dataclass(slots=True)`` class derives ``__slots__`` strictly from
+    # its annotated fields, so a plain same-named class attribute alias is
+    # not an option here -- but a property is not a field and is untouched
+    # by the slots transformation, so it coexists cleanly: ``fields()``,
+    # ``__slots__``, ``repr()``, and ``dataclasses.replace()`` all still
+    # see/use only the real ``sender`` field. No setter is defined: nothing
+    # in this module ever assigns ``.proposer``.
+    @property
+    def proposer(self) -> str:
+        warnings.warn(
+            "ProposalRecord.proposer is deprecated; use ProposalRecord.sender instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.sender
 
 
 @dataclass(slots=True)
@@ -94,7 +118,7 @@ class ProposalProjection(BaseProjection):
                 proposal_id=p.proposal_id,
                 title=p.title,
                 summary=p.summary,
-                proposer=envelope.sender,
+                sender=envelope.sender,
                 supersedes="",
                 status="open",
                 tags=list(p.tags),
@@ -108,7 +132,7 @@ class ProposalProjection(BaseProjection):
                 proposal_id=p.proposal_id,
                 title=p.title,
                 summary=p.summary,
-                proposer=envelope.sender,
+                sender=envelope.sender,
                 supersedes=p.supersedes_proposal_id,
                 status="open",
                 tags=[],

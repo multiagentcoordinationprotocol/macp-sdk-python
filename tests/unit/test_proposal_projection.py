@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import warnings
 
+import pytest
 from macp.modes.proposal.v1 import proposal_pb2
 from macp.v1 import core_pb2
 
 from macp_sdk.constants import MODE_PROPOSAL
-from macp_sdk.proposal import ProposalProjection
+from macp_sdk.proposal import ProposalProjection, ProposalRecord
 from tests.conftest import make_envelope
 
 
@@ -32,6 +34,7 @@ class TestProposalProjection:
         p.apply_envelope(env)
         assert "p1" in p.proposals
         assert p.proposals["p1"].status == "open"
+        assert p.proposals["p1"].sender == "alice"
 
     def test_late_terminal_reject_after_commitment_does_not_regress_phase(self):
         """Issue #93 item 5: a mode message arriving after Commitment must
@@ -92,6 +95,7 @@ class TestProposalProjection:
         )
         assert p.proposals["p1"].status == "open"
         assert p.proposals["p2"].status == "open"
+        assert p.proposals["p2"].sender == "bob"
         assert len(p.live_proposals()) == 2
 
     def test_accept_convergence(self):
@@ -500,3 +504,60 @@ class TestDeprecatedAliases:
             pass
         else:
             raise AssertionError("expected AttributeError")
+
+
+class TestProposerDeprecatedAlias:
+    """Issue #120: ``ProposalRecord.proposer`` -> ``.sender``, kept as a
+    read-only INSTANCE property alias -- a different mechanism from issue
+    #103's module-level ``__getattr__`` aliases (see the field's own
+    comment in proposal.py): PEP 562 only intercepts module attribute
+    access, never instance attribute access, so it cannot apply here.
+    """
+
+    def _record(self, **overrides):
+        fields = {
+            "proposal_id": "p1",
+            "title": "t",
+            "summary": "s",
+            "sender": "alice",
+            "supersedes": "",
+            "status": "open",
+            "tags": [],
+        }
+        fields.update(overrides)
+        return ProposalRecord(**fields)
+
+    def test_sender_is_a_real_dataclass_field_proposer_is_not(self):
+        names = {f.name for f in dataclasses.fields(ProposalRecord)}
+        assert "sender" in names
+        assert "proposer" not in names
+
+    def test_proposer_returns_sender_value_and_warns_every_access(self):
+        record = self._record(sender="alice")
+        for _ in range(2):  # not just once -- prove it's not a warn-once cache
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                value = record.proposer
+            assert value == "alice" == record.sender
+            deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+            assert len(deprecation_warnings) == 1
+            msg = str(deprecation_warnings[0].message)
+            assert "ProposalRecord.proposer" in msg
+            assert "ProposalRecord.sender" in msg
+
+    def test_proposer_has_no_setter(self):
+        record = self._record()
+        with pytest.raises(AttributeError):
+            record.proposer = "mallory"
+
+    def test_constructor_rejects_proposer_kwarg(self):
+        with pytest.raises(TypeError):
+            ProposalRecord(
+                proposal_id="p1",
+                title="t",
+                summary="s",
+                proposer="alice",
+                supersedes="",
+                status="open",
+                tags=[],
+            )
