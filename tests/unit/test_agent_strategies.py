@@ -703,6 +703,16 @@ class TestMajorityStrategiesUnderFirstWins:
 
     def _proj_with_discarded_vote_change(self) -> DecisionProjection:
         p = DecisionProjection()
+        # Since issue #121 Phase 3, a Vote for an unseen proposal_id is an
+        # orphan and ignored entirely -- a real Proposal must be fed first
+        # or alice's votes below never reach self.votes at all.
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
         p.apply_envelope(
             make_envelope(
                 MODE_DECISION,
