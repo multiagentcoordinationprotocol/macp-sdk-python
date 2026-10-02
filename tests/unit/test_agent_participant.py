@@ -443,6 +443,133 @@ class TestTerminalDispatchIsNotDuplicated:
         assert phase_changes == ["Cancelled"]
 
 
+class TestInitialPhaseIsNotAnnounced:
+    """Phase 8: a projection's initial phase is a constructor artifact,
+    not an observed transition -- on_phase_change must not fire for it.
+    Criterion 4 (both entry points) is covered by parametrizing both the
+    zero-dispatch test and the real-transition test over "envelope"
+    (_process_envelope, driven by process_event) and "message"
+    (_process_message, driven directly -- it never calls apply_envelope
+    itself, since an HTTP-polling transport may not carry raw envelopes,
+    so the real-transition case advances the projection's phase the way
+    such a transport's own upstream decode step would)."""
+
+    @pytest.mark.parametrize("via", ["envelope", "message"])
+    def test_decision_initial_phase_dispatches_zero_phase_changes(self, via):
+        """Criteria 1 + 4: an event that leaves the phase at its initial
+        value (seeded at construction) must not announce it, through
+        both _process_envelope and _process_message -- which read
+        self._last_phase through the identical comparison, so the seed
+        fix must reach both. Before the fix this fired once, for
+        "Proposal"."""
+        from macp.modes.decision.v1 import decision_pb2
+
+        client = _make_mock_client()
+        phase_changes: list[str] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+        )
+        p.on_phase_change("*", lambda phase, ctx: phase_changes.append(phase))
+
+        if via == "envelope":
+            # An Objection doesn't move DecisionProjection's phase at
+            # all, so this is purely a test of the seed -- the phase is
+            # still "Proposal", identical to what __init__ seeded
+            # _last_phase to.
+            p.process_event(
+                _make_envelope(
+                    "Objection",
+                    decision_pb2.ObjectionPayload(
+                        proposal_id="p1", reason="concern", severity="low"
+                    ),
+                )
+            )
+        else:
+            # _process_message never calls apply_envelope itself -- it
+            # only compares the projection's *current* phase (left
+            # untouched here, still "Proposal") against _last_phase.
+            p._process_message(
+                IncomingMessage(message_type="Objection", sender="agent-b", payload={})
+            )
+
+        assert phase_changes == []
+
+    def test_no_projection_attached_dispatches_zero_phase_changes(self):
+        """Criterion 3: a mode with no registered projection class is
+        entirely unaffected -- _last_phase stays None and the phase path
+        is skipped, exactly as before this phase."""
+        client = _make_mock_client()
+        phase_changes: list[str] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode="ext.custom.v1",
+            client=client,
+        )
+        assert p.projection is None
+        p.on_phase_change("*", lambda phase, ctx: phase_changes.append(phase))
+
+        p.process_event(
+            _make_envelope(
+                "Signal",
+                core_pb2.SignalPayload(signal_type="ping"),
+                mode="ext.custom.v1",
+            )
+        )
+
+        assert phase_changes == []
+
+    @pytest.mark.parametrize("via", ["envelope", "message"])
+    def test_real_transition_still_fires_exactly_once(self, via):
+        """Criteria 2 + 4: a Quorum participant's real transition
+        (Pending -> Voting) must still dispatch exactly once, for
+        "Voting" -- proving the seed value is not sticky -- and this
+        must hold identically through both _process_envelope and
+        _process_message, which read self._last_phase through the
+        identical comparison."""
+        from macp.modes.quorum.v1 import quorum_pb2
+
+        client = _make_mock_client()
+        phase_changes: list[str] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_QUORUM,
+            client=client,
+        )
+        p.on_phase_change("*", lambda phase, ctx: phase_changes.append(phase))
+        assert p.projection is not None
+        assert p.projection.phase == "Pending"
+
+        if via == "envelope":
+            p.process_event(
+                _make_envelope(
+                    "ApprovalRequest",
+                    quorum_pb2.ApprovalRequestPayload(
+                        request_id="r1", action="deploy", summary="", required_approvals=2
+                    ),
+                    mode=MODE_QUORUM,
+                )
+            )
+        else:
+            # _process_message never calls apply_envelope itself (an
+            # HTTP-polling transport may not carry raw envelopes) -- it
+            # only compares the projection's *current* phase against
+            # _last_phase. Advancing the projection directly here stands
+            # in for whatever upstream decode step such a transport would
+            # have already performed.
+            p.projection._set_phase("Voting")
+            p._process_message(
+                IncomingMessage(message_type="ApprovalRequest", sender="agent-b", payload={})
+            )
+
+        assert phase_changes == ["Voting"]
+        assert p.projection.phase == "Voting"
+
+
 class TestParticipantActions:
     def test_send_envelope(self):
         client = _make_mock_client()
