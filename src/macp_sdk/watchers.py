@@ -9,7 +9,8 @@ Each watcher provides three consumption patterns:
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
+from contextlib import closing
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -88,19 +89,21 @@ class ModeRegistryWatcher:
         self._client = client
         self._auth = auth
 
-    def changes(self) -> Iterator[Any]:
+    def changes(self) -> Generator[Any, None, None]:
         """Yield ``WatchModeRegistryResponse`` items from the runtime stream."""
         yield from self._client.watch_mode_registry(auth=self._auth)
 
     def watch(self, handler: Callable[[Any], None]) -> None:
         """Block and invoke *handler* for each registry change."""
-        for change in self.changes():
-            handler(change)
+        with closing(self.changes()) as stream:
+            for change in stream:
+                handler(change)
 
     def next_change(self) -> Any:
         """Pull a single change from the stream and return it."""
-        for change in self.changes():
-            return change
+        with closing(self.changes()) as stream:
+            for change in stream:
+                return change
         raise RuntimeError("stream ended before receiving a change")
 
 
@@ -111,19 +114,21 @@ class RootsWatcher:
         self._client = client
         self._auth = auth
 
-    def changes(self) -> Iterator[Any]:
+    def changes(self) -> Generator[Any, None, None]:
         """Yield ``WatchRootsResponse`` items from the runtime stream."""
         yield from self._client.watch_roots(auth=self._auth)
 
     def watch(self, handler: Callable[[Any], None]) -> None:
         """Block and invoke *handler* for each root change."""
-        for change in self.changes():
-            handler(change)
+        with closing(self.changes()) as stream:
+            for change in stream:
+                handler(change)
 
     def next_change(self) -> Any:
         """Pull a single change from the stream and return it."""
-        for change in self.changes():
-            return change
+        with closing(self.changes()) as stream:
+            for change in stream:
+                return change
         raise RuntimeError("stream ended before receiving a change")
 
 
@@ -134,25 +139,35 @@ class SignalWatcher:
         self._client = client
         self._auth = auth
 
-    def signals(self) -> Iterator[Any]:
+    def signals(self) -> Generator[Any, None, None]:
         """Yield envelope objects extracted from ``WatchSignalsResponse``.
 
         Forwards the watcher's stored ``auth`` — runtime v0.5.0 requires
         authentication for ``WatchSignals``.
+
+        Wraps the inner ``watch_signals()`` generator in its own
+        ``closing()`` -- a bare ``for`` loop here would only release it
+        by refcounting when this generator is itself closed, which a
+        caller-held reference cycle (or a non-refcounting GC) can defer
+        indefinitely, undermining the whole point of the caller side
+        wrapping *this* generator in ``closing()`` in turn.
         """
-        for response in self._client.watch_signals(auth=self._auth):
-            if hasattr(response, "envelope") and response.envelope.ByteSize() > 0:
-                yield response.envelope
+        with closing(self._client.watch_signals(auth=self._auth)) as responses:
+            for response in responses:
+                if hasattr(response, "envelope") and response.envelope.ByteSize() > 0:
+                    yield response.envelope
 
     def watch(self, handler: Callable[[Any], None]) -> None:
         """Block and invoke *handler* for each signal envelope."""
-        for envelope in self.signals():
-            handler(envelope)
+        with closing(self.signals()) as stream:
+            for envelope in stream:
+                handler(envelope)
 
     def next_signal(self) -> Any:
         """Pull a single signal envelope from the stream and return it."""
-        for envelope in self.signals():
-            return envelope
+        with closing(self.signals()) as stream:
+            for envelope in stream:
+                return envelope
         raise RuntimeError("stream ended before receiving a signal")
 
 
@@ -191,27 +206,35 @@ class SessionLifecycleWatcher:
         self._client = client
         self._auth = auth
 
-    def changes(self) -> Iterator[SessionLifecycleEvent]:
-        """Yield ``SessionLifecycleEvent`` items from the runtime stream."""
-        for response in self._client.watch_sessions(auth=self._auth):
-            event = getattr(response, "event", None)
-            if event is None:
-                continue
-            yield SessionLifecycleEvent(
-                event_type=_session_event_name(event.event_type),
-                observed_at_unix_ms=event.observed_at_unix_ms,
-                session=event.session,
-            )
+    def changes(self) -> Generator[SessionLifecycleEvent, None, None]:
+        """Yield ``SessionLifecycleEvent`` items from the runtime stream.
+
+        Wraps the inner ``watch_sessions()`` generator in its own
+        ``closing()`` -- see ``SignalWatcher.signals()``'s docstring for
+        why a bare ``for`` loop here isn't enough.
+        """
+        with closing(self._client.watch_sessions(auth=self._auth)) as responses:
+            for response in responses:
+                event = getattr(response, "event", None)
+                if event is None:
+                    continue
+                yield SessionLifecycleEvent(
+                    event_type=_session_event_name(event.event_type),
+                    observed_at_unix_ms=event.observed_at_unix_ms,
+                    session=event.session,
+                )
 
     def watch(self, handler: Callable[[SessionLifecycleEvent], None]) -> None:
         """Block and invoke *handler* for each lifecycle event."""
-        for change in self.changes():
-            handler(change)
+        with closing(self.changes()) as stream:
+            for change in stream:
+                handler(change)
 
     def next_change(self) -> SessionLifecycleEvent:
         """Pull a single lifecycle event from the stream and return it."""
-        for change in self.changes():
-            return change
+        with closing(self.changes()) as stream:
+            for change in stream:
+                return change
         raise RuntimeError("stream ended before receiving a session lifecycle event")
 
 
@@ -222,22 +245,30 @@ class PolicyWatcher:
         self._client = client
         self._auth = auth
 
-    def changes(self) -> Iterator[PolicyChange]:
-        """Yield ``PolicyChange`` items from the runtime stream."""
-        for response in self._client.watch_policies(auth=self._auth):
-            descriptors = list(response.descriptors) if hasattr(response, "descriptors") else []
-            observed = getattr(response, "observed_at_unix_ms", 0)
-            yield PolicyChange(descriptors=descriptors, observed_at_unix_ms=observed)
+    def changes(self) -> Generator[PolicyChange, None, None]:
+        """Yield ``PolicyChange`` items from the runtime stream.
+
+        Wraps the inner ``watch_policies()`` generator in its own
+        ``closing()`` -- see ``SignalWatcher.signals()``'s docstring for
+        why a bare ``for`` loop here isn't enough.
+        """
+        with closing(self._client.watch_policies(auth=self._auth)) as responses:
+            for response in responses:
+                descriptors = list(response.descriptors) if hasattr(response, "descriptors") else []
+                observed = getattr(response, "observed_at_unix_ms", 0)
+                yield PolicyChange(descriptors=descriptors, observed_at_unix_ms=observed)
 
     def watch(self, handler: Callable[[PolicyChange], None]) -> None:
         """Block and invoke *handler* for each policy change."""
-        for change in self.changes():
-            handler(change)
+        with closing(self.changes()) as stream:
+            for change in stream:
+                handler(change)
 
     def next_change(self) -> PolicyChange:
         """Pull a single policy change from the stream and return it."""
-        for change in self.changes():
-            return change
+        with closing(self.changes()) as stream:
+            for change in stream:
+                return change
         raise RuntimeError("stream ended before receiving a policy change")
 
 
