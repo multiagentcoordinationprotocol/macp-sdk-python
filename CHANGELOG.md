@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.14.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.13.0...v0.14.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agent:** should_commit(quorum_size=N) now requires the WINNING proposal itself to hold at least N positive votes -- not the session's total vote count summed across every proposal. Any existing caller using quorum_size >= 2 in a multi-proposal session may now see should_commit return False in cases where it previously returned True. A withheld commit is not silent: the session still runs to its ttl_ms deadline (agent/runner.py, default 300000ms) rather than hanging indefinitely.
+* a handler registered for the projection's initial phase (e.g. on_phase_change("Pending", ...) as a session-start hook on Quorum/Handoff) no longer fires on the participant's first event. This is the intended fix -- that dispatch never reflected a real transition.
+* **errors:** AuthConfig(bearer_token="") (and for_bearer(""), for_dev_agent("")) now raise MacpSessionError instead of ValueError. MacpSessionError is not a ValueError subclass, so `except ValueError:` around these call sites, or around evaluation_handler's recommendation/confidence checks, stops catching. Callers should catch MacpSdkError per the documented contract.
+
+### Features
+
+* **agent:** rename ApprovalRequestRecord.requester and TaskRecord.requester to .sender ([#141](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/141)) ([366a239](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/366a23999f63efe7d7f629fed8325b87f01e05cf))
+* **watchers:** export TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES, document the cross-SDK shape divergence ([#143](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/143)) ([b82409d](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/b82409dbf1ca2dbf1105f3d30725e89253db8ffa))
+* **watchers:** raise MacpTransportError instead of RuntimeError on stream end ([#138](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/138)) ([1762e05](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1762e05fc54cafc9d764f0403503289a5c9347e5))
+
+
+### Bug Fixes
+
+* **agent:** honour stop() promptly in run() and release the cancel-callback server on exit ([#133](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/133)) ([7799461](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/7799461d0539994abb55f5503ab0d0900e9d3571))
+* **agent:** majority_committer checks quorum against the winner, not the session total ([#140](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/140)) ([a845aeb](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/a845aeb7234e1d2883d2a7e038c7ad09c889975c))
+* **agent:** majority_voter.should_vote agrees with decide_vote ([#139](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/139)) ([7448af6](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/7448af6d6492aacf1352608b162080d708d21c3b))
+* **agent:** make Participant.run() non-re-entrant ([#136](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/136)) ([ce1067a](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/ce1067acf618421e98825e01eb03ab2d640dd041))
+* **agent:** stop a post-terminal SessionCancel from firing on_terminal twice ([#134](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/134)) ([d7f6cb8](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/d7f6cb86bdeb73c00acf393fe85de319648fa09c))
+* **client:** cancel the gRPC call when a watch_* stream is abandoned ([#137](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/137)) ([14371f7](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/14371f7bea012313e8be55cf966b25ff0196aa5c))
+* don't announce a projection's initial phase as a change ([#135](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/135)) ([22e09a9](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/22e09a97acd4024059e996d9e4366b2d9afcf30e))
+* **errors:** route AuthConfig and evaluation_handler failures through MacpSessionError ([#129](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/129)) ([4add72e](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/4add72e08bb0240404091c0a69aecbb9c3da17f0))
+* **projections:** a Proposal advances DecisionProjection.phase to Evaluation ([#132](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/132)) ([f4e9a5d](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/f4e9a5d32474eb4adcb766514041dfcd38123907))
+* **projections:** ignore ballots and context for unknown quorum/handoff ids ([#131](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/131)) ([c104e02](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/c104e0298d70166a3b776a01fd9e750cc98ea626))
+* **projections:** ignore Vote for a proposal DecisionProjection never saw ([#130](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/130)) ([8ce3f7a](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/8ce3f7a4306577ea7c6149c23fd022e1d06b407f))
+* **task:** record the envelope sender on the four Task sub-records ([#142](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/142)) ([72f17b6](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/72f17b6629e2a41486719d0208b1e3cd53ffdabe))
+* **validation:** reject non-finite confidence/ttl_ms, relax empty intent, add validate_max_suspend_ms ([#127](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/127)) ([17f839b](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/17f839b00b930570fabf44c0cc84d64919f44d23))
+
+
+### Documentation
+
+* close stale pagination claims and observability gaps (issue [#121](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/121) Phase 17) ([#144](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/144)) ([3050ad3](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/3050ad3b84824960da0f14265ee3ffbfb0d09dea))
+* document and decide issue [#121](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/121)'s base64-decode ambiguity ([#145](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/145)) ([c833593](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/c833593782bf4750a31ee34a335fc3d144953129))
+
 ## [0.13.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.12.1...v0.13.0) (2026-10-01)
 
 
