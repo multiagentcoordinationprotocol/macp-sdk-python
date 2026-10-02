@@ -103,6 +103,12 @@ class QuorumProjection(BaseProjection):
         # Approve/Reject/Abstain arms, each rejecting when
         # state.ballots.contains_key(&env.sender), confirmed at runtime
         # v0.8.6) -- RFC-0011 itself is silent on that.
+        if request_id not in self.requests:
+            # Same projection-vs-runtime split as projections.py's Vote guard:
+            # rejecting an unknown request_id is the runtime's obligation, and a
+            # mid-session joiner may legitimately never have seen the
+            # ApprovalRequest, so this is a silent no-op with no anomaly.
+            return
         sender = envelope.sender
         sender_map = self.ballots.setdefault(request_id, {})
         existing = sender_map.get(sender)
