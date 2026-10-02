@@ -644,6 +644,8 @@ class TestMajorityVoter:
 
 class TestMajorityCommitter:
     def _mock_projection(self, totals: dict[str, int], winner: str | None = None):
+        # totals is keyed by proposal_id (vote_totals()'s real shape,
+        # projections.py:167-181) -- not by vote value ("approve"/"reject").
         proj = MagicMock()
         proj.vote_totals.return_value = totals
         proj.majority_winner.return_value = winner
@@ -651,17 +653,118 @@ class TestMajorityCommitter:
 
     def test_should_commit_with_quorum_and_winner(self):
         strategy = majority_committer(quorum_size=2)
-        proj = self._mock_projection({"approve": 3}, "deploy")
+        proj = self._mock_projection({"deploy": 3}, "deploy")
         assert strategy.should_commit(proj) is True
 
     def test_should_commit_below_quorum(self):
         strategy = majority_committer(quorum_size=5)
-        proj = self._mock_projection({"approve": 3}, "deploy")
+        proj = self._mock_projection({"deploy": 3}, "deploy")
         assert strategy.should_commit(proj) is False
 
     def test_should_commit_no_winner(self):
         strategy = majority_committer(quorum_size=1)
         proj = self._mock_projection({"approve": 2, "reject": 2})
+        assert strategy.should_commit(proj) is False
+
+    @staticmethod
+    def _real_projection_two_proposals() -> DecisionProjection:
+        """p1 gets 2 APPROVE (a, b), p2 gets 1 APPROVE (c) -- p1 is the
+        majority winner but holds only 2 of the session's 3 total votes.
+        This is the smallest real-projection shape that distinguishes
+        "quorum against the winner" from the old, buggy "quorum against the
+        session total"."""
+        p = DecisionProjection()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p2", option="opt-b"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
+                sender="a",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
+                sender="b",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p2", vote="approve"),
+                sender="c",
+            )
+        )
+        return p
+
+    def test_should_commit_quorum_against_winner_not_session_total(self):
+        """Phase 13 (issue #121, Context item 21): the reachable bug,
+        against a real DecisionProjection, not a mock. Before this fix
+        (measured on main): sum(vote_totals().values()) == 2 + 1 == 3
+        cleared quorum_size=3, so should_commit was True even though the
+        winner "p1" held only 2 of the 3 votes asked for. After: False."""
+        proj = self._real_projection_two_proposals()
+        # Pin the mechanism, not just the verdict.
+        assert proj.vote_totals() == {"p1": 2, "p2": 1}
+        assert proj.majority_winner() == "p1"
+
+        strategy = majority_committer(quorum_size=3)
+        assert strategy.should_commit(proj) is False
+
+    def test_should_commit_true_when_winner_itself_meets_quorum(self):
+        """Criterion 2: quorum_size=2 is met by the winner's own 2 votes --
+        nothing over-tightened by scoping to the winner."""
+        proj = self._real_projection_two_proposals()
+        strategy = majority_committer(quorum_size=2)
+        assert strategy.should_commit(proj) is True
+
+    def test_should_commit_default_quorum_one_unchanged(self):
+        """Criterion 3: quorum_size=1 (the default) is effectively
+        unchanged -- any winner has at least one positive vote."""
+        proj = self._real_projection_two_proposals()
+        assert majority_committer(quorum_size=1).should_commit(proj) is True
+        # Also against the factory's actual default, not just an explicit 1,
+        # so a future change to the default value would be caught here too.
+        assert majority_committer().should_commit(proj) is True
+
+    def test_should_commit_no_winner_short_circuits_before_vote_totals(self):
+        """Criterion 4: majority_winner() is None short-circuits should_commit
+        without ever calling vote_totals() -- pins the order the Approach
+        section calls out (cheaper, and what makes this assertion
+        meaningful)."""
+        strategy = majority_committer(quorum_size=1)
+        proj = MagicMock()
+        proj.majority_winner.return_value = None
+        assert strategy.should_commit(proj) is False
+        proj.vote_totals.assert_not_called()
+
+    def test_should_commit_winner_absent_from_vote_totals_does_not_raise(self):
+        """Criterion 5: a winner that vote_totals() has no entry for (only
+        reachable via a hand-built mock -- impossible against the real
+        DecisionProjection, since a winner must have votes) returns False
+        rather than raising KeyError. Pins .get(winner, 0) over
+        [winner]."""
+        strategy = majority_committer(quorum_size=1)
+        proj = MagicMock()
+        proj.majority_winner.return_value = "ghost-proposal"
+        proj.vote_totals.return_value = {"p1": 5}
         assert strategy.should_commit(proj) is False
 
     def test_should_commit_none_projection(self):
@@ -670,7 +773,7 @@ class TestMajorityCommitter:
 
     def test_decide_commitment(self):
         strategy = majority_committer(action="deploy", authority_scope="release")
-        proj = self._mock_projection({"approve": 3}, "deploy-v2")
+        proj = self._mock_projection({"deploy-v2": 3}, "deploy-v2")
         decision = strategy.decide_commitment(proj)
         assert decision.action == "deploy"
         assert decision.authority_scope == "release"
@@ -678,7 +781,7 @@ class TestMajorityCommitter:
 
     def test_default_action_and_scope(self):
         strategy = majority_committer()
-        proj = self._mock_projection({"approve": 1}, "opt-a")
+        proj = self._mock_projection({"opt-a": 1}, "opt-a")
         decision = strategy.decide_commitment(proj)
         assert decision.action == "commit"
         assert decision.authority_scope == "session"

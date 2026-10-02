@@ -344,7 +344,11 @@ def majority_committer(
     and the quorum has been met.
 
     Args:
-        quorum_size: Minimum number of votes before commitment (default ``1``).
+        quorum_size: Minimum number of positive votes for the winning proposal
+            required before committing (default ``1``). Counted from
+            ``vote_totals().get(winner, 0)``, not from the session's total
+            vote count, so votes cast for proposals that lost no longer help
+            clear the bar.
         action: The commitment action string (default ``"commit"``).
         authority_scope: The commitment authority scope (default ``"session"``).
     """
@@ -360,11 +364,20 @@ def majority_committer(
         def should_commit(self, projection: Any) -> bool:
             if projection is None:
                 return False
-            totals = projection.vote_totals()
-            total_votes = sum(totals.values())
-            if total_votes < self._quorum:
+            winner = projection.majority_winner()
+            if winner is None:
                 return False
-            return projection.majority_winner() is not None
+            # quorum_size is the bar for the WINNING proposal, not for the
+            # session's total vote count: vote_totals() is keyed by
+            # proposal_id (projections.py:167-181), so summing its values
+            # across proposals let the bar be cleared by votes cast for
+            # proposals that lost. Worked example, measured against a real
+            # DecisionProjection: p1=2 APPROVE, p2=1 APPROVE, quorum_size=3
+            # -> the old sum is 2+1=3 >= 3 and majority_winner() is "p1", so
+            # it committed a proposal holding 2 of the 3 votes the caller
+            # asked for. Matches macp-sdk-typescript's majorityCommitter
+            # (src/agent/strategies.ts:163-168).
+            return projection.vote_totals().get(winner, 0) >= self._quorum
 
         def decide_commitment(self, projection: Any) -> CommitmentResult:
             winner = projection.majority_winner()
