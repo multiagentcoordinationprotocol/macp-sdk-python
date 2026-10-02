@@ -246,7 +246,9 @@ def majority_voter(
     """Built-in voting strategy that votes ``APPROVE`` once the fraction of
     qualifying (non-``REVIEW``) evaluations recommending ``APPROVE``, for the
     most recently evaluated proposal, meets ``positive_threshold`` --
-    otherwise ``ABSTAIN``.
+    otherwise ``ABSTAIN``. ``should_vote`` applies the same qualifying/latest-
+    proposal rule: it returns ``True`` only when there is at least one
+    qualifying evaluation for ``decide_vote`` to actually decide from.
 
     Both ``should_vote`` and ``decide_vote`` read only from
     ``projection.evaluations``, never from votes already cast (issue #93 item
@@ -271,13 +273,29 @@ def majority_voter(
         def should_vote(self, projection: Any) -> bool:
             if projection is None:
                 return False
-            # Gate on Evaluations, not on votes already cast -- voting_handler
-            # already only calls should_vote() on an incoming Evaluation
-            # message, so this mirrors typescript-sdk's
-            # majorityVoter.shouldVote (strategies.ts:88:
-            # `projection.evaluations.length > 0`).
-            evaluations = getattr(projection, "evaluations", None)
-            return bool(evaluations)
+            evaluations = list(getattr(projection, "evaluations", None) or [])
+            if not evaluations:
+                return False
+            # Agree with decide_vote(): it votes on the most recently evaluated
+            # proposal and counts only qualifying (non-REVIEW) evaluations for
+            # that proposal, so should_vote() must ask the same question.
+            # RFC-MACP-0007 §4 (rfcs/RFC-MACP-0007-decision-mode.md:73): REVIEW
+            # evaluations "do not block or approve a proposal; they serve as
+            # informational analysis records only" -- a set of only REVIEWs has
+            # nothing decisive to vote on.
+            #
+            # Cross-SDK note: macp-sdk-typescript's majorityVoter
+            # (src/agent/strategies.ts:90-98) applies the same REVIEW filter but
+            # does NOT scope to a proposal -- its decideVote counts every
+            # decisive evaluation in the session. Python scopes both methods to
+            # the latest proposal, which is the stricter and more correct
+            # behaviour for a multi-proposal session (the vote is cast for one
+            # proposal_id). The difference is deliberate; see plan issue #121.
+            proposal_id = evaluations[-1].proposal_id
+            return any(
+                e.proposal_id == proposal_id and e.recommendation.upper() != "REVIEW"
+                for e in evaluations
+            )
 
         def decide_vote(self, projection: Any) -> VoteResult:
             evaluations = list(getattr(projection, "evaluations", None) or [])

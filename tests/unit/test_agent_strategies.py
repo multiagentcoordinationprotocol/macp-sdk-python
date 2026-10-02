@@ -319,9 +319,10 @@ class TestMajorityVoter:
         proj.vote_totals.return_value = totals
         proj.majority_winner.return_value = winner
         # Explicit, not a bare MagicMock() attribute: an un-configured
-        # MagicMock attribute auto-vivifies as a (truthy) MagicMock, which
-        # would make should_vote's `bool(projection.evaluations)` check
-        # meaningless in these tests.
+        # MagicMock attribute auto-vivifies as a MagicMock, whose default
+        # __iter__ is iter([]) -- so list(getattr(projection,
+        # "evaluations", None) or []) would silently collapse to [],
+        # making should_vote meaninglessly False in these tests.
         proj.evaluations = evaluations if evaluations is not None else []
         return proj
 
@@ -347,6 +348,74 @@ class TestMajorityVoter:
     def test_should_vote_none_projection(self):
         strategy = majority_voter()
         assert strategy.should_vote(None) is False
+
+    def test_should_vote_no_evaluations_attribute(self):
+        """Duck-typing tolerance: an object with no .evaluations at all
+        (not even an empty list) must not raise -- getattr's default
+        handles it the same as should_vote(None)."""
+        strategy = majority_voter()
+        assert strategy.should_vote(object()) is False
+
+    def test_should_vote_false_when_latest_proposal_only_has_review(self):
+        """Phase 12 (issue #121): should_vote must agree with decide_vote --
+        a REVIEW-only set for the latest proposal has nothing decisive to
+        vote on, so should_vote must now return False (previously True,
+        which made voting_handler call decide_vote only to ABSTAIN on a
+        set of purely informational records)."""
+        strategy = majority_voter()
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("p1", "REVIEW", "a"),
+                self._evaluation("p1", "REVIEW", "b"),
+            ],
+        )
+        assert strategy.should_vote(proj) is False
+
+    def test_should_vote_true_with_approve_for_latest_proposal(self):
+        """Happy path unaffected: should_vote agrees with decide_vote when
+        there's a qualifying evaluation to decide from."""
+        strategy = majority_voter()
+        proj = self._mock_projection({}, evaluations=[self._evaluation("p1", "APPROVE", "a")])
+        assert strategy.should_vote(proj) is True
+        assert strategy.decide_vote(proj).vote == "APPROVE"
+
+    def test_should_vote_scoped_to_latest_proposal_not_session_wide(self):
+        """Pins the deliberate Python/TypeScript divergence: an earlier
+        proposal's qualifying evaluations must not make should_vote True
+        for a later proposal that only has REVIEW. typescript-sdk's
+        shouldVote is session-wide (not proposal-scoped) and would return
+        True here; Python's is scoped to decide_vote's own proposal, which
+        is the stricter and correct behaviour for a multi-proposal
+        session."""
+        strategy = majority_voter()
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("p1", "APPROVE", "a"),
+                self._evaluation("p2", "REVIEW", "b"),
+            ],
+        )
+        assert strategy.should_vote(proj) is False
+
+    def test_voting_handler_skips_review_only_evaluation(self):
+        """End-to-end consequence of the should_vote fix (criterion 2): a
+        REVIEW-only projection must result in no ctx.actions.vote call at
+        all, not an ABSTAIN vote cast on purely informational records."""
+        strategy = majority_voter()
+        proj = self._mock_projection(
+            {},
+            evaluations=[
+                self._evaluation("p1", "REVIEW", "a"),
+                self._evaluation("p1", "REVIEW", "b"),
+            ],
+        )
+        handler = voting_handler(strategy)
+        ctx = _make_context(proj)
+        handler(_make_message(message_type="Evaluation", proposal_id="p1"), ctx)
+        logs = ctx._test_logs  # type: ignore[attr-defined]
+        assert len(logs) == 0
+        ctx.actions.vote.assert_not_called()
 
     @staticmethod
     def _evaluation(proposal_id: str, recommendation: str, sender: str = "alice"):
