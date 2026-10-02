@@ -22,7 +22,11 @@ class TestDecisionProjection:
         assert p.vote_totals() == {}
         assert p.majority_winner() is None
 
-    def test_proposal_does_not_advance_phase(self):
+    def test_proposal_advances_phase_to_evaluation(self):
+        """Issue #121 Phase 5: a Proposal opens the evaluation window, matching
+        both the runtime (which requires this phase before accepting an
+        Evaluation/Objection at all) and macp-sdk-typescript.
+        """
         p = self._proj()
         env = make_envelope(
             MODE_DECISION,
@@ -31,10 +35,78 @@ class TestDecisionProjection:
         )
         p.apply_envelope(env)
         assert "p1" in p.proposals
-        assert p.phase == "Proposal"
+        assert p.phase == "Evaluation"
         assert len(p.transcript) == 1
 
+    def test_initial_phase_is_proposal_before_any_message(self):
+        """A freshly constructed projection -- nothing applied yet -- still
+        starts at "Proposal". Pins __init__'s initial value so a future
+        reader cannot "simplify" it away once Proposal itself advances past
+        it."""
+        p = self._proj()
+        assert p.phase == "Proposal"
+
+    def test_replayed_proposal_after_vote_does_not_rewind_phase(self):
+        """The guard this phase exists for: this is the ONE test that fails
+        if `if self.phase == "Proposal":` in projections.py's Proposal
+        branch is dropped in favour of an unconditional _set_phase call."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Vote",
+                decision_pb2.VotePayload(proposal_id="p1", vote="approve"),
+                sender="alice",
+            )
+        )
+        assert p.phase == "Voting"
+        # Replayed Proposal: identical content, distinct message_id (a fresh
+        # make_envelope call always generates a new one).
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
+        assert p.phase == "Voting"
+
+    def test_second_proposal_keeps_evaluation_phase(self):
+        """Pins the guard's permissive side: a second, different proposal_id
+        must not be blocked by the guard just because the phase already
+        advanced past "Proposal"."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p1", option="opt-a", rationale="good"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_DECISION,
+                "Proposal",
+                decision_pb2.ProposalPayload(proposal_id="p2", option="opt-b", rationale="also"),
+            )
+        )
+        assert p.phase == "Evaluation"
+        assert "p1" in p.proposals
+        assert "p2" in p.proposals
+
     def test_evaluation_advances_phase_to_evaluation(self):
+        """Also the mid-session-joiner regression test for projections.py's
+        retained Evaluation-branch _set_phase("Evaluation") call: a
+        projection whose replay window starts after the Proposal still needs
+        this to reach "Evaluation". Do not delete this as a duplicate of the
+        Proposal-branch advance above."""
         p = self._proj()
         env = make_envelope(
             MODE_DECISION,
@@ -680,7 +752,10 @@ class TestVoteForUnknownProposal:
         )
         assert p.majority_winner() is None
         assert p.vote_totals() == {}
-        assert p.phase == "Proposal"
+        # Issue #121 Phase 5: the real Proposal("p1") above advances phase to
+        # "Evaluation" on its own; this assertion proves the orphan vote for
+        # "p9" did not push it further, to "Voting".
+        assert p.phase == "Evaluation"
 
     def test_orphan_vote_does_not_suppress_real_winner(self):
         """The suppression case: an orphan vote for an unproposed id must not
