@@ -29,6 +29,33 @@ class PolicyChange:
     observed_at_unix_ms: int = 0
 
 
+TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES: frozenset[str] = frozenset(
+    {"RESOLVED", "EXPIRED", "CANCELLED"}
+)
+"""Event-type names after which a session emits no further lifecycle events.
+
+``SUSPENDED`` / ``RESUMED`` are deliberately absent: a suspended session
+can still be resumed, so neither is terminal.
+
+Cross-SDK note -- read this before comparing anything against it.
+These are the proto enum names with the ``EVENT_TYPE_`` prefix
+**stripped** (see ``_session_event_name``), which is the shape
+``SessionLifecycleEvent.event_type`` carries in this SDK.
+``macp-sdk-typescript`` exports a differently-shaped set under the
+confusingly similar name ``TERMINAL_SESSION_LIFECYCLE_EVENT_TYPES``
+(``src/watchers.ts:20-24``), holding the **un-stripped** names
+(``"EVENT_TYPE_RESOLVED"``). This constant is named ``..._NAMES``
+rather than ``..._TYPES`` precisely so the two cannot be mistaken for
+the same contract. The value difference is deliberate and will not be
+reconciled by changing Python: the stripped form is this SDK's
+published field *value*, so changing it would break every
+``event_type == "RESOLVED"`` call site with no deprecation path
+available (a value, unlike a name, cannot carry a warning). To test a
+prefixed string from a TypeScript-written log, normalise it first:
+``t.removeprefix("EVENT_TYPE_") in TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES``.
+"""
+
+
 @dataclass(slots=True)
 class SessionLifecycleEvent:
     """A single session lifecycle event from ``WatchSessions``.
@@ -80,8 +107,12 @@ class SessionLifecycleEvent:
     @property
     def is_terminal(self) -> bool:
         """``True`` for RESOLVED, EXPIRED, or CANCELLED — the session won't
-        emit more events. ``SUSPENDED`` / ``RESUMED`` are non-terminal."""
-        return self.event_type in ("RESOLVED", "EXPIRED", "CANCELLED")
+        emit more events. ``SUSPENDED`` / ``RESUMED`` are non-terminal.
+
+        See ``TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES`` for the exported,
+        reusable form of this set.
+        """
+        return self.event_type in TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES
 
 
 class ModeRegistryWatcher:
