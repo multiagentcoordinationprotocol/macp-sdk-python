@@ -418,7 +418,16 @@ class Participant:
             mode=mode,
             participant_id=participant_id,
         )
-        self._last_phase: str | None = None
+        # Seed from the projection's own initial phase: that phase is a
+        # constructor artifact, not an observed transition, so firing
+        # on_phase_change for it would report a change that never happened.
+        # This matters most for a mid-session joiner, whose first envelope
+        # otherwise re-announces a phase the session entered before it
+        # attached. None when no projection is registered for the mode -- the
+        # phase path is skipped entirely in that case.
+        self._last_phase: str | None = (
+            self._projection.phase if self._projection is not None else None
+        )
         self._transport = transport
         self._cancel_callback_server: Any | None = None
 
