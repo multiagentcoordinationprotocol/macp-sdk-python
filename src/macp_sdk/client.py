@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterator, Sequence
 from typing import Any
 
 import grpc
@@ -753,7 +753,7 @@ class MacpClient:
         *,
         auth: AuthConfig | None = None,
         timeout: TimeoutValue = None,
-    ) -> Iterator[core_pb2.WatchSessionsResponse]:
+    ) -> Generator[core_pb2.WatchSessionsResponse, None, None]:
         """Server-streaming RPC: yields session lifecycle events.
 
         The runtime emits an initial ``EVENT_TYPE_CREATED`` frame for every
@@ -955,7 +955,7 @@ class MacpClient:
 
     def watch_policies(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
-    ) -> Iterator[policy_pb2.WatchPoliciesResponse]:
+    ) -> Generator[policy_pb2.WatchPoliciesResponse, None, None]:
         """Server-streaming RPC: yields governance policy change events.
 
         Auth is forwarded when available (``auth`` arg or ``client.auth``) but
@@ -987,7 +987,7 @@ class MacpClient:
 
     def watch_mode_registry(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
-    ) -> Iterator[core_pb2.WatchModeRegistryResponse]:
+    ) -> Generator[core_pb2.WatchModeRegistryResponse, None, None]:
         """Server-streaming RPC: yields mode registry change events.
 
         Auth is forwarded when available but not required.
@@ -1007,7 +1007,7 @@ class MacpClient:
 
     def watch_roots(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
-    ) -> Iterator[core_pb2.WatchRootsResponse]:
+    ) -> Generator[core_pb2.WatchRootsResponse, None, None]:
         """Server-streaming RPC: yields root change events.
 
         The runtime advertises ``roots.list_changed: false`` and does not yet
@@ -1029,7 +1029,7 @@ class MacpClient:
 
     def watch_signals(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
-    ) -> Iterator[core_pb2.WatchSignalsResponse]:
+    ) -> Generator[core_pb2.WatchSignalsResponse, None, None]:
         """Server-streaming RPC: yields ambient signal envelopes.
 
         Requires authentication since runtime v0.5.0 — an unauthenticated

@@ -32,8 +32,11 @@ from tests.conftest import client_with_stub as _client_with_stub
 
 
 def _client_with_stream(method_name: str, items: list[object]) -> MagicMock:
+    # A generator expression (unlike iter(list)) has a real .close() method,
+    # matching what the production watch_* methods actually return -- now
+    # required since the watchers wrap this return value in contextlib.closing().
     client = MagicMock()
-    getattr(client, method_name).return_value = iter(items)
+    getattr(client, method_name).return_value = (item for item in items)
     return client
 
 
@@ -371,6 +374,15 @@ _NEXT_METHOD_FOR_STUB = {
     "WatchSignals": "next_signal",
 }
 
+# SignalWatcher's own iterator method is signals(), not changes().
+_OUTER_METHOD_FOR_STUB = {
+    "WatchSessions": "changes",
+    "WatchPolicies": "changes",
+    "WatchModeRegistry": "changes",
+    "WatchRoots": "changes",
+    "WatchSignals": "signals",
+}
+
 
 @pytest.mark.parametrize(
     "method_name,stub_name",
@@ -395,7 +407,12 @@ class TestStreamCancellationAllFiveRpcs:
     corresponding watcher helper instead, since those specifically
     exercise the watcher-level closing() wrapper and cannot be proven
     deterministic on the raw generator alone -- see each method's own
-    docstring."""
+    docstring. A seventh method
+    (test_closing_outer_stream_deterministically_closes_inner_generator)
+    is a permanent regression guard for a gap a ship-gate review found:
+    three of the five watchers used to close their *inner*
+    client.watch_*() generator only by refcounting rather than
+    deterministically -- see that method's own docstring."""
 
     def test_abandon_after_one_item_cancels_once(self, method_name, stub_name):
         client, stub = _client_with_stub()
@@ -481,4 +498,47 @@ class TestStreamCancellationAllFiveRpcs:
         with pytest.raises(MacpTransportError):
             list(getattr(client, method_name)())
 
+        assert call.cancel_calls == 1
+
+    def test_closing_outer_stream_deterministically_closes_inner_generator(
+        self, method_name, stub_name
+    ):
+        """Regression guard for a gap a ship-gate review found in Phase 10:
+        SignalWatcher.signals() / SessionLifecycleWatcher.changes() /
+        PolicyWatcher.changes() used to consume their inner
+        client.watch_*() generator via a bare ``for`` loop, so closing the
+        *outer* watcher-level generator only released the inner one by
+        refcounting -- a reference held elsewhere (or a non-refcounting
+        runtime) could defer that indefinitely. ModeRegistryWatcher and
+        RootsWatcher were never affected: they delegate via ``yield from``,
+        which PEP 380 guarantees closes the inner generator explicitly when
+        the outer one is closed.
+
+        This test pins an extra reference to the inner generator (via a
+        spy on the client method) before closing the outer one, defeating
+        CPython's immediate-refcount-drop shortcut -- so it only passes
+        when the inner generator is closed through an explicit mechanism
+        (``closing()`` or ``yield from``), not by luck of refcounting.
+        """
+        client, stub = _client_with_stub()
+        watcher_cls, make_response = _WATCHER_FOR_STUB[stub_name]
+        call = FakeCall([make_response(), make_response(), make_response()])
+        getattr(stub, stub_name).return_value = call
+
+        captured: list[object] = []
+        original = getattr(client, method_name)
+
+        def spy(*args: object, **kwargs: object) -> object:
+            gen = original(*args, **kwargs)
+            captured.append(gen)  # extra reference, held for the rest of this test
+            return gen
+
+        setattr(client, method_name, spy)
+
+        watcher = watcher_cls(client)
+        outer = getattr(watcher, _OUTER_METHOD_FOR_STUB[stub_name])()
+        next(outer)  # advance past the first yield so the inner generator exists
+        outer.close()
+
+        assert captured, "watcher never called the client-level watch_* method"
         assert call.cancel_calls == 1

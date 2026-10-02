@@ -144,10 +144,18 @@ class SignalWatcher:
 
         Forwards the watcher's stored ``auth`` — runtime v0.5.0 requires
         authentication for ``WatchSignals``.
+
+        Wraps the inner ``watch_signals()`` generator in its own
+        ``closing()`` -- a bare ``for`` loop here would only release it
+        by refcounting when this generator is itself closed, which a
+        caller-held reference cycle (or a non-refcounting GC) can defer
+        indefinitely, undermining the whole point of the caller side
+        wrapping *this* generator in ``closing()`` in turn.
         """
-        for response in self._client.watch_signals(auth=self._auth):
-            if hasattr(response, "envelope") and response.envelope.ByteSize() > 0:
-                yield response.envelope
+        with closing(self._client.watch_signals(auth=self._auth)) as responses:
+            for response in responses:
+                if hasattr(response, "envelope") and response.envelope.ByteSize() > 0:
+                    yield response.envelope
 
     def watch(self, handler: Callable[[Any], None]) -> None:
         """Block and invoke *handler* for each signal envelope."""
@@ -199,16 +207,22 @@ class SessionLifecycleWatcher:
         self._auth = auth
 
     def changes(self) -> Generator[SessionLifecycleEvent, None, None]:
-        """Yield ``SessionLifecycleEvent`` items from the runtime stream."""
-        for response in self._client.watch_sessions(auth=self._auth):
-            event = getattr(response, "event", None)
-            if event is None:
-                continue
-            yield SessionLifecycleEvent(
-                event_type=_session_event_name(event.event_type),
-                observed_at_unix_ms=event.observed_at_unix_ms,
-                session=event.session,
-            )
+        """Yield ``SessionLifecycleEvent`` items from the runtime stream.
+
+        Wraps the inner ``watch_sessions()`` generator in its own
+        ``closing()`` -- see ``SignalWatcher.signals()``'s docstring for
+        why a bare ``for`` loop here isn't enough.
+        """
+        with closing(self._client.watch_sessions(auth=self._auth)) as responses:
+            for response in responses:
+                event = getattr(response, "event", None)
+                if event is None:
+                    continue
+                yield SessionLifecycleEvent(
+                    event_type=_session_event_name(event.event_type),
+                    observed_at_unix_ms=event.observed_at_unix_ms,
+                    session=event.session,
+                )
 
     def watch(self, handler: Callable[[SessionLifecycleEvent], None]) -> None:
         """Block and invoke *handler* for each lifecycle event."""
@@ -232,11 +246,17 @@ class PolicyWatcher:
         self._auth = auth
 
     def changes(self) -> Generator[PolicyChange, None, None]:
-        """Yield ``PolicyChange`` items from the runtime stream."""
-        for response in self._client.watch_policies(auth=self._auth):
-            descriptors = list(response.descriptors) if hasattr(response, "descriptors") else []
-            observed = getattr(response, "observed_at_unix_ms", 0)
-            yield PolicyChange(descriptors=descriptors, observed_at_unix_ms=observed)
+        """Yield ``PolicyChange`` items from the runtime stream.
+
+        Wraps the inner ``watch_policies()`` generator in its own
+        ``closing()`` -- see ``SignalWatcher.signals()``'s docstring for
+        why a bare ``for`` loop here isn't enough.
+        """
+        with closing(self._client.watch_policies(auth=self._auth)) as responses:
+            for response in responses:
+                descriptors = list(response.descriptors) if hasattr(response, "descriptors") else []
+                observed = getattr(response, "observed_at_unix_ms", 0)
+                yield PolicyChange(descriptors=descriptors, observed_at_unix_ms=observed)
 
     def watch(self, handler: Callable[[PolicyChange], None]) -> None:
         """Block and invoke *handler* for each policy change."""
