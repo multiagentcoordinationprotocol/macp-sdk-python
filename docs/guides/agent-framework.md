@@ -95,7 +95,12 @@ participant = from_bootstrap("bootstrap.json")
   `bearer_token`.
 - **`extensions`** values are encoded as proto-JSON canonical base64 — the
   loader decodes back to `dict[str, bytes]` and threads them onto
-  `SessionStart.extensions`.
+  `SessionStart.extensions`. A value that isn't valid base64 falls back to
+  its raw UTF-8 bytes (logged at `DEBUG`), so a hand-authored value that
+  *happens* to also be syntactically valid base64 (e.g. `"abcd"`) silently
+  decodes as base64 instead of the literal string — a known, accepted
+  ambiguity (issue #121); avoid extension values that could be mistaken for
+  base64 if the literal bytes matter.
 
 ## Handlers
 

@@ -37,6 +37,23 @@ def _decode_extensions(raw: Any) -> dict[str, bytes]:
     bootstrap) defaults to ``{}``; a *present* value of the wrong type (a
     list, a string, ...) is equally malformed and raises rather than
     silently vanishing (#97 follow-up).
+
+    **Known, accepted ambiguity (issue #121):** trying base64 first means a
+    plain string that *happens* to also be syntactically valid base64 (e.g.
+    ``"abcd"`` or ``"pack"`` -- any string whose length is a multiple of 4
+    over the base64 alphabet) silently decodes as base64 bytes instead of
+    being treated as the literal string a bootstrap author intended. There
+    is no way to tell the two apart from the string alone, and this SDK is
+    the canonical source ``macp-sdk-typescript`` mirrors for interop, so
+    changing the heuristic would need a coordinated, versioned decision
+    across both SDKs (and likely a wire-shape change), not a local fix.
+    Decided: keep the heuristic as-is rather than add a disambiguation
+    mechanism -- it is a diagnosability/correctness-on-the-margins wart, not
+    a live bug, and the ``logger.debug`` call below at least makes a
+    base64-decode *failure* observable. A value that round-trips through
+    *both* interpretations without the caller noticing is the accepted
+    cost; callers who need an unambiguous literal string should route it
+    through a different field instead of ``extensions``.
     """
     if raw is None:
         return {}

@@ -68,3 +68,16 @@ class TestDecodeExtensions:
 
         assert result == {"k": b"hello"}
         assert len(caplog.records) == 0
+
+    @pytest.mark.parametrize("ambiguous", ["abcd", "pack"])
+    def test_base64_first_heuristic_is_the_decided_behavior(self, ambiguous, caplog):
+        """Pins issue #121's decision: a plain string that is also valid
+        base64 decodes as base64, not as its literal UTF-8 bytes -- a known,
+        accepted ambiguity, not something to silently start treating
+        differently. See _decode_extensions's docstring for the rationale."""
+        with caplog.at_level(logging.DEBUG, logger="macp_sdk"):
+            result = _decode_extensions({"k": ambiguous})
+
+        assert result == {"k": base64.b64decode(ambiguous)}
+        assert result != {"k": ambiguous.encode("utf-8")}
+        assert len(caplog.records) == 0
