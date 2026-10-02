@@ -207,8 +207,10 @@ class TestSessionLifecycleWatcher:
     def test_next_change_empty_raises(self):
         client = MagicMock()
         client.watch_sessions.return_value = (x for x in [])
-        with pytest.raises(RuntimeError, match="stream ended"):
+        with pytest.raises(MacpTransportError, match="stream ended") as exc_info:
             SessionLifecycleWatcher(client).next_change()
+        assert isinstance(exc_info.value, MacpSdkError)
+        assert exc_info.value.code is None
 
     def test_auth_override_passed_to_client(self):
         client = MagicMock()
