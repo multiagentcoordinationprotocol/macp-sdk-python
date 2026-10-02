@@ -4,14 +4,15 @@ The SDK maps runtime error codes to a Python exception hierarchy and provides re
 
 ## Exception hierarchy
 
-Protocol, session, and transport failures derive from `MacpSdkError`. Argument-type and
-local-file-parsing failures raise the idiomatic Python built-ins instead: `TypeError` for a
-wrong argument *type*, `ValueError` for a malformed bootstrap file. Three such residual sites
-are `agent/runner.py`'s bootstrap parsing (`ValueError`, at `:43`, `:56`, `:84` and `:94`),
-`envelope.py:225`'s non-protobuf message argument (`TypeError`), and `proto_registry.py:129`'s
-internal registry lookup (`ValueError`). (A few module-level `__getattr__` shims for deprecated
-aliases also raise `AttributeError` on an unknown name — that's Python's import protocol, not
-part of the SDK's error contract.)
+Protocol, session, and transport failures derive from `MacpSdkError`. Argument-type checks,
+local-file-parsing, and internal-mapping lookups raise the idiomatic Python built-ins instead:
+`TypeError` for a wrong argument *type*, `ValueError` for a malformed bootstrap file or an
+unknown internal mapping key. Three such residual sites are `agent/runner.py`'s bootstrap
+parsing (`ValueError`, at `:43`, `:56`, `:84` and `:94`), `envelope.py:225`'s non-protobuf
+message argument (`TypeError`), and `proto_registry.py:129`'s internal registry lookup
+(`ValueError`). (A few module-level `__getattr__` shims for deprecated aliases also raise
+`AttributeError` on an unknown name — that's Python's import protocol, not part of the SDK's
+error contract.)
 
 ```
 MacpSdkError                    Base exception
@@ -104,7 +105,7 @@ retry_send(client, envelope, policy=policy, auth=auth)
 
 ## Transport errors
 
-`MacpTransportError` is raised when gRPC communication fails entirely (network down, server unreachable, connection reset), and also when a watcher's `next_change()`/`next_signal()` finds a server-streaming RPC has ended before yielding an item -- in that case `exc.code` is `None` (no gRPC status applies to a cleanly-ended stream), unlike the network-failure case where `code` carries the status name:
+`MacpTransportError` is raised when gRPC communication fails entirely (network down, server unreachable, connection reset), and also when a watcher's `next_change()`/`next_signal()` finds a server-streaming RPC has ended before yielding an item — in that case `exc.code` is `None` (no gRPC status applies to a cleanly-ended stream), unlike the network-failure case where `code` carries the status name:
 
 ```python
 from macp_sdk import MacpTransportError
