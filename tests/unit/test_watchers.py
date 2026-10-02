@@ -538,7 +538,13 @@ class TestStreamCancellationAllFiveRpcs:
         watcher = watcher_cls(client)
         outer = getattr(watcher, _OUTER_METHOD_FOR_STUB[stub_name])()
         next(outer)  # advance past the first yield so the inner generator exists
+        assert captured, "watcher never called the client-level watch_* method"
+        # Pin the assertion below to outer.close() specifically -- without this,
+        # a fixture change that made the stream exhaust on its own (rather than
+        # still being live when closed) would pass vacuously even with the bug
+        # restored, since normal exhaustion also runs the inner generator's
+        # finally.
+        assert call.cancel_calls == 0, "stream should still be live before close()"
         outer.close()
 
-        assert captured, "watcher never called the client-level watch_* method"
         assert call.cancel_calls == 1
