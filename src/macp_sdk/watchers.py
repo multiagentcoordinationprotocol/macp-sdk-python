@@ -14,6 +14,8 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from .errors import MacpTransportError
+
 if TYPE_CHECKING:
     from .auth import AuthConfig
     from .client import MacpClient
@@ -104,7 +106,7 @@ class ModeRegistryWatcher:
         with closing(self.changes()) as stream:
             for change in stream:
                 return change
-        raise RuntimeError("stream ended before receiving a change")
+        raise MacpTransportError("stream ended before receiving a change")
 
 
 class RootsWatcher:
@@ -129,7 +131,7 @@ class RootsWatcher:
         with closing(self.changes()) as stream:
             for change in stream:
                 return change
-        raise RuntimeError("stream ended before receiving a change")
+        raise MacpTransportError("stream ended before receiving a change")
 
 
 class SignalWatcher:
@@ -168,7 +170,7 @@ class SignalWatcher:
         with closing(self.signals()) as stream:
             for envelope in stream:
                 return envelope
-        raise RuntimeError("stream ended before receiving a signal")
+        raise MacpTransportError("stream ended before receiving a signal")
 
 
 _SESSION_EVENT_PREFIX = "EVENT_TYPE_"
@@ -235,7 +237,7 @@ class SessionLifecycleWatcher:
         with closing(self.changes()) as stream:
             for change in stream:
                 return change
-        raise RuntimeError("stream ended before receiving a session lifecycle event")
+        raise MacpTransportError("stream ended before receiving a session lifecycle event")
 
 
 class PolicyWatcher:
@@ -269,7 +271,7 @@ class PolicyWatcher:
         with closing(self.changes()) as stream:
             for change in stream:
                 return change
-        raise RuntimeError("stream ended before receiving a policy change")
+        raise MacpTransportError("stream ended before receiving a policy change")
 
 
 # ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────

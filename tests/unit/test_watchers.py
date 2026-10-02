@@ -6,7 +6,7 @@ These tests drive each watcher against a ``MagicMock`` client and verify:
 - ``changes()`` / ``signals()`` yields everything the stream produced, in order,
 - ``watch(handler)`` invokes the handler once per stream item,
 - ``next_change()`` / ``next_signal()`` returns the first item,
-- empty streams raise ``RuntimeError`` from ``next_*`` helpers,
+- empty streams raise ``MacpTransportError`` from ``next_*`` helpers,
 - ``SignalWatcher`` ignores frames whose envelope is empty (``ByteSize == 0``),
 - ``PolicyWatcher`` maps responses into the typed ``PolicyChange`` dataclass.
 """
@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import grpc
 import pytest
 
-from macp_sdk.errors import MacpTransportError
+from macp_sdk.errors import MacpSdkError, MacpTransportError
 from macp_sdk.watchers import (
     ModeRegistryWatcher,
     PolicyChange,
@@ -67,8 +67,10 @@ class TestModeRegistryWatcher:
     def test_next_change_empty_raises(self):
         client = _client_with_stream("watch_mode_registry", [])
         watcher = ModeRegistryWatcher(client)
-        with pytest.raises(RuntimeError, match="stream ended"):
+        with pytest.raises(MacpTransportError, match="stream ended") as exc_info:
             watcher.next_change()
+        assert isinstance(exc_info.value, MacpSdkError)
+        assert exc_info.value.code is None
 
 
 # ── RootsWatcher ──────────────────────────────────────────────────────
@@ -84,8 +86,10 @@ class TestRootsWatcher:
     def test_next_change_empty_raises(self):
         client = _client_with_stream("watch_roots", [])
         watcher = RootsWatcher(client)
-        with pytest.raises(RuntimeError, match="stream ended"):
+        with pytest.raises(MacpTransportError, match="stream ended") as exc_info:
             watcher.next_change()
+        assert isinstance(exc_info.value, MacpSdkError)
+        assert exc_info.value.code is None
 
 
 # ── SignalWatcher ─────────────────────────────────────────────────────
@@ -120,8 +124,10 @@ class TestSignalWatcher:
             "watch_signals", [_fake_signal_response(0), _fake_signal_response(0)]
         )
         watcher = SignalWatcher(client)
-        with pytest.raises(RuntimeError, match="stream ended"):
+        with pytest.raises(MacpTransportError, match="stream ended") as exc_info:
             watcher.next_signal()
+        assert isinstance(exc_info.value, MacpSdkError)
+        assert exc_info.value.code is None
 
     def test_watch_invokes_handler(self):
         full = _fake_signal_response(10)
@@ -167,8 +173,10 @@ class TestPolicyWatcher:
     def test_next_change_empty_raises(self):
         client = _client_with_stream("watch_policies", [])
         watcher = PolicyWatcher(client)
-        with pytest.raises(RuntimeError, match="stream ended"):
+        with pytest.raises(MacpTransportError, match="stream ended") as exc_info:
             watcher.next_change()
+        assert isinstance(exc_info.value, MacpSdkError)
+        assert exc_info.value.code is None
 
     def test_missing_descriptors_attribute_yields_empty_list(self):
         resp = MagicMock(spec=[])  # no descriptors attribute at all
