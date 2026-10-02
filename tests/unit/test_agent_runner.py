@@ -9,6 +9,7 @@ value as a base64-encoded string.
 from __future__ import annotations
 
 import base64
+import logging
 
 import pytest
 
@@ -50,3 +51,20 @@ class TestDecodeExtensions:
             _decode_extensions({"k": [1, 2]})
         with pytest.raises(ValueError, match="got dict"):
             _decode_extensions({"k": {"nested": True}})
+
+    def test_non_base64_string_emits_one_debug_record_naming_the_key(self, caplog):
+        with caplog.at_level(logging.DEBUG, logger="macp_sdk"):
+            result = _decode_extensions({"k": "not base64!!"})
+
+        assert result == {"k": b"not base64!!"}
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert len(debug_records) == 1
+        assert "k" in debug_records[0].getMessage()
+
+    def test_valid_base64_string_emits_no_debug_record(self, caplog):
+        encoded = base64.b64encode(b"hello").decode("ascii")
+        with caplog.at_level(logging.DEBUG, logger="macp_sdk"):
+            result = _decode_extensions({"k": encoded})
+
+        assert result == {"k": b"hello"}
+        assert len(caplog.records) == 0

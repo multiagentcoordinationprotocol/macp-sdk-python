@@ -6,6 +6,7 @@ import json
 import os
 from typing import Any
 
+from .._logging import logger
 from ..auth import AuthConfig
 from ..client import MacpClient
 from ..constants import DEFAULT_POLICY_VERSION
@@ -51,6 +52,10 @@ def _decode_extensions(raw: Any) -> dict[str, bytes]:
             try:
                 decoded[str(key)] = base64.b64decode(value, validate=True)
             except (binascii.Error, ValueError):
+                logger.debug(
+                    "bootstrap extensions[%r] is not valid base64; using its raw UTF-8 bytes",
+                    key,
+                )
                 decoded[str(key)] = value.encode("utf-8")
         else:
             raise ValueError(

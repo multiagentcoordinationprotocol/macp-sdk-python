@@ -689,6 +689,14 @@ class MacpClient:
     def list_roots(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> core_pb2.ListRootsResponse:
+        """List the roots the runtime exposes.
+
+        The runtime does not populate roots yet and returns an empty list;
+        since runtime v0.5.0 it advertises this up front via
+        ``capabilities.roots.list_changed: false`` in ``Initialize``. The RPC
+        is wired and forward-compatible -- callers should treat an empty list
+        as "no roots advertised," not as an error.
+        """
         return self.stub.ListRoots(
             core_pb2.ListRootsRequest(),
             metadata=self._metadata(auth),

@@ -49,12 +49,20 @@ fields that surface any extension blobs the initiator attached to
 request, and the SDK threads them: `list_sessions()` **auto-paginates** —
 it follows the runtime's `next_page_token` until empty and returns the
 complete list — so callers are forward-compatible with a paginating runtime.
+Because it drains every page before returning, the complete result set is
+accumulated in one in-process list; for a session count large enough that
+this matters, use `list_sessions_page` (below) to walk pages manually
+instead of holding the whole set in memory at once.
 
-> **Runtime status:** runtime v0.5.0 does **not** implement pagination
-> server-side yet — it ignores `page_size`/`page_token` and returns the full
-> set in a single page with an empty `next_page_token`. `list_sessions()`
-> already returns the complete list either way; multi-page behaviour becomes
-> observable only once a runtime honours `page_size`.
+> **Runtime status (since runtime v0.8.0):** the runtime implements
+> `ListSessions` pagination server-side — it decodes/encodes an opaque
+> continuation token, honours `page_size` against the runtime's configured
+> default/max page size (overridable per deployment), rejects a negative
+> `page_size`, and returns a non-empty `next_page_token` when more pages
+> remain. A pre-0.8 runtime ignores `page_size`/`page_token` and returns the
+> full set in a single page with an empty token; `list_sessions()` returns
+> the complete list correctly either way, so only `list_sessions_page`'s
+> manual-paging behaviour differs by runtime version.
 
 ```python
 all_sessions = client.list_sessions(page_size=100)   # drains all pages
@@ -63,8 +71,7 @@ all_sessions = client.list_sessions(page_size=100)   # drains all pages
 If you want to page manually — e.g. to render one page at a time — use
 `list_sessions_page`, which returns `(sessions, next_page_token)`. An empty
 token means the last page; **don't assume a complete list until the token is
-empty**. (Against runtime v0.5.0 the loop below runs zero iterations — the
-first call already carries everything.)
+empty**.
 
 ```python
 page, token = client.list_sessions_page(page_size=50)
