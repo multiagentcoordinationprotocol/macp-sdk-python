@@ -130,7 +130,7 @@ proj.requests.get(request_id)                     # ApprovalRequestRecord or Non
 proj.requests[request_id].required_approvals      # 3
 proj.requests[request_id].action                  # "security-policy-tls13"
 proj.requests[request_id].summary                 # "Enforce TLS 1.3 minimum across all services"
-proj.requests[request_id].requester               # "coordinator"
+proj.requests[request_id].sender                  # "coordinator"
 
 # Ballots -- keyed request_id -> sender -> BallotRecord
 proj.ballots                                       # dict[request_id, dict[sender, BallotRecord]]
