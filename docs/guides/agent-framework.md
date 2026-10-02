@@ -201,9 +201,13 @@ Content-Type: application/json
 → 202 Accepted   {"ok": true}
 ```
 
-The server is daemon-threaded and auto-closes when `participant.stop()`
-fires (from any thread — including from the handler that fired it). No
-dependencies beyond the standalone library.
+The server is daemon-threaded and auto-closes when the participant stops —
+either because `participant.stop()` fires (from any thread — including
+from the handler that fired it) or because `run()` returns on its own
+after the session reaches a terminal state. It stays bound across a
+`run()` call that exits without stopping (e.g. the transport's stream
+ended but the session isn't done), so a subsequent `run()` keeps the same
+cancel endpoint. No dependencies beyond the standalone library.
 
 ### Using the cancel-callback outside `from_bootstrap`
 

@@ -728,6 +728,395 @@ class TestParticipantStopUnblocksTransport:
         assert transport.stop_called is True
 
 
+class _CountingTransport:
+    """Yields the given envelopes one at a time and records exactly how
+    many the for-loop pulled from start() -- the reusable fixture for
+    proving run() does not wait for (or consume) envelope n+1 once
+    self._stopped flips while envelope n was being dispatched."""
+
+    def __init__(self, envelopes: list[envelope_pb2.Envelope]) -> None:
+        self._envelopes = envelopes
+        self.pulled = 0
+        self.stop_called = False
+
+    def start(self):
+        for env in self._envelopes:
+            self.pulled += 1
+            yield IncomingMessage(
+                message_type=env.message_type,
+                sender=env.sender,
+                payload={},
+                raw=env,
+            )
+
+    def stop(self) -> None:
+        self.stop_called = True
+
+
+class TestRunLoopStopPromptness:
+    """Phase 6 criteria 1-2: run()'s loop must re-check self._stopped
+    right after dispatch, within the same iteration that set it -- not
+    only at the top of the next one. Both tests prove it by giving the
+    transport a second envelope and asserting it is never pulled."""
+
+    def test_handler_stop_mid_dispatch_stops_before_next_envelope(self):
+        """Criterion 1: a handler calling stop() while processing
+        envelope n causes run() to return without waiting for envelope
+        n+1."""
+        from macp.modes.decision.v1 import decision_pb2
+
+        client = _make_mock_client()
+        env1 = _make_envelope(
+            "Proposal", decision_pb2.ProposalPayload(proposal_id="p1", option="x"), sender="s1"
+        )
+        env2 = _make_envelope(
+            "Proposal", decision_pb2.ProposalPayload(proposal_id="p2", option="y"), sender="s2"
+        )
+        transport = _CountingTransport([env1, env2])
+        seen: list[str] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+
+        def handler(msg: IncomingMessage, ctx: object) -> None:
+            seen.append(msg.sender)
+            p.stop()
+
+        p.on("Proposal", handler)
+
+        p.run()
+
+        assert seen == ["s1"]
+        assert transport.pulled == 1, (
+            "run() must not pull a second envelope once the handler for the first one called stop()"
+        )
+
+    def test_terminal_phase_stops_before_next_envelope(self):
+        """Criterion 2: reaching a terminal phase on envelope n causes
+        run() to return within the same iteration, without pulling
+        envelope n+1."""
+        env1 = _make_envelope(
+            "Commitment",
+            core_pb2.CommitmentPayload(
+                commitment_id="c1", action="deploy", authority_scope="release", reason="ok"
+            ),
+        )
+        env2 = _make_envelope(
+            "Commitment",
+            core_pb2.CommitmentPayload(
+                commitment_id="c2", action="deploy", authority_scope="release", reason="ok"
+            ),
+        )
+        transport = _CountingTransport([env1, env2])
+        client = _make_mock_client()
+        terminal_results: list[TerminalResult] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        p.on_terminal(lambda r: terminal_results.append(r))
+
+        p.run()
+
+        assert len(terminal_results) == 1
+        assert transport.pulled == 1, (
+            "run() must not pull a second envelope once the terminal "
+            "dispatch for the first one set self._stopped"
+        )
+
+    def test_non_stopping_envelope_does_not_break_the_loop(self):
+        """Regression guard for the fix itself: the new post-dispatch
+        `if self._stopped: break` must only fire when self._stopped is
+        actually True. A transport with two envelopes, neither of which
+        stops the participant, must still have both pulled and
+        dispatched -- proving the new check isn't an unconditional
+        break in disguise."""
+        from macp.modes.decision.v1 import decision_pb2
+
+        client = _make_mock_client()
+        env1 = _make_envelope(
+            "Proposal", decision_pb2.ProposalPayload(proposal_id="p1", option="x"), sender="s1"
+        )
+        env2 = _make_envelope(
+            "Proposal", decision_pb2.ProposalPayload(proposal_id="p2", option="y"), sender="s2"
+        )
+        transport = _CountingTransport([env1, env2])
+        seen: list[str] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        p.on("Proposal", lambda msg, ctx: seen.append(msg.sender))
+
+        p.run()
+
+        assert seen == ["s1", "s2"]
+        assert transport.pulled == 2, (
+            "run() must keep pulling envelopes while self._stopped stays False"
+        )
+        assert not p.is_stopped
+
+
+class _OneMessageTerminalTransport:
+    """Yields one terminal-triggering message then ends normally."""
+
+    def __init__(self, envelope: envelope_pb2.Envelope) -> None:
+        self._envelope = envelope
+        self.stop_called = False
+
+    def start(self):
+        yield IncomingMessage(
+            message_type=self._envelope.message_type,
+            sender=self._envelope.sender,
+            payload={},
+            raw=self._envelope,
+        )
+
+    def stop(self) -> None:
+        self.stop_called = True
+
+
+class _EmptyTransport:
+    """Yields nothing -- stands in for a stream that simply ended (e.g.
+    the server closed it) with the session still live, not stopped."""
+
+    def __init__(self) -> None:
+        self.stop_called = False
+
+    def start(self):
+        return
+        yield  # pragma: no cover
+
+    def stop(self) -> None:
+        self.stop_called = True
+
+
+class _RaisingStopTransport:
+    """stop() raises -- proves run()'s finally must not let that
+    exception propagate out of run(), and must not skip the
+    conditional cancel-callback close that follows it."""
+
+    def __init__(self, envelope: envelope_pb2.Envelope) -> None:
+        self._envelope = envelope
+
+    def start(self):
+        yield IncomingMessage(
+            message_type=self._envelope.message_type,
+            sender=self._envelope.sender,
+            payload={},
+            raw=self._envelope,
+        )
+
+    def stop(self) -> None:
+        raise RuntimeError("transport.stop() boom")
+
+
+class _RaisingHandlerTransport:
+    """Yields one message whose registered handler raises -- proves
+    run()'s new try/except around transport.stop() does not swallow or
+    alter the handler's exception, and that transport.stop() still runs
+    during teardown."""
+
+    def __init__(self, envelope: envelope_pb2.Envelope) -> None:
+        self._envelope = envelope
+        self.stop_called = False
+
+    def start(self):
+        yield IncomingMessage(
+            message_type=self._envelope.message_type,
+            sender=self._envelope.sender,
+            payload={},
+            raw=self._envelope,
+        )
+
+    def stop(self) -> None:
+        self.stop_called = True
+
+
+class TestRunTeardown:
+    """Phase 6 criteria 3, 4, 5, 6: run()'s finally block must (a) close
+    the bound cancel-callback server exactly once, if and only if this
+    run() ended stopped, (b) leave stop() safe and non-reclosing
+    afterwards, and (c) never let a transport.stop() exception escape
+    and mask the loop's real outcome or skip that conditional close."""
+
+    def test_run_closes_cancel_callback_server_when_session_reaches_terminal(self):
+        """Criterion 3."""
+        client = _make_mock_client()
+        envelope = _make_envelope(
+            "Commitment",
+            core_pb2.CommitmentPayload(
+                commitment_id="c1", action="deploy", authority_scope="release", reason="ok"
+            ),
+        )
+        transport = _OneMessageTerminalTransport(envelope)
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        server = MagicMock()
+        p.attach_cancel_callback_server(server)
+
+        p.run()
+
+        assert p.is_stopped
+        server.close.assert_called_once()
+        assert p._cancel_callback_server is None
+
+    def test_stop_after_stopped_run_does_not_raise_or_reclose(self):
+        """Criterion 4: calling stop() after a run() that already ended
+        stopped (and already closed the server via the finally block)
+        must not raise and must not call close() a second time."""
+        client = _make_mock_client()
+        envelope = _make_envelope(
+            "Commitment",
+            core_pb2.CommitmentPayload(
+                commitment_id="c1", action="deploy", authority_scope="release", reason="ok"
+            ),
+        )
+        transport = _OneMessageTerminalTransport(envelope)
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        server = MagicMock()
+        p.attach_cancel_callback_server(server)
+
+        p.run()
+        assert p.is_stopped
+        server.close.assert_called_once()
+
+        p.stop()  # must not raise, must not reclose
+
+        assert p.is_stopped
+        server.close.assert_called_once()
+
+    def test_run_leaves_cancel_callback_server_bound_when_not_stopped(self):
+        """run() returning because the transport's stream simply ended
+        (no stop() call, no terminal phase) must NOT close a bound
+        cancel-callback server -- the participant is still runnable and
+        a later run() should keep using the same cancel endpoint."""
+        client = _make_mock_client()
+        transport = _EmptyTransport()
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        server = MagicMock()
+        p.attach_cancel_callback_server(server)
+
+        p.run()
+
+        assert not p.is_stopped
+        server.close.assert_not_called()
+        assert p._cancel_callback_server is server
+
+    def test_handler_exception_propagates_unaltered_and_transport_still_stopped(self):
+        """Criterion 5: a handler that raises propagates out of run()
+        with its original type and message, and transport.stop() was
+        still called. The callback server is not closed on this path --
+        self._stopped is False."""
+        from macp.modes.decision.v1 import decision_pb2
+
+        client = _make_mock_client()
+        envelope = _make_envelope(
+            "Proposal", decision_pb2.ProposalPayload(proposal_id="p1", option="x")
+        )
+        transport = _RaisingHandlerTransport(envelope)
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        server = MagicMock()
+        p.attach_cancel_callback_server(server)
+
+        def handler(msg: IncomingMessage, ctx: object) -> None:
+            raise ValueError("handler boom")
+
+        p.on("Proposal", handler)
+
+        with pytest.raises(ValueError, match="handler boom"):
+            p.run()
+
+        assert transport.stop_called is True
+        assert not p.is_stopped
+        server.close.assert_not_called()
+
+    def test_run_swallows_transport_stop_exception_on_happy_exit(self):
+        """Criterion 6 (part 1): a transport whose stop() raises during
+        teardown does not change what run() raises -- nothing, in the
+        happy (terminal) case."""
+        client = _make_mock_client()
+        envelope = _make_envelope(
+            "Commitment",
+            core_pb2.CommitmentPayload(
+                commitment_id="c1", action="deploy", authority_scope="release", reason="ok"
+            ),
+        )
+        transport = _RaisingStopTransport(envelope)
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+
+        p.run()  # must not raise despite transport.stop() raising
+
+        assert p.is_stopped
+
+    def test_run_closes_cancel_callback_server_even_when_transport_stop_raises(self):
+        """Criterion 6 (part 2): the conditional cancel-callback close
+        must still run after a transport.stop() exception -- the
+        try/except around stop() must not skip the code that follows it
+        in the same finally block."""
+        client = _make_mock_client()
+        envelope = _make_envelope(
+            "Commitment",
+            core_pb2.CommitmentPayload(
+                commitment_id="c1", action="deploy", authority_scope="release", reason="ok"
+            ),
+        )
+        transport = _RaisingStopTransport(envelope)
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        server = MagicMock()
+        p.attach_cancel_callback_server(server)
+
+        p.run()
+
+        assert p.is_stopped
+        server.close.assert_called_once()
+
+
 class TestFromBootstrap:
     def test_basic_bootstrap(self):
         bootstrap = {
@@ -1377,5 +1766,156 @@ class TestFromBootstrap:
         try:
             p = from_bootstrap(path)
             assert p._initiator_config is None
+        finally:
+            os.unlink(path)
+
+
+class TestCancelCallbackSurvivesSequentialRun:
+    """Phase 6 criteria 10-11: a cancel-callback server bound via
+    from_bootstrap must survive a run() that ends without stopping
+    (criterion 10), and must not be needed again once a run() does end
+    stopped (criterion 11) -- proven end to end against the real HTTP
+    server, reusing from_bootstrap's existing port:0 scaffolding from
+    test_bootstrap_cancel_callback_binds_to_participant_stop above."""
+
+    def test_cancel_endpoint_survives_two_run_calls_when_first_does_not_stop(self):
+        """Criterion 10. The liveness probe between the two run() calls
+        must be side-effect-free -- a POST to the real /cancel path
+        would call stop() and destroy the state under test -- so probe
+        with a POST to a non-matching path and assert 404, which proves
+        the socket is still bound and served without cancelling
+        anything."""
+        import urllib.error
+        import urllib.request
+
+        class _EmptyRunTransport:
+            """Yields nothing on each call -- stands in for a stream
+            that ran out with the session still live, not stopped."""
+
+            def __init__(self) -> None:
+                self.starts = 0
+
+            def start(self):
+                self.starts += 1
+                return
+                yield  # pragma: no cover
+
+            def stop(self) -> None:
+                pass
+
+        bootstrap = {
+            "participant_id": "coord",
+            "session_id": "sess-cc-seq",
+            "mode": "macp.mode.decision.v1",
+            "runtime_url": "localhost:50051",
+            "auth": {"agent_id": "coord"},
+            "secure": False,
+            "allow_insecure": True,
+            "cancel_callback": {"host": "127.0.0.1", "port": 0, "path": "/cancel"},
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(bootstrap, f)
+            path = f.name
+        try:
+            p = from_bootstrap(path)
+            transport = _EmptyRunTransport()
+            p._transport = transport
+            server = p._cancel_callback_server
+            assert server is not None
+            host, port = server.address
+
+            def probe_alive() -> None:
+                req = urllib.request.Request(
+                    f"http://{host}:{port}/not-the-cancel-path",
+                    data=b"{}",
+                    method="POST",
+                )
+                try:
+                    urllib.request.urlopen(req, timeout=2.0)
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == 404
+                else:
+                    pytest.fail("expected 404 from a non-matching path")
+
+            p.run()
+            assert not p.is_stopped
+            assert p._cancel_callback_server is server
+            probe_alive()
+
+            p.run()
+            assert transport.starts == 2
+            assert not p.is_stopped
+            assert p._cancel_callback_server is server
+            probe_alive()
+
+            req = urllib.request.Request(
+                f"http://{host}:{port}/cancel",
+                data=b'{"runId":"r","reason":"done"}',
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            resp = urllib.request.urlopen(req, timeout=2.0)
+            assert resp.status == 202
+            assert p.is_stopped
+            assert p._cancel_callback_server is None
+        finally:
+            os.unlink(path)
+
+    def test_second_run_is_a_noop_after_first_run_ends_stopped(self):
+        """Criterion 11, the complementary half: once a run() ends
+        stopped (terminal envelope), a second run() returns immediately
+        via :579's early return -- transport.start() must be entered
+        exactly once across both calls, and the already-released
+        cancel-callback server must not be touched again."""
+
+        class _OneTerminalMessageTransport:
+            def __init__(self, envelope: envelope_pb2.Envelope) -> None:
+                self._envelope = envelope
+                self.starts = 0
+
+            def start(self):
+                self.starts += 1
+                yield IncomingMessage(
+                    message_type=self._envelope.message_type,
+                    sender=self._envelope.sender,
+                    payload={},
+                    raw=self._envelope,
+                )
+
+            def stop(self) -> None:
+                pass
+
+        bootstrap = {
+            "participant_id": "coord",
+            "session_id": "sess-cc-seq-2",
+            "mode": "macp.mode.decision.v1",
+            "runtime_url": "localhost:50051",
+            "auth": {"agent_id": "coord"},
+            "secure": False,
+            "allow_insecure": True,
+            "cancel_callback": {"host": "127.0.0.1", "port": 0, "path": "/cancel"},
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(bootstrap, f)
+            path = f.name
+        try:
+            p = from_bootstrap(path)
+            envelope = _make_envelope(
+                "Commitment",
+                core_pb2.CommitmentPayload(
+                    commitment_id="c1", action="deploy", authority_scope="release", reason="ok"
+                ),
+                session_id="sess-cc-seq-2",
+            )
+            transport = _OneTerminalMessageTransport(envelope)
+            p._transport = transport
+
+            p.run()
+            assert p.is_stopped
+            assert transport.starts == 1
+            assert p._cancel_callback_server is None
+
+            p.run()  # :579 early return -- must not touch the transport again
+            assert transport.starts == 1
         finally:
             os.unlink(path)
