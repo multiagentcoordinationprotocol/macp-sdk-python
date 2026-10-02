@@ -484,6 +484,9 @@ class Participant:
         point. As a fallback (for envelopes projections don't model — e.g.
         ``SessionCancel``), we fire terminal on the message type itself so
         clients always get a ``stop`` signal for end-of-session envelopes.
+        The fallback only fires when the projection has not already
+        reported a terminal phase, so a ``SessionCancel`` arriving after a
+        ``Commitment`` cannot produce a second ``on_terminal``.
         """
         if self._projection is not None:
             self._projection.apply_envelope(envelope)
@@ -496,6 +499,9 @@ class Participant:
         self._dispatcher.dispatch(message, ctx)
 
         fired_terminal = False
+        already_terminal = (
+            self._projection is not None and self._projection.phase in TERMINAL_PHASES
+        )
 
         # Phase transition path — drives both on_phase_change and on_terminal.
         if self._projection is not None:
@@ -521,7 +527,7 @@ class Participant:
         # Fallback for envelopes projections don't transition phase on —
         # principally ``SessionCancel``. Keeps terminal dispatch reliable
         # while the phase-driven path remains primary.
-        if not fired_terminal and envelope.message_type == "SessionCancel":
+        if not fired_terminal and not already_terminal and envelope.message_type == "SessionCancel":
             self._dispatcher.dispatch_terminal(TerminalResult(state="Cancelled"))
             self._stopped = True
 

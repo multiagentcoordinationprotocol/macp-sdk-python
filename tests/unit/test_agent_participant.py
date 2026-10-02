@@ -14,6 +14,7 @@ from macp_sdk.agent.participant import Participant, ParticipantActions
 from macp_sdk.agent.runner import from_bootstrap
 from macp_sdk.agent.types import IncomingMessage, TerminalResult
 from macp_sdk.auth import AuthConfig
+from macp_sdk.base_projection import BaseProjection
 from macp_sdk.constants import (
     MODE_DECISION,
     MODE_HANDOFF,
@@ -313,6 +314,133 @@ class TestParticipantEventProcessing:
         )
         assert p.is_stopped is False
         assert terminal_results == []
+
+
+class _SessionCancelModelingProjection(BaseProjection):
+    """A projection that (unlike every mode projection shipped in this SDK
+    today) models SessionCancel in its own mode handling, flipping phase
+    to "Cancelled" -- used only to exercise criterion 4: when the
+    phase-driven path itself drives the Cancelled transition,
+    already_terminal happens to be True for that same envelope too, but
+    it must be fired_terminal (the phase path) that's responsible, with
+    already_terminal's value irrelevant in that case."""
+
+    MODE = MODE_DECISION
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.phase = "Open"
+
+    def _apply_mode_message(self, envelope: envelope_pb2.Envelope) -> None:
+        if envelope.message_type == "SessionCancel":
+            self._set_phase("Cancelled")
+
+
+class TestTerminalDispatchIsNotDuplicated:
+    """Phase 7: once on_terminal has fired for a session, a later
+    SessionCancel must not fire it a second time -- but a SessionCancel
+    that is itself the terminal-causing event (because the projection
+    doesn't model it, or no projection is attached, or the projection
+    does model it) must still fire exactly once. Each test asserts on
+    the recorded state sequence, not just the count -- a count-only
+    assertion would pass even if the surviving dispatch were the wrong
+    one."""
+
+    def test_session_cancel_after_commitment_does_not_fire_terminal_again(self):
+        """Criterion 1: the bug this phase fixes."""
+        client = _make_mock_client()
+        terminal_results: list[TerminalResult] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+        )
+        p.on_terminal(lambda r: terminal_results.append(r))
+
+        p.process_event(
+            _make_envelope(
+                "Commitment",
+                core_pb2.CommitmentPayload(
+                    commitment_id="c1", action="deploy", authority_scope="release", reason="ok"
+                ),
+            )
+        )
+        p.process_event(
+            _make_envelope("SessionCancel", core_pb2.SessionCancelPayload(reason="late"))
+        )
+
+        assert [r.state for r in terminal_results] == ["Committed"]
+
+    def test_session_cancel_unmodeled_by_projection_still_fires_once(self):
+        """Criterion 2, the anti-over-suppression case: a SessionCancel
+        that the attached projection does not model at all must still
+        fire on_terminal exactly once, unchanged from today."""
+        client = _make_mock_client()
+        terminal_results: list[TerminalResult] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+        )
+        p.on_terminal(lambda r: terminal_results.append(r))
+
+        p.process_event(
+            _make_envelope("SessionCancel", core_pb2.SessionCancelPayload(reason="abort"))
+        )
+
+        assert [r.state for r in terminal_results] == ["Cancelled"]
+
+    def test_session_cancel_with_no_projection_attached_still_fires_once(self):
+        """Criterion 3: same as criterion 2, but with no projection
+        attached at all (an unregistered mode)."""
+        client = _make_mock_client()
+        terminal_results: list[TerminalResult] = []
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode="ext.custom.v1",
+            client=client,
+        )
+        assert p.projection is None
+        p.on_terminal(lambda r: terminal_results.append(r))
+
+        p.process_event(
+            _make_envelope(
+                "SessionCancel",
+                core_pb2.SessionCancelPayload(reason="abort"),
+                mode="ext.custom.v1",
+            )
+        )
+
+        assert [r.state for r in terminal_results] == ["Cancelled"]
+
+    def test_session_cancel_modeled_by_projection_fires_once_from_phase_path(self):
+        """Criterion 4: a SessionCancel the projection DOES model (flips
+        phase to Cancelled) must fire on_terminal exactly once, via the
+        phase path -- proving fired_terminal and already_terminal are
+        non-overlapping, not both suppressing the one legitimate
+        dispatch."""
+        client = _make_mock_client()
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+        )
+        p._projection = _SessionCancelModelingProjection()
+        terminal_results: list[TerminalResult] = []
+        phase_changes: list[str] = []
+        p.on_terminal(lambda r: terminal_results.append(r))
+        p.on_phase_change("Cancelled", lambda phase, ctx: phase_changes.append(phase))
+
+        p.process_event(
+            _make_envelope("SessionCancel", core_pb2.SessionCancelPayload(reason="abort"))
+        )
+
+        assert [r.state for r in terminal_results] == ["Cancelled"]
+        assert phase_changes == ["Cancelled"]
 
 
 class TestParticipantActions:

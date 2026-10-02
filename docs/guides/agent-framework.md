@@ -141,8 +141,11 @@ Every handler receives a `HandlerContext`:
 
 `on_terminal` fires when the projection enters one of
 `{"Committed", "Accepted", "Declined", "Cancelled", "TerminalRejected"}`,
-or when a `SessionCancel` envelope is received. After it fires the event
-loop exits on the next iteration.
+or -- only if the projection hasn't already reported one of those phases
+-- when a `SessionCancel` envelope is received. A `SessionCancel` arriving
+after the session already reached a terminal phase does not fire it
+again. After it fires the event loop
+exits within the same iteration, not after the next envelope arrives.
 
 ## Strategies (composable policy)
 
