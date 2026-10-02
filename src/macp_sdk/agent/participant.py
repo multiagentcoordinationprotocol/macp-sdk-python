@@ -566,7 +566,15 @@ class Participant:
         emits SessionStart + kickoff before opening the stream.
 
         Dispatches received events to registered handlers until the session
-        reaches a terminal state or ``stop()`` is called.
+        reaches a terminal state or ``stop()`` is called. The loop exits
+        after the current envelope finishes dispatching, not after the
+        next one arrives.
+
+        Teardown contract: a ``run()`` that ends with the participant
+        stopped also releases the cancel-callback listener (if one was
+        attached); a ``run()`` that ends with the participant still
+        runnable leaves it bound so a subsequent ``run()`` keeps its
+        cancel endpoint.
         """
         logger.info(
             "participant %s joining session %s (mode=%s, initiator=%s)",
@@ -600,8 +608,27 @@ class Participant:
                     self._process_envelope(message.raw)
                 else:
                     self._process_message(message)
+                if self._stopped:
+                    # A handler (or another thread) called stop() while this
+                    # envelope was being dispatched -- including the terminal
+                    # dispatch in _process_envelope, which sets _stopped itself.
+                    # Without this check the loop blocks on transport.start()'s
+                    # next yield, which on a quiet session may never come.
+                    break
         finally:
-            transport.stop()
+            try:
+                transport.stop()
+            except Exception:
+                logger.debug("transport stop failed during run() teardown", exc_info=True)
+            if self._stopped:
+                # Release the cancel-callback listener only when this
+                # participant has actually stopped -- which is also exactly
+                # when a further run() would be a no-op (the one-shot early
+                # return above reads the same flag). So the server is still
+                # bound on every exit from which a sequential run() can still
+                # do something, and is released on every exit after which it
+                # cannot.
+                self._close_cancel_callback_server()
 
     def _emit_initiator_envelopes(self) -> None:
         """Emit SessionStart + kickoff envelope as the initiator."""
@@ -658,6 +685,21 @@ class Participant:
         """Manually process a single envelope (for testing or polling transports)."""
         self._process_envelope(envelope)
 
+    def _close_cancel_callback_server(self) -> None:
+        """Close the bound cancel-callback HTTP server, if one was attached.
+
+        Idempotent and exception-safe: called from both :meth:`stop` and
+        ``run()``'s exit path (the latter only when this participant has
+        actually stopped), either of which may run first, or both.
+        """
+        server = self._cancel_callback_server
+        if server is not None:
+            self._cancel_callback_server = None
+            try:
+                server.close()
+            except Exception:
+                logger.exception("cancel_callback server close failed")
+
     def stop(self) -> None:
         """Signal the event loop to stop.
 
@@ -680,19 +722,17 @@ class Participant:
             cancel = getattr(transport, "cancel", None)
             if callable(cancel):
                 cancel()
-        server = self._cancel_callback_server
-        if server is not None:
-            self._cancel_callback_server = None
-            try:
-                server.close()
-            except Exception:
-                logger.exception("cancel_callback server close failed")
+        self._close_cancel_callback_server()
 
     def attach_cancel_callback_server(self, server: Any) -> None:
         """Attach a :class:`CancelCallbackServer` to this participant.
 
-        The server's lifetime is then tied to :meth:`stop` — the event
-        loop exit (or an incoming cancel POST that calls ``stop``) shuts
-        it down.
+        The server's lifetime is then tied to an actual stop: an
+        incoming cancel POST (or any other caller of :meth:`stop`)
+        shuts it down, and so does ``run()`` returning with the
+        participant stopped (e.g. a terminal envelope). A ``run()``
+        that returns with the participant still runnable leaves it
+        bound, so a subsequent ``run()`` keeps the same cancel
+        endpoint.
         """
         self._cancel_callback_server = server

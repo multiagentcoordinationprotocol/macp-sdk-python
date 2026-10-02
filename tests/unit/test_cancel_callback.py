@@ -151,3 +151,50 @@ class TestCancelCallbackServer:
             assert got.wait(timeout=2.0)
         finally:
             server.close()
+
+    def test_concurrent_close_calls_do_not_raise(self):
+        """Phase 6 gives ``Participant`` two independent call sites that
+        can both invoke close() on the same bound server -- stop() and
+        run()'s finally -- and its docstring states either may run
+        first, or both. Prove concurrent close() calls from different
+        threads are safe, not just sequential ones (the idempotency
+        test above only proves the single-thread case)."""
+        server = start_cancel_callback_server(
+            host="127.0.0.1", port=0, path="/c", on_cancel=lambda *_: None
+        )
+        errors: list[Exception] = []
+
+        def _close() -> None:
+            try:
+                server.close()
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_close) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=2)
+
+        assert not errors
+        assert all(not t.is_alive() for t in threads)
+
+    def test_close_from_within_on_cancel_does_not_deadlock(self):
+        """close()'s self-deadlock-avoidance branch (only joining the
+        shutdown thread when not called from the server's own thread,
+        per its own docstring) is exercised when on_cancel itself
+        closes the server synchronously -- as a handler that tears
+        everything down in one call might."""
+        done = threading.Event()
+
+        def on_cancel(run_id: str, reason: str) -> None:
+            server.close()
+            done.set()
+
+        server = start_cancel_callback_server(
+            host="127.0.0.1", port=0, path="/c", on_cancel=on_cancel
+        )
+        host, port = server.address
+        resp = _post(f"http://{host}:{port}/c", {"runId": "x"})
+        assert resp.status == 202
+        assert done.wait(timeout=2.0), "on_cancel (and its close()) never completed"
