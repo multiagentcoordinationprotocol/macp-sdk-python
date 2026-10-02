@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from macp.modes.quorum.v1 import quorum_pb2
 
 from macp_sdk.base_projection import ANOMALY_DUPLICATE_BALLOT
@@ -434,3 +435,80 @@ class TestBallotCardinality:
         assert anomaly.subject_id == "r1"
         assert anomaly.message_id
         assert "approve" in anomaly.detail and "reject" in anomaly.detail
+
+
+class TestBallotForUnknownRequest:
+    """Issue #121 Phase 4: a ballot naming a request_id this projection never
+    saw an ApprovalRequest for is ignored entirely -- no ballot record, no
+    anomaly. See quorum.py's _set_ballot guard and its rationale.
+    """
+
+    def _proj(self) -> QuorumProjection:
+        return QuorumProjection()
+
+    @pytest.mark.parametrize(
+        ("message_type", "payload"),
+        [
+            ("Approve", quorum_pb2.ApprovePayload(request_id="req-unknown", reason="ok")),
+            ("Reject", quorum_pb2.RejectPayload(request_id="req-unknown", reason="no")),
+            ("Abstain", quorum_pb2.AbstainPayload(request_id="req-unknown", reason="")),
+        ],
+    )
+    def test_ballot_for_unseen_request_is_ignored(self, message_type, payload):
+        p = self._proj()
+        p.apply_envelope(make_envelope(MODE_QUORUM, message_type, payload, sender="alice"))
+        assert p.ballots == {}
+        assert p.approval_count("req-unknown") == 0
+        assert p.voted_senders("req-unknown") == []
+        assert p.has_anomalies is False
+        assert p.phase == "Pending"
+
+    def test_approve_after_real_request_still_recorded(self):
+        """The guard must not break the happy path."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_QUORUM,
+                "ApprovalRequest",
+                quorum_pb2.ApprovalRequestPayload(
+                    request_id="req-1", action="deploy", required_approvals=2
+                ),
+                sender="coordinator",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_QUORUM,
+                "Approve",
+                quorum_pb2.ApprovePayload(request_id="req-1", reason="ok"),
+                sender="alice",
+            )
+        )
+        assert p.approval_count("req-1") == 1
+
+    def test_unknown_id_ballot_ignored_even_when_a_different_request_exists(self):
+        """Proves the guard keys off the specific request_id, not off
+        "any request exists" -- a known req-1 must not make req-unknown's
+        ballots stick too."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_QUORUM,
+                "ApprovalRequest",
+                quorum_pb2.ApprovalRequestPayload(
+                    request_id="req-1", action="deploy", required_approvals=2
+                ),
+                sender="coordinator",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_QUORUM,
+                "Approve",
+                quorum_pb2.ApprovePayload(request_id="req-unknown", reason="ok"),
+                sender="alice",
+            )
+        )
+        assert "req-unknown" not in p.ballots
+        assert p.approval_count("req-unknown") == 0
+        assert p.has_anomalies is False

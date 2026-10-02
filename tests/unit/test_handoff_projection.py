@@ -341,3 +341,87 @@ class TestReplayIdempotence:
         assert handoff.accepted_by == "bob"
         assert p.phase == "Accepted"
         assert len(p.transcript) == 2
+
+
+class TestHandoffContextForUnknownHandoff:
+    """Issue #121 Phase 4: a HandoffContext naming an unknown handoff_id must
+    not advance the phase from "OfferPending" to "ContextSharing". Same
+    guard shape as issue #119's fix to proposal.py's Reject branch.
+    """
+
+    def _proj(self) -> HandoffProjection:
+        return HandoffProjection()
+
+    def test_context_for_unseen_handoff_does_not_advance_phase(self):
+        # Non-regression sanity check, NOT the guard-detecting case: with no
+        # prior HandoffOffer, phase starts at "Pending" (test_initial_state)
+        # and the pre-fix code's "if self.phase == OfferPending" was already
+        # False here regardless of the guard, so this alone cannot catch a
+        # regression. See test_context_for_unseen_handoff_after_real_offer_
+        # does_not_advance_phase below for the case that actually exercises
+        # the fix (phase already OfferPending from a real offer).
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffContext",
+                handoff_pb2.HandoffContextPayload(
+                    handoff_id="h-unknown", content_type="text/plain"
+                ),
+                sender="bob",
+            )
+        )
+        assert p.phase == "Pending"
+        assert p.handoffs == {}
+
+    def test_context_for_unseen_handoff_after_real_offer_does_not_advance_phase(self):
+        """The actual regression test: once a real HandoffOffer has already
+        moved phase to "OfferPending", a HandoffContext for a DIFFERENT,
+        unknown handoff_id must not flip it to "ContextSharing". Pre-fix,
+        the phase check ran unconditionally on `self.phase`, oblivious to
+        which handoff_id the context named, so this failed before the fix
+        (phase went to "ContextSharing") and passes after it.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffOffer",
+                handoff_pb2.HandoffOfferPayload(handoff_id="h-1", target_participant="bob"),
+            )
+        )
+        assert p.phase == "OfferPending"
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffContext",
+                handoff_pb2.HandoffContextPayload(handoff_id="h-other", content_type="text/plain"),
+                sender="bob",
+            )
+        )
+        assert p.phase == "OfferPending"
+        assert "h-other" not in p.handoffs
+
+    def test_context_for_real_handoff_still_advances_phase(self):
+        """The guard must not break the happy path."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffOffer",
+                handoff_pb2.HandoffOfferPayload(handoff_id="h-1", target_participant="bob"),
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffContext",
+                handoff_pb2.HandoffContextPayload(handoff_id="h-1", content_type="text/plain"),
+                sender="alice",
+            )
+        )
+        assert p.phase == "ContextSharing"
+        handoff = p.get_handoff("h-1")
+        assert handoff is not None
+        assert handoff.status == "context_sent"
+        assert handoff.context_content_type == "text/plain"

@@ -82,8 +82,8 @@ class HandoffProjection(BaseProjection):
                 if handoff.status == "offered":
                     handoff.status = "context_sent"
                 handoff.context_content_type = p.content_type
-            if self.phase == "OfferPending":
-                self._set_phase("ContextSharing")
+                if self.phase == "OfferPending":
+                    self._set_phase("ContextSharing")
             return
 
         if mt == "HandoffAccept":
