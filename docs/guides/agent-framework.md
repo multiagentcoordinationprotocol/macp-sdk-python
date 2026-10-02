@@ -125,6 +125,18 @@ participant.on_terminal(on_done)
 participant.run()   # blocks until a terminal event fires or stop() is called
 ```
 
+`run()` is not re-entrant: calling it again on the same `Participant` while
+a first call is still blocked inside the loop (e.g. from a second thread)
+raises `MacpSessionError` instead of silently starting a second transport
+and interleaving dispatches into shared state. This is a deliberate
+divergence from `macp-sdk-typescript`, whose `run()` returns silently in
+the same situation -- tolerable there because its single event loop makes
+a second call almost always a same-task programmer mistake, whereas a
+second Python thread believing it is running an agent that is in fact
+doing nothing is a silent liveness bug instead. A *sequential* call made
+after a prior `run()` has already returned is unaffected and behaves
+exactly as before.
+
 ### Handler context
 
 Every handler receives a `HandlerContext`:

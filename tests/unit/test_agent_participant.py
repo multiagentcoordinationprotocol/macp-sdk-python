@@ -570,6 +570,134 @@ class TestInitialPhaseIsNotAnnounced:
         assert p.projection.phase == "Voting"
 
 
+class _BlockingTransport:
+    """start() blocks on an internal Event until release() is called --
+    the synchronization point for proving a concurrent run() is
+    rejected rather than silently starting a second transport. No
+    sleep-based timing: the foreground run() is only attempted after
+    the background thread has been observed inside start()."""
+
+    def __init__(self) -> None:
+        self.starts = 0
+        self.entered = threading.Event()
+        self._release = threading.Event()
+
+    def start(self):
+        self.starts += 1
+        self.entered.set()
+        self._release.wait()
+        return
+        yield  # pragma: no cover
+
+    def stop(self) -> None:
+        pass
+
+    def release(self) -> None:
+        self._release.set()
+
+
+class _StartStopCountingTransport:
+    """Counts start()/stop() calls across multiple run()s -- the fixture
+    for proving a sequential re-run starts the transport again rather
+    than being silently latched by the new re-entrancy guard."""
+
+    def __init__(self) -> None:
+        self.starts = 0
+        self.stops = 0
+
+    def start(self):
+        self.starts += 1
+        return
+        yield  # pragma: no cover
+
+    def stop(self) -> None:
+        self.stops += 1
+
+
+class TestRunIsNotReentrant:
+    """Phase 9 criteria 1-4: a concurrent run() on the same Participant
+    raises MacpSessionError instead of silently starting a second
+    transport and interleaving dispatches into shared state. A
+    sequential run() (after a prior one has returned) is unaffected,
+    and the lock is never leaked -- even when the loop body raises."""
+
+    def test_concurrent_run_raises_and_starts_transport_once(self):
+        """Criteria 1 + 4: a background run() blocked inside
+        transport.start() plus a foreground run() produce exactly one
+        transport.start() call and exactly one MacpSessionError, naming
+        the session id, from the foreground caller."""
+        client = _make_mock_client()
+        transport = _BlockingTransport()
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+
+        bg_thread = threading.Thread(target=p.run)
+        bg_thread.start()
+        assert transport.entered.wait(timeout=5), "background run() never entered start()"
+
+        try:
+            with pytest.raises(MacpSessionError, match="test-session"):
+                p.run()
+        finally:
+            transport.release()
+            bg_thread.join(timeout=5)
+
+        assert transport.starts == 1
+
+    def test_sequential_run_is_unaffected(self):
+        """Criterion 2: p.run(); p.run() on a non-blocking transport
+        still starts the transport twice -- no new one-shot latch."""
+        client = _make_mock_client()
+        transport = _StartStopCountingTransport()
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+
+        p.run()
+        p.run()
+
+        assert transport.starts == 2
+        assert transport.stops == 2
+
+    def test_lock_is_released_after_handler_raises(self):
+        """Criterion 3: after a run() whose handler raised, a subsequent
+        run() still acquires the lock -- a leaked lock would turn one
+        bad envelope into a permanently unusable participant."""
+        from macp.modes.decision.v1 import decision_pb2
+
+        client = _make_mock_client()
+        envelope = _make_envelope(
+            "Proposal", decision_pb2.ProposalPayload(proposal_id="p1", option="x")
+        )
+        transport = _RaisingHandlerTransport(envelope)
+        p = Participant(
+            participant_id="agent-a",
+            session_id="test-session",
+            mode=MODE_DECISION,
+            client=client,
+            transport=transport,
+        )
+        p.on("Proposal", lambda msg, ctx: (_ for _ in ()).throw(ValueError("handler boom")))
+
+        with pytest.raises(ValueError, match="handler boom"):
+            p.run()
+
+        # The lock was released in run()'s finally despite the raise --
+        # a second run() (now hitting an empty/non-raising transport)
+        # must not raise MacpSessionError.
+        p._transport = _StartStopCountingTransport()
+        p.run()
+
+
 class TestParticipantActions:
     def test_send_envelope(self):
         client = _make_mock_client()

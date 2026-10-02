@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -430,6 +431,10 @@ class Participant:
         )
         self._transport = transport
         self._cancel_callback_server: Any | None = None
+        # Non-reentrant by design: an RLock would let a handler calling
+        # run() recursively (same thread) through, only to deadlock on the
+        # transport instead of raising a clear error.
+        self._run_lock = threading.Lock()
 
     @property
     def participant_id(self) -> str:
@@ -590,7 +595,30 @@ class Participant:
         attached); a ``run()`` that ends with the participant still
         runnable leaves it bound so a subsequent ``run()`` keeps its
         cancel endpoint.
+
+        Not re-entrant: a *concurrent* call (from another thread, while
+        this one is still inside the loop) raises :class:`MacpSessionError`
+        instead of silently starting a second transport and interleaving
+        dispatches into shared state. This is a deliberate divergence from
+        ``macp-sdk-typescript``, whose ``run()`` returns silently in the
+        same situation -- a no-op is tolerable there because its single
+        event loop makes a second call almost always a same-task
+        programmer mistake, whereas a second Python thread believing it is
+        running an agent that is in fact doing nothing is a silent
+        liveness bug. A *sequential* call, made after a prior ``run()`` has
+        returned, is unaffected and behaves exactly as before.
         """
+        if not self._run_lock.acquire(blocking=False):
+            raise MacpSessionError(
+                f"Participant.run() is already executing for session {self._session_id!r}; "
+                "run() is not re-entrant"
+            )
+        try:
+            self._run()
+        finally:
+            self._run_lock.release()
+
+    def _run(self) -> None:
         logger.info(
             "participant %s joining session %s (mode=%s, initiator=%s)",
             self._participant_id,
