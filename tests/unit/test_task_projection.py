@@ -3,13 +3,21 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import warnings
+from typing import ClassVar
 
 import pytest
 from macp.modes.task.v1 import task_pb2
 from macp.v1 import core_pb2
 
 from macp_sdk.constants import MODE_TASK
-from macp_sdk.task import TaskProjection, TaskRecord
+from macp_sdk.task import (
+    TaskCompleteRecord,
+    TaskFailRecord,
+    TaskProjection,
+    TaskRecord,
+    TaskRejectRecord,
+    TaskUpdateRecord,
+)
 from tests.conftest import make_envelope
 
 
@@ -177,6 +185,34 @@ class TestTaskProjection:
         assert rejection.task_id == "t1"
         assert rejection.assignee == "worker"
         assert rejection.reason == "busy"
+        assert rejection.sender == "worker"
+
+    def test_reject_with_third_party_assignee_records_sender_separately(self):
+        """The point of Phase 15: when the payload's `assignee` names someone
+        other than the envelope sender, `.assignee` keeps its existing
+        fallback semantics (payload value, unchanged) while `.sender` always
+        holds the envelope truth -- the two are now independently readable.
+        """
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskReject",
+                task_pb2.TaskRejectPayload(task_id="t1", assignee="carol", reason="busy"),
+                sender="bob",
+            )
+        )
+        rejection = p.rejections[0]
+        assert rejection.assignee == "carol"
+        assert rejection.sender == "bob"
 
     def test_update(self):
         p = self._proj()
@@ -192,6 +228,21 @@ class TestTaskProjection:
         )
         assert len(p.updates) == 1
         assert p.latest_progress() == 0.5
+
+    def test_update_records_sender(self):
+        """TaskUpdateRecord previously carried no identity at all."""
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskUpdate",
+                task_pb2.TaskUpdatePayload(
+                    task_id="t1", status="running", progress=0.5, message="halfway"
+                ),
+                sender="bob",
+            )
+        )
+        assert p.updates[0].sender == "bob"
 
     def test_complete(self):
         p = self._proj()
@@ -217,6 +268,31 @@ class TestTaskProjection:
         assert not p.is_failed("t1")
         assert p.phase == "Completed"
         assert p.progress_of("t1") == 1.0
+        assert p.completions[0].sender == "worker"
+
+    def test_complete_with_third_party_assignee_records_sender_separately(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskComplete",
+                task_pb2.TaskCompletePayload(
+                    task_id="t1", assignee="carol", summary="done", output=b"result"
+                ),
+                sender="bob",
+            )
+        )
+        completion = p.completions[0]
+        assert completion.assignee == "carol"
+        assert completion.sender == "bob"
 
     def test_fail(self):
         p = self._proj()
@@ -246,6 +322,35 @@ class TestTaskProjection:
         assert not p.is_completed("t1")
         assert p.is_retryable("t1")
         assert p.phase == "Failed"
+        assert p.failures[0].sender == "worker"
+
+    def test_fail_with_third_party_assignee_records_sender_separately(self):
+        p = self._proj()
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(task_id="t1", title="x"),
+                sender="planner",
+            )
+        )
+        p.apply_envelope(
+            make_envelope(
+                MODE_TASK,
+                "TaskFail",
+                task_pb2.TaskFailPayload(
+                    task_id="t1",
+                    assignee="carol",
+                    error_code="TIMEOUT",
+                    reason="too slow",
+                    retryable=True,
+                ),
+                sender="bob",
+            )
+        )
+        failure = p.failures[0]
+        assert failure.assignee == "carol"
+        assert failure.sender == "bob"
 
     def test_session_scoped_slot_blocks_second_accept(self):
         """A second TaskAccept from a different sender while the session's
@@ -940,3 +1045,50 @@ class TestRequesterDeprecatedAlias:
                 requested_assignee="worker",
                 requester="planner",
             )
+
+
+class TestTaskSubRecordSender:
+    """Issue #121 Phase 15: TaskRejectRecord, TaskUpdateRecord,
+    TaskCompleteRecord and TaskFailRecord each carry `sender` -- the actual
+    envelope sender -- alongside their existing fields.
+    """
+
+    _REQUIRED_KWARGS: ClassVar[dict[type, dict[str, object]]] = {
+        TaskRejectRecord: {"task_id": "t1", "assignee": "a", "reason": "r"},
+        TaskUpdateRecord: {
+            "task_id": "t1",
+            "status": "running",
+            "progress": 0.5,
+            "message": "m",
+        },
+        TaskCompleteRecord: {
+            "task_id": "t1",
+            "assignee": "a",
+            "summary": "s",
+            "output": b"o",
+        },
+        TaskFailRecord: {
+            "task_id": "t1",
+            "assignee": "a",
+            "error_code": "E",
+            "reason": "r",
+            "retryable": False,
+        },
+    }
+
+    @pytest.mark.parametrize("record_cls", list(_REQUIRED_KWARGS))
+    def test_sender_is_a_real_dataclass_field(self, record_cls):
+        names = {f.name for f in dataclasses.fields(record_cls)}
+        assert "sender" in names
+
+    @pytest.mark.parametrize("record_cls", list(_REQUIRED_KWARGS))
+    def test_constructing_without_sender_still_works_and_defaults_empty(self, record_cls):
+        """These are public, exported dataclasses (`__init__.py`'s `__all__`)
+        with no existing defaulted fields -- appending a *required* `sender`
+        would break every external construction site with no deprecation
+        path available, unlike Phase 14's rename. `= ""` is what keeps this
+        phase additive rather than breaking; this test is what makes that
+        claim checkable instead of merely asserted.
+        """
+        record = record_cls(**self._REQUIRED_KWARGS[record_cls])
+        assert record.sender == ""

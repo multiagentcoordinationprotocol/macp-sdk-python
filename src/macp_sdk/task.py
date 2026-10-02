@@ -55,6 +55,7 @@ class TaskRejectRecord:
     task_id: str
     assignee: str
     reason: str
+    sender: str = ""
 
 
 @dataclass(slots=True)
@@ -63,6 +64,7 @@ class TaskUpdateRecord:
     status: str
     progress: float
     message: str
+    sender: str = ""
 
 
 @dataclass(slots=True)
@@ -71,6 +73,7 @@ class TaskCompleteRecord:
     assignee: str
     summary: str
     output: bytes
+    sender: str = ""
 
 
 @dataclass(slots=True)
@@ -80,6 +83,7 @@ class TaskFailRecord:
     error_code: str
     reason: str
     retryable: bool
+    sender: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +186,12 @@ class TaskProjection(BaseProjection):
             self.rejections.append(
                 TaskRejectRecord(
                     task_id=p.task_id,
+                    # `assignee` is who the work is about (payload-declared,
+                    # falling back to the sender); `sender` is who sent this
+                    # message (envelope truth, never substituted).
                     assignee=p.assignee or envelope.sender,
                     reason=p.reason,
+                    sender=envelope.sender,
                 )
             )
             if p.task_id in self.tasks:
@@ -208,6 +216,7 @@ class TaskProjection(BaseProjection):
                     status=p.status,
                     progress=p.progress,
                     message=p.message,
+                    sender=envelope.sender,
                 )
             )
             if p.task_id in self.tasks:
@@ -224,6 +233,7 @@ class TaskProjection(BaseProjection):
                     assignee=p.assignee or envelope.sender,
                     summary=p.summary,
                     output=p.output,
+                    sender=envelope.sender,
                 )
             )
             if p.task_id in self.tasks:
@@ -242,6 +252,7 @@ class TaskProjection(BaseProjection):
                     error_code=p.error_code,
                     reason=p.reason,
                     retryable=p.retryable,
+                    sender=envelope.sender,
                 )
             )
             if p.task_id in self.tasks:
