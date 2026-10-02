@@ -69,14 +69,11 @@ class TestListSessionsPageTokenThreading:
             page1, token1 = coordinator.list_sessions_page(page_size=1)
             if len(page1) > 1 and not token1:
                 # macp-proto 0.1.6 defines page_size/page_token and the SDK
-                # sends them, but runtime v0.5.0 does not implement pagination
-                # server-side (no page handling in its ListSessions) — it
-                # returns the full set with an empty token. This test becomes
-                # live the moment a runtime honours page_size.
-                pytest.skip(
-                    "runtime ignores ListSessions page_size (pagination not "
-                    "implemented server-side as of runtime v0.5.0)"
-                )
+                # sends them, but a runtime that ignores ListSessions
+                # page_size (pre-0.8 runtimes) returns the full set with an
+                # empty token. This test becomes live the moment the target
+                # runtime honours page_size.
+                pytest.skip("runtime ignores ListSessions page_size (pre-0.8 runtimes)")
             assert len(page1) == 1
             assert token1, "expected a next_page_token with more sessions open"
 
