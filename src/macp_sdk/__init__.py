@@ -134,6 +134,7 @@ from .validation import (
     validate_vote,
 )
 from .watchers import (
+    TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES,
     ModeRegistryWatcher,
     PolicyChange,
     PolicyWatcher,
@@ -174,6 +175,7 @@ __all__ = [
     "SESSION_NOT_FOUND",
     "SESSION_NOT_OPEN",
     "STANDARD_MODES",
+    "TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES",
     "UNAUTHENTICATED",
     "UNBOUNDED",
     "UNKNOWN_POLICY_VERSION",

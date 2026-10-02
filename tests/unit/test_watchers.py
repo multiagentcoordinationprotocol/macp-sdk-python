@@ -20,10 +20,12 @@ import pytest
 
 from macp_sdk.errors import MacpSdkError, MacpTransportError
 from macp_sdk.watchers import (
+    TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES,
     ModeRegistryWatcher,
     PolicyChange,
     PolicyWatcher,
     RootsWatcher,
+    SessionLifecycleEvent,
     SessionLifecycleWatcher,
     SignalWatcher,
 )
@@ -556,3 +558,46 @@ class TestStreamCancellationAllFiveRpcs:
         outer.close()
 
         assert call.cancel_calls == 1
+
+
+class TestTerminalSessionLifecycleEventNames:
+    """Issue #121 Phase 16: ``TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES`` is the
+    exported, reusable form of ``SessionLifecycleEvent.is_terminal``'s set.
+    """
+
+    def test_value_and_type(self):
+        assert (
+            frozenset({"RESOLVED", "EXPIRED", "CANCELLED"})
+            == TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES
+        )
+        assert isinstance(TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES, frozenset)
+
+    @pytest.mark.parametrize(
+        "event_type",
+        ["CREATED", "RESOLVED", "EXPIRED", "CANCELLED", "SUSPENDED", "RESUMED"],
+    )
+    def test_is_terminal_agrees_with_the_constant(self, event_type):
+        """Stops the predicate and the constant from drifting apart."""
+        event = SessionLifecycleEvent(event_type=event_type)
+        assert event.is_terminal == (event_type in TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES)
+
+    def test_suspended_and_resumed_are_not_terminal(self):
+        """The one invariant most likely to be "fixed" wrongly by a future
+        reader: a suspended session can still be resumed, so neither name
+        belongs in the terminal set."""
+        assert "SUSPENDED" not in TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES
+        assert "RESUMED" not in TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES
+        assert not SessionLifecycleEvent(event_type="SUSPENDED").is_terminal
+        assert not SessionLifecycleEvent(event_type="RESUMED").is_terminal
+
+    @pytest.mark.parametrize(
+        "prefixed",
+        ["EVENT_TYPE_RESOLVED", "EVENT_TYPE_EXPIRED", "EVENT_TYPE_CANCELLED"],
+    )
+    def test_prefixed_typescript_forms_are_not_members(self, prefixed):
+        """macp-sdk-typescript's TERMINAL_SESSION_LIFECYCLE_EVENT_TYPES holds
+        the un-stripped names; this set deliberately does not, since Python's
+        event_type never carries the EVENT_TYPE_ prefix. This is the test
+        that stops someone "helpfully" widening the set to hold both shapes.
+        """
+        assert prefixed not in TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES

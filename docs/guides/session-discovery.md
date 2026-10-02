@@ -89,7 +89,16 @@ for event in watcher.changes():
 
 `event.event_type` is a short string (`"CREATED"`, `"RESOLVED"`,
 `"EXPIRED"`, and — since SDK 0.4.0 / `macp-proto 0.1.3` — `"CANCELLED"`,
-`"SUSPENDED"`, `"RESUMED"`). Convenience predicates:
+`"SUSPENDED"`, `"RESUMED"`). These values are the wire enum names with the
+`EVENT_TYPE_` prefix stripped, and the terminal subset (`RESOLVED`,
+`EXPIRED`, `CANCELLED`) is exported as a reusable
+`macp_sdk.TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES`. **Cross-SDK divergence:**
+`macp-sdk-typescript` surfaces the *prefixed* form (`"EVENT_TYPE_RESOLVED"`)
+and exports its own similarly-named-but-differently-shaped
+`TERMINAL_SESSION_LIFECYCLE_EVENT_TYPES`, so a membership test on a log
+written by the other SDK must normalise first —
+`t.removeprefix("EVENT_TYPE_") in TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES`.
+Convenience predicates:
 
 | Predicate | True for |
 |-----------|---------|
