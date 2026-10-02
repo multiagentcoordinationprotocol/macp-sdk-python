@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
+import warnings
 
 import pytest
 from macp.modes.quorum.v1 import quorum_pb2
@@ -8,7 +10,7 @@ from macp.modes.quorum.v1 import quorum_pb2
 from macp_sdk.base_projection import ANOMALY_DUPLICATE_BALLOT
 from macp_sdk.constants import MODE_QUORUM
 from macp_sdk.envelope import build_commitment_payload
-from macp_sdk.quorum import QuorumProjection
+from macp_sdk.quorum import ApprovalRequestRecord, QuorumProjection
 from tests.conftest import make_envelope
 
 
@@ -40,6 +42,7 @@ class TestQuorumProjection:
         )
         assert "r1" in p.requests
         assert p.requests["r1"].required_approvals == 2
+        assert p.requests["r1"].sender == "coordinator"
         assert p.phase == "Voting"
 
     def test_approve_and_threshold(self):
@@ -512,3 +515,55 @@ class TestBallotForUnknownRequest:
         assert "req-unknown" not in p.ballots
         assert p.approval_count("req-unknown") == 0
         assert p.has_anomalies is False
+
+
+class TestRequesterDeprecatedAlias:
+    """Issue #120/#121 Phase 14: ``ApprovalRequestRecord.requester`` ->
+    ``.sender``, kept as a read-only INSTANCE property alias -- same
+    mechanism as ``ProposalRecord.proposer`` (proposal.py), applied here to
+    the second remaining ``requester`` field.
+    """
+
+    def _record(self, **overrides):
+        fields = {
+            "request_id": "r1",
+            "action": "deploy",
+            "summary": "release v2",
+            "required_approvals": 2,
+            "sender": "coordinator",
+        }
+        fields.update(overrides)
+        return ApprovalRequestRecord(**fields)
+
+    def test_sender_is_a_real_dataclass_field_requester_is_not(self):
+        names = {f.name for f in dataclasses.fields(ApprovalRequestRecord)}
+        assert "sender" in names
+        assert "requester" not in names
+
+    def test_requester_returns_sender_value_and_warns_every_access(self):
+        record = self._record(sender="coordinator")
+        for _ in range(2):  # not just once -- prove it's not a warn-once cache
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                value = record.requester
+            assert value == "coordinator" == record.sender
+            deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+            assert len(deprecation_warnings) == 1
+            msg = str(deprecation_warnings[0].message)
+            assert "ApprovalRequestRecord.requester" in msg
+            assert "ApprovalRequestRecord.sender" in msg
+
+    def test_requester_has_no_setter(self):
+        record = self._record()
+        with pytest.raises(AttributeError):
+            record.requester = "mallory"
+
+    def test_constructor_rejects_requester_kwarg(self):
+        with pytest.raises(TypeError):
+            ApprovalRequestRecord(
+                request_id="r1",
+                action="deploy",
+                summary="release v2",
+                required_approvals=2,
+                requester="coordinator",
+            )

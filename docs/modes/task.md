@@ -160,7 +160,7 @@ proj.get_task(task_id).task_id            # "t1"
 proj.get_task(task_id).title              # "Q4 Sales Analysis"
 proj.get_task(task_id).instructions       # as sent in TaskRequest
 proj.get_task(task_id).requested_assignee # "analyst-agent" -- who was asked for
-proj.get_task(task_id).requester          # the TaskRequest's sender
+proj.get_task(task_id).sender             # the TaskRequest's sender
 proj.get_task(task_id).deadline_unix_ms   # optional soft deadline, or 0
 proj.get_task(task_id).input              # bytes payload the request carried
 proj.get_task(task_id).status     # "requested" | "accepted" | "in_progress" |

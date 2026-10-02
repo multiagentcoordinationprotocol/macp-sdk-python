@@ -25,12 +25,29 @@ class TaskRecord:
     title: str
     instructions: str
     requested_assignee: str
-    requester: str
+    sender: str
     status: str = "requested"
     progress: float = 0.0
     assignee: str | None = None
     deadline_unix_ms: int = 0
     input: bytes = b""
+
+    # ── Deprecated alias (issue #120 / multiagentcoordinationprotocol#177) ──
+    # ``requester`` is kept as a read-only, INSTANCE-level property alias for
+    # one minor version, removed at this SDK's next major version. See
+    # ``ProposalRecord.proposer`` in proposal.py for the full rationale this
+    # mechanism shares: a plain same-named class attribute alias is not an
+    # option on a ``@dataclass(slots=True)``, but a property is not a field
+    # and is untouched by the slots transformation. No setter is defined:
+    # nothing in this module ever assigns ``.requester``.
+    @property
+    def requester(self) -> str:
+        warnings.warn(
+            "TaskRecord.requester is deprecated; use TaskRecord.sender instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.sender
 
 
 @dataclass(slots=True)
@@ -108,7 +125,7 @@ class TaskProjection(BaseProjection):
                 title=p.title,
                 instructions=p.instructions,
                 requested_assignee=p.requested_assignee,
-                requester=envelope.sender,
+                sender=envelope.sender,
                 status="requested",
                 progress=0.0,
                 assignee=None,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 from macp.modes.quorum.v1 import quorum_pb2
@@ -23,7 +24,25 @@ class ApprovalRequestRecord:
     action: str
     summary: str
     required_approvals: int
-    requester: str
+    sender: str
+
+    # ── Deprecated alias (issue #120 / multiagentcoordinationprotocol#177) ──
+    # ``requester`` is kept as a read-only, INSTANCE-level property alias for
+    # one minor version, removed at this SDK's next major version. See
+    # ``ProposalRecord.proposer`` in proposal.py for the full rationale this
+    # mechanism shares: a plain same-named class attribute alias is not an
+    # option on a ``@dataclass(slots=True)``, but a property is not a field
+    # and is untouched by the slots transformation. No setter is defined:
+    # nothing in this module ever assigns ``.requester``.
+    @property
+    def requester(self) -> str:
+        warnings.warn(
+            "ApprovalRequestRecord.requester is deprecated; "
+            "use ApprovalRequestRecord.sender instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.sender
 
 
 @dataclass(slots=True)
@@ -68,7 +87,7 @@ class QuorumProjection(BaseProjection):
                 action=p.action,
                 summary=p.summary,
                 required_approvals=p.required_approvals,
-                requester=envelope.sender,
+                sender=envelope.sender,
             )
             self._set_phase("Voting")
             return

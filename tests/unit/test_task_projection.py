@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import warnings
 
+import pytest
 from macp.modes.task.v1 import task_pb2
 from macp.v1 import core_pb2
 
 from macp_sdk.constants import MODE_TASK
-from macp_sdk.task import TaskProjection
+from macp_sdk.task import TaskProjection, TaskRecord
 from tests.conftest import make_envelope
 
 
@@ -48,6 +50,7 @@ class TestTaskProjection:
         assert task.assignee is None
         assert task.deadline_unix_ms == 1234567890
         assert task.input == b"payload-bytes"
+        assert task.sender == "planner"
         assert p.phase == "Requested"
 
     def test_repeat_task_request_fully_resets_the_record(self):
@@ -885,3 +888,55 @@ class TestDeprecatedAliases:
             pass
         else:
             raise AssertionError("expected AttributeError")
+
+
+class TestRequesterDeprecatedAlias:
+    """Issue #120/#121 Phase 14: ``TaskRecord.requester`` -> ``.sender``,
+    kept as a read-only INSTANCE property alias -- same mechanism as
+    ``ProposalRecord.proposer`` (proposal.py), applied here to the second
+    remaining ``requester`` field.
+    """
+
+    def _record(self, **overrides):
+        fields = {
+            "task_id": "t1",
+            "title": "t",
+            "instructions": "i",
+            "requested_assignee": "worker",
+            "sender": "planner",
+        }
+        fields.update(overrides)
+        return TaskRecord(**fields)
+
+    def test_sender_is_a_real_dataclass_field_requester_is_not(self):
+        names = {f.name for f in dataclasses.fields(TaskRecord)}
+        assert "sender" in names
+        assert "requester" not in names
+
+    def test_requester_returns_sender_value_and_warns_every_access(self):
+        record = self._record(sender="planner")
+        for _ in range(2):  # not just once -- prove it's not a warn-once cache
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                value = record.requester
+            assert value == "planner" == record.sender
+            deprecation_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+            assert len(deprecation_warnings) == 1
+            msg = str(deprecation_warnings[0].message)
+            assert "TaskRecord.requester" in msg
+            assert "TaskRecord.sender" in msg
+
+    def test_requester_has_no_setter(self):
+        record = self._record()
+        with pytest.raises(AttributeError):
+            record.requester = "mallory"
+
+    def test_constructor_rejects_requester_kwarg(self):
+        with pytest.raises(TypeError):
+            TaskRecord(
+                task_id="t1",
+                title="t",
+                instructions="i",
+                requested_assignee="worker",
+                requester="planner",
+            )
