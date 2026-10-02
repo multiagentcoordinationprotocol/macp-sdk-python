@@ -134,6 +134,21 @@ UNBOUNDED = _UnboundedTimeout()
 TimeoutValue = float | None | _UnboundedTimeout
 
 
+def _cancel_quietly(call: Any) -> None:
+    """Best-effort cancel of a server-streaming gRPC call.
+
+    Called from each ``watch_*`` generator's ``finally``, so it runs on
+    normal exhaustion, on an exception, and on ``GeneratorExit`` when a
+    consumer abandons the stream. Cancelling an already-finished call is
+    a no-op in grpcio; a cancel that raises must not replace whatever
+    the generator was already propagating.
+    """
+    try:
+        call.cancel()
+    except Exception:
+        logger.debug("stream cancel failed", exc_info=True)
+
+
 class MacpStream:
     _END = object()
 
@@ -760,6 +775,8 @@ class MacpClient:
             yield from call
         except grpc.RpcError as exc:
             raise self._transport_error_from_rpc(exc) from exc
+        finally:
+            _cancel_quietly(call)
 
     def register_ext_mode(
         self,
@@ -955,6 +972,8 @@ class MacpClient:
             yield from call
         except grpc.RpcError as exc:
             raise self._transport_error_from_rpc(exc) from exc
+        finally:
+            _cancel_quietly(call)
 
     def open_stream(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
@@ -983,6 +1002,8 @@ class MacpClient:
             yield from call
         except grpc.RpcError as exc:
             raise self._transport_error_from_rpc(exc) from exc
+        finally:
+            _cancel_quietly(call)
 
     def watch_roots(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
@@ -1003,6 +1024,8 @@ class MacpClient:
             yield from call
         except grpc.RpcError as exc:
             raise self._transport_error_from_rpc(exc) from exc
+        finally:
+            _cancel_quietly(call)
 
     def watch_signals(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
@@ -1025,6 +1048,8 @@ class MacpClient:
             yield from call
         except grpc.RpcError as exc:
             raise self._transport_error_from_rpc(exc) from exc
+        finally:
+            _cancel_quietly(call)
 
     def send_signal(
         self,

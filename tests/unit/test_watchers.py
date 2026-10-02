@@ -15,8 +15,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import grpc
 import pytest
 
+from macp_sdk.errors import MacpTransportError
 from macp_sdk.watchers import (
     ModeRegistryWatcher,
     PolicyChange,
@@ -25,6 +27,8 @@ from macp_sdk.watchers import (
     SessionLifecycleWatcher,
     SignalWatcher,
 )
+from tests.conftest import FakeRpcError
+from tests.conftest import client_with_stub as _client_with_stub
 
 
 def _client_with_stream(method_name: str, items: list[object]) -> MagicMock:
@@ -177,3 +181,304 @@ class TestSessionLifecycleWatcherExport:
         import macp_sdk
 
         assert macp_sdk.SessionLifecycleWatcher is SessionLifecycleWatcher
+
+
+# ── Phase 10: stream cancellation on abandonment ─────────────────────
+#
+# These drive the raw MacpClient.watch_*() generators (not just the
+# watcher wrappers) against a FakeCall standing in for the gRPC
+# streaming call object, since that is where _cancel_quietly actually
+# lives (client.py's finally, not watchers.py's closing()).
+
+
+class FakeCall:
+    """A fake grpc server-streaming call: an iterator yielding *items*,
+    with a cancel() counter. An item that is itself an exception
+    instance is raised instead of yielded, standing in for a mid-stream
+    RpcError."""
+
+    def __init__(self, items: list[object], *, cancel_raises: bool = False) -> None:
+        self._items = list(items)
+        self._index = 0
+        self.cancel_calls = 0
+        self.cancel_raises = cancel_raises
+
+    def __iter__(self) -> FakeCall:
+        return self
+
+    def __next__(self) -> object:
+        if self._index >= len(self._items):
+            raise StopIteration
+        item = self._items[self._index]
+        self._index += 1
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+        if self.cancel_raises:
+            raise RuntimeError("cancel() boom")
+
+
+class TestStreamCancellation:
+    """Criteria 1-5, driven through PolicyWatcher / client.watch_policies()
+    -- the behavior is identical across all five RPCs (criterion 6, in
+    TestStreamCancellationAllFiveRpcs below) since client.py's five
+    watch_* bodies are byte-identical."""
+
+    def test_next_change_returns_first_and_cancels_once(self):
+        """Criterion 1."""
+        client, stub = _client_with_stub()
+        call = FakeCall(
+            [
+                _fake_policy_response([MagicMock()], observed_at_unix_ms=1),
+                _fake_policy_response([MagicMock()], observed_at_unix_ms=2),
+                _fake_policy_response([MagicMock()], observed_at_unix_ms=3),
+            ]
+        )
+        stub.WatchPolicies.return_value = call
+        watcher = PolicyWatcher(client)
+
+        first = watcher.next_change()
+
+        assert first.observed_at_unix_ms == 1
+        assert call.cancel_calls == 1
+
+    def test_abandoning_raw_generator_after_one_item_cancels_once(self):
+        """Criterion 2: calling next() once on the raw
+        client.watch_policies() generator, then closing it, cancels the
+        underlying call exactly once."""
+        client, stub = _client_with_stub()
+        call = FakeCall(
+            [
+                _fake_policy_response([], observed_at_unix_ms=1),
+                _fake_policy_response([], observed_at_unix_ms=2),
+            ]
+        )
+        stub.WatchPolicies.return_value = call
+
+        gen = client.watch_policies()
+        next(gen)
+        gen.close()
+
+        assert call.cancel_calls == 1
+
+    def test_watch_handler_raising_propagates_and_cancels_once(self):
+        """Criterion 3."""
+        client, stub = _client_with_stub()
+        call = FakeCall(
+            [
+                _fake_policy_response([], observed_at_unix_ms=1),
+                _fake_policy_response([], observed_at_unix_ms=2),
+            ]
+        )
+        stub.WatchPolicies.return_value = call
+        watcher = PolicyWatcher(client)
+
+        def handler(change: object) -> None:
+            raise ValueError("handler boom")
+
+        with pytest.raises(ValueError, match="handler boom"):
+            watcher.watch(handler)
+
+        assert call.cancel_calls == 1
+
+    def test_normal_exhaustion_cancels_once_and_raises_nothing(self):
+        """Criterion 4."""
+        client, stub = _client_with_stub()
+        call = FakeCall(
+            [
+                _fake_policy_response([], observed_at_unix_ms=1),
+                _fake_policy_response([], observed_at_unix_ms=2),
+            ]
+        )
+        stub.WatchPolicies.return_value = call
+
+        results = list(client.watch_policies())
+
+        assert len(results) == 2
+        assert call.cancel_calls == 1
+
+    def test_cancel_raising_does_not_mask_mid_stream_rpc_error(self):
+        """Criterion 5 (part 1): a cancel() that raises does not replace
+        the MacpTransportError a mid-stream grpc.RpcError produced."""
+        client, stub = _client_with_stub()
+        call = FakeCall(
+            [
+                _fake_policy_response([], observed_at_unix_ms=1),
+                FakeRpcError(grpc.StatusCode.UNAVAILABLE, "boom"),
+            ],
+            cancel_raises=True,
+        )
+        stub.WatchPolicies.return_value = call
+
+        with pytest.raises(MacpTransportError):
+            list(client.watch_policies())
+
+        assert call.cancel_calls == 1
+
+    def test_cancel_raising_does_not_mask_normal_exhaustion(self):
+        """Criterion 5 (part 2): a cancel() that raises does not turn a
+        clean exhaustion into an error."""
+        client, stub = _client_with_stub()
+        call = FakeCall(
+            [
+                _fake_policy_response([], observed_at_unix_ms=1),
+                _fake_policy_response([], observed_at_unix_ms=2),
+            ],
+            cancel_raises=True,
+        )
+        stub.WatchPolicies.return_value = call
+
+        results = list(client.watch_policies())
+
+        assert len(results) == 2
+        assert call.cancel_calls == 1
+
+
+def _lifecycle_response(session_id: str = "s") -> MagicMock:
+    from macp.v1 import core_pb2
+
+    resp = MagicMock()
+    resp.event.event_type = core_pb2.SessionLifecycleEvent.EVENT_TYPE_CREATED
+    resp.event.observed_at_unix_ms = 1
+    resp.event.session.session_id = session_id
+    return resp
+
+
+# Maps each stub method name to the watcher class that wraps it, plus a
+# factory for a response shaped correctly for that watcher's own mapping
+# logic (SessionLifecycleWatcher needs response.event.*, SignalWatcher
+# needs a non-empty response.envelope, PolicyWatcher needs
+# response.descriptors/.observed_at_unix_ms; ModeRegistryWatcher/
+# RootsWatcher pass responses through unchanged).
+_WATCHER_FOR_STUB = {
+    "WatchSessions": (SessionLifecycleWatcher, _lifecycle_response),
+    "WatchPolicies": (PolicyWatcher, lambda: _fake_policy_response([])),
+    "WatchModeRegistry": (ModeRegistryWatcher, MagicMock),
+    "WatchRoots": (RootsWatcher, MagicMock),
+    "WatchSignals": (SignalWatcher, lambda: _fake_signal_response(10)),
+}
+
+# SignalWatcher's pull-one method is next_signal(), not next_change() --
+# the one genuinely different name among the five.
+_NEXT_METHOD_FOR_STUB = {
+    "WatchSessions": "next_change",
+    "WatchPolicies": "next_change",
+    "WatchModeRegistry": "next_change",
+    "WatchRoots": "next_change",
+    "WatchSignals": "next_signal",
+}
+
+
+@pytest.mark.parametrize(
+    "method_name,stub_name",
+    [
+        ("watch_sessions", "WatchSessions"),
+        ("watch_policies", "WatchPolicies"),
+        ("watch_mode_registry", "WatchModeRegistry"),
+        ("watch_roots", "WatchRoots"),
+        ("watch_signals", "WatchSignals"),
+    ],
+)
+class TestStreamCancellationAllFiveRpcs:
+    """Criterion 6: the same behaviors hold for all five watch_* RPCs --
+    this is what stops a sixth streaming RPC from being added without
+    the finally. Three methods (test_abandon_after_one_item_cancels_once,
+    test_normal_exhaustion_cancels_once, test_cancel_raising_does_not_mask_rpc_error)
+    drive the raw client.<method_name>() generator directly (method- and
+    response-shape agnostic: the generator body is just `yield from
+    call`); the other three (test_watch_handler_raising_cancels_once,
+    test_watch_normal_exhaustion_cancels_once,
+    test_next_returns_first_and_cancels_once) go through each RPC's
+    corresponding watcher helper instead, since those specifically
+    exercise the watcher-level closing() wrapper and cannot be proven
+    deterministic on the raw generator alone -- see each method's own
+    docstring."""
+
+    def test_abandon_after_one_item_cancels_once(self, method_name, stub_name):
+        client, stub = _client_with_stub()
+        call = FakeCall([MagicMock(), MagicMock(), MagicMock()])
+        getattr(stub, stub_name).return_value = call
+
+        gen = getattr(client, method_name)()
+        next(gen)
+        gen.close()
+
+        assert call.cancel_calls == 1
+
+    def test_watch_handler_raising_cancels_once(self, method_name, stub_name):
+        """Unlike the raw-generator tests in this class, a handler raising
+        inside watch() is only deterministically closed via closing() --
+        there is no explicit gen.close() call site to drive, and relying
+        on GC timing here would be flaky. So this one goes through each
+        RPC's corresponding watcher helper, per the plan's own instruction
+        for criterion 6, with a response shaped correctly for that
+        watcher's mapping logic (_WATCHER_FOR_STUB)."""
+        client, stub = _client_with_stub()
+        watcher_cls, make_response = _WATCHER_FOR_STUB[stub_name]
+        call = FakeCall([make_response(), make_response()])
+        getattr(stub, stub_name).return_value = call
+        watcher = watcher_cls(client)
+
+        def handler(item: object) -> None:
+            raise ValueError("handler boom")
+
+        with pytest.raises(ValueError, match="handler boom"):
+            watcher.watch(handler)
+
+        assert call.cancel_calls == 1
+
+    def test_watch_normal_exhaustion_cancels_once(self, method_name, stub_name):
+        """Covers watch()'s closing()-wrapped loop completing normally
+        (as opposed to being interrupted by a raising handler, above) --
+        the other branch of the same wrapper, for all five RPCs."""
+        client, stub = _client_with_stub()
+        watcher_cls, make_response = _WATCHER_FOR_STUB[stub_name]
+        call = FakeCall([make_response(), make_response()])
+        getattr(stub, stub_name).return_value = call
+        watcher = watcher_cls(client)
+
+        seen: list[object] = []
+        watcher.watch(seen.append)
+
+        assert len(seen) == 2
+        assert call.cancel_calls == 1
+
+    def test_next_returns_first_and_cancels_once(self, method_name, stub_name):
+        """next_change()/next_signal()'s own closing()-wrapped happy
+        path, for all five RPCs -- criterion 1, swept."""
+        client, stub = _client_with_stub()
+        watcher_cls, make_response = _WATCHER_FOR_STUB[stub_name]
+        call = FakeCall([make_response(), make_response()])
+        getattr(stub, stub_name).return_value = call
+        watcher = watcher_cls(client)
+        next_method = getattr(watcher, _NEXT_METHOD_FOR_STUB[stub_name])
+
+        next_method()
+
+        assert call.cancel_calls == 1
+
+    def test_normal_exhaustion_cancels_once(self, method_name, stub_name):
+        client, stub = _client_with_stub()
+        call = FakeCall([MagicMock(), MagicMock()])
+        getattr(stub, stub_name).return_value = call
+
+        results = list(getattr(client, method_name)())
+
+        assert len(results) == 2
+        assert call.cancel_calls == 1
+
+    def test_cancel_raising_does_not_mask_rpc_error(self, method_name, stub_name):
+        client, stub = _client_with_stub()
+        call = FakeCall(
+            [MagicMock(), FakeRpcError(grpc.StatusCode.UNAVAILABLE, "boom")],
+            cancel_raises=True,
+        )
+        getattr(stub, stub_name).return_value = call
+
+        with pytest.raises(MacpTransportError):
+            list(getattr(client, method_name)())
+
+        assert call.cancel_calls == 1
