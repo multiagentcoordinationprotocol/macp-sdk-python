@@ -67,6 +67,31 @@ class DecisionProjection(BaseProjection):
                 rationale=payload.rationale,
                 sender=envelope.sender,
             )
+            # A Proposal opens the evaluation window: the runtime advances the
+            # session's phase when it accepts the Proposal
+            # (macp-runtime/crates/macp-modes/src/mode/decision.rs:172) and then
+            # *requires* that phase before it will accept an Evaluation or
+            # Objection at all (ensure_can_deliberate, same file :71-77, gating
+            # :187 and :212) -- so reporting "Proposal" in this window describes a
+            # state the session is demonstrably not in. macp-sdk-typescript's
+            # DecisionProjection advances here too. "Proposal" is still the initial
+            # phase set in __init__ -- it is observable before the first mode
+            # message, it just no longer survives the Proposal itself.
+            #
+            # Guarded on the phase still being the initial one, NOT unconditional:
+            # _set_phase (base_projection.py) blocks regression only out of
+            # "Committed", so an unconditional call here would let a Proposal
+            # redelivered under a distinct message_id rewind "Voting" ->
+            # "Evaluation". RFC-MACP-0007 §5 rule 6
+            # (rfcs/RFC-MACP-0007-decision-mode.md:94) says a runtime MUST reject
+            # any Proposal/Evaluation/Objection after the first accepted Vote, and
+            # a message the runtime must reject certainly must not rewind our local
+            # phase. Same shape as handoff.py:85's `if self.phase ==
+            # "OfferPending"` guard. (macp-sdk-typescript/src/projections/
+            # decision.ts:55 is unconditional and has this latent gap even though
+            # its own Vote arm guards at :124-126 -- do not copy it.)
+            if self.phase == "Proposal":
+                self._set_phase("Evaluation")
             return
 
         if message_type == "Evaluation":
