@@ -7,12 +7,16 @@ schemas/parity/contract.json
 ```
 
 from the spec repo (`multiagentcoordinationprotocol/multiagentcoordinationprotocol`),
-commit [`45406ddaa562288c65fe73818c130b6cd58b58dc`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/45406ddaa562288c65fe73818c130b6cd58b58dc)
-(spec-repo PR [#158](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/158),
-bumping `contract_version` to `1.2.0`). First vendored into this repo 2026-09-28 as
-part of issue #93 item 1 -- this repo had no vendored copy at all before this, unlike
-`macp-runtime` and `macp-sdk-typescript`, both of which already vendor and assert
-against this manifest.
+commit [`2989f64`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/2989f644576e73a46d2efe6b682b74e0e4eadd54)
+(spec-repo PR [#179](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/179),
+bumping `contract_version` to `1.3.0` with the new `proposal_disposition` section —
+pinning Proposal mode's per-proposal disposition/status domain, see issue #146).
+Previously re-vendored at commit
+[`45406ddaa562288c65fe73818c130b6cd58b58dc`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/45406ddaa562288c65fe73818c130b6cd58b58dc)
+(spec-repo PR #158, `contract_version` `1.2.0`). First vendored into this repo
+2026-09-28 as part of issue #93 item 1 -- this repo had no vendored copy at all before
+that, unlike `macp-runtime` and `macp-sdk-typescript`, both of which already vendor and
+assert against this manifest.
 
 ## Why this directory lives outside `tests/conformance/`
 

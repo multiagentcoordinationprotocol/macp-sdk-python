@@ -18,7 +18,9 @@ deliberately not asserted -- see ``SOURCE.md`` "Open items".
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import json
+import re
 import typing
 from pathlib import Path
 from typing import ClassVar
@@ -58,6 +60,7 @@ from macp_sdk.errors import (
     UNSUPPORTED_PROTOCOL_VERSION,
 )
 from macp_sdk.policy import build_decision_policy
+from macp_sdk.proposal import ProposalProjection, ProposalRecord
 from macp_sdk.proto_registry import ProtoRegistry
 from macp_sdk.retry import RetryPolicy
 
@@ -68,11 +71,11 @@ sections = contract["sections"]
 registry = ProtoRegistry()
 
 
-def test_pins_contract_version_1_2_0_a_version_bump_means_re_reading_this_whole_file():
+def test_pins_contract_version_1_3_0_a_version_bump_means_re_reading_this_whole_file():
     # Not a manifest-content assertion: a tripwire so a future contract_version
     # bump (MINOR or MAJOR, per the manifest's own versioning rule) forces a
     # human to re-review every section below, not just whichever one changed.
-    assert contract["contract_version"] == "1.2.0"
+    assert contract["contract_version"] == "1.3.0"
 
 
 class TestProtocol:
@@ -179,6 +182,55 @@ class TestProjectionAnomaly:
         # manifest's canonical snake_case, so no transform is needed here.
         field_names = [f.name for f in dataclasses.fields(ProjectionAnomaly)]
         assert field_names == sections["projection_anomaly"]["fields"]
+
+
+class TestProposalDisposition:
+    """New in contract 1.3.0 (issue #146): pins Proposal mode's per-proposal
+    disposition/status domain, previously unpinned and independently
+    re-derived by this SDK and macp-sdk-typescript. ``ProposalRecord.status``'s
+    by-design comment (proposal.py) already claims this; these tests back
+    that claim with the shared manifest instead of leaving it as prose.
+    """
+
+    def test_reachable_status_values_match_manifest(self):
+        # Static source scan of the whole class, not just today's one
+        # method that writes `.status` (both the constructor kwarg and
+        # later re-assignment) -- a future method added elsewhere on
+        # ProposalProjection that touches `.status` stays caught instead of
+        # silently evading a method-scoped scan. Proves the actual
+        # reachable value set, not just what the dataclass docstring
+        # claims. See the matching assignment-site inventory in
+        # proposal.py's ProposalRecord docstring.
+        source = inspect.getsource(ProposalProjection)
+        assigned = set(re.findall(r'\bstatus\s*=\s*"([^"]+)"', source))
+        assert assigned == set(sections["proposal_disposition"]["projection_status_values"])
+
+    def test_no_code_path_assigns_an_acceptance_shaped_value(self):
+        source = inspect.getsource(ProposalProjection)
+        assigned = set(re.findall(r'\bstatus\s*=\s*"([^"]+)"', source))
+        assert "accepted" not in assigned
+        assert "Accepted" not in assigned
+
+    def test_acceptance_is_tracked_per_sender_never_denormalized_onto_status(self):
+        assert sections["proposal_disposition"]["acceptance_tracking"] == "per_sender"
+        # ProposalRecord has no field that could hold acceptance other than
+        # `status`, and the two tests above already prove nothing acceptance-
+        # shaped lands there. Acceptance itself lives on the per-sender
+        # `accepts` list / the accepted_proposal()/is_accepted() derived view.
+        field_names = {f.name for f in dataclasses.fields(ProposalRecord)}
+        assert field_names == {
+            "proposal_id",
+            "title",
+            "summary",
+            "sender",
+            "supersedes",
+            "status",
+            "tags",
+        }
+        proj = ProposalProjection()
+        assert hasattr(proj, "accepts")
+        assert callable(proj.accepted_proposal)
+        assert callable(proj.is_accepted)
 
 
 class TestCommitmentHash:
