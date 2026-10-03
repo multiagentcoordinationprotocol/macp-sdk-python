@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.0...v0.14.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **parity:** re-vendor contract.json at 1.3.0, pin Proposal disposition domain ([#146](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/146)) ([#147](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/147)) ([659fe55](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/659fe55908211127a52986c52b5069cb23f62531))
+
 ## [0.14.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.13.0...v0.14.0) (2026-10-02)
 
 
