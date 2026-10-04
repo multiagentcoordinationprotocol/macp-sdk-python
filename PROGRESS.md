@@ -1011,3 +1011,4 @@ Plan: `plans/docs-anchor-double-hyphen-fix-151.md` (this repo).
 - Ship-gate verifier (fresh Opus, independent re-derivation of the slug algorithm
   and a full repo grep for stale anchors): **PASS**, no gaps.
 - pushed fix/151-doc-anchor-double-hyphen c97ba64
+- PR #154 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/154
