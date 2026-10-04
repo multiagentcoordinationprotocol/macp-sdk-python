@@ -1181,3 +1181,5 @@ Two independent PRs: PR-A (branch `fix/152-doc-example-governance-bugs`, phases
 - **Files touched:** the 5 files listed above.
 - **Ship decision:** ship as PR-B, closes #153.
 - **What's next:** hand PR-B to `/ship`.
+
+- pushed fix/153-doc-runtime-behavior-claims 99ddca6
