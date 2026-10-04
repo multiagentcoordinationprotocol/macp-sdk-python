@@ -1114,3 +1114,5 @@ Two independent PRs: PR-A (branch `fix/152-doc-example-governance-bugs`, phases
 - All other ship-gate checks (diff correctness, 2 fix-correctness items,
   doc-drift, ASSUMPTIONS/DECISIONS, lint/typecheck/test gates, commit
   message quality) were independently confirmed **PASS** on the first pass.
+- pushed fix/152-doc-example-governance-bugs 7e3c90e
+- PR #156 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/156
