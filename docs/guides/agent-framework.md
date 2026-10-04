@@ -201,10 +201,18 @@ participant.on("Evaluation", voting_handler(majority_voter(positive_threshold=0.
 participant.on("Vote", commitment_handler(majority_committer(
     action="deployment.approved",
     authority_scope="release",
+    quorum_size=2,
 )))
 
 participant.run()
 ```
+
+`quorum_size` (default `1`) is the minimum number of positive votes the **winning**
+proposal itself must hold before `majority_committer` commits — it is checked as
+`vote_totals().get(winner, 0) >= quorum_size`, not as a sum across every proposal in
+the session. A proposal that wins the majority with only 1 vote does not satisfy
+`quorum_size=2`, even if other, losing proposals also picked up votes elsewhere in the
+same session — the bar is scoped to the winner, never to session-wide turnout.
 
 ## Cancel callback
 

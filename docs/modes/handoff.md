@@ -163,10 +163,10 @@ proj.is_committed                             # True after Commitment
 > discarded.** `status`, `accepted_by`/`declined_by` and `phase` all keep their
 > first-settled values (RFC-MACP-0010 §5 rule 4 / §5.1(4)). Nothing raises and no return value
 > changes — the only signal is a `settled_handoff` entry in `proj.anomalies` (inherited
-> from `BaseProjection`; see the API reference). By contrast, an accept or decline
-> naming a `handoff_id` this projection never saw is a plain no-op that records **no**
-> anomaly, deliberately: a projection that joined mid-session may legitimately never
-> have seen the offer.
+> from `BaseProjection`; see the API reference). By contrast, an accept, decline, or
+> `add_context` naming a `handoff_id` this projection never saw is a plain no-op that
+> records **no** anomaly, deliberately: a projection that joined mid-session may
+> legitimately never have seen the offer.
 
 > **`proj.handoffs`, `get_handoff()`, `active_offer()` and `pending_handoffs()` hand
 > back the projection's own live record objects, not copies.** Treat them as read-only

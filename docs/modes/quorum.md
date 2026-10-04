@@ -200,6 +200,12 @@ proj.anomalies[-1].subject_id  # "r1"
 proj.has_anomalies             # True
 ```
 
+A ballot naming a `request_id` this projection never saw an `ApprovalRequest` for is a
+different case — it is ignored entirely: no ballot record, no anomaly. Same split as
+Decision mode's unknown-`proposal_id` Vote: rejecting an unknown `request_id` is the
+runtime's obligation, and a mid-session joiner may legitimately never have seen the
+originating `ApprovalRequest`.
+
 **There is no vote-changing mechanism, and the SDK will not invent one.**
 "Alice changes her mind" is not representable by re-sending a ballot.
 Supporting that would require a spec-level Retract/Supersede message with

@@ -193,6 +193,11 @@ proj.completions                  # list[TaskCompleteRecord]
 proj.failures                     # list[TaskFailRecord]
 proj.latest_progress()            # 0.7 (from proj.updates[-1], or None)
 
+# Each of the four record types above also carries its own `sender` -- the actual
+# envelope sender of that specific sub-message, distinct from TaskRecord.sender
+# (the original TaskRequest's sender) and TaskRecord.assignee (who accepted):
+proj.failures[-1].sender          # "analyst-agent" -- who sent this TaskFail
+
 # Lifecycle
 proj.phase                        # "Pending" | "Requested" | "InProgress" |
                                    # "Completed" | "Failed" | "Committed"
