@@ -1012,3 +1012,77 @@ Plan: `plans/docs-anchor-double-hyphen-fix-151.md` (this repo).
   and a full repo grep for stale anchors): **PASS**, no gaps.
 - pushed fix/151-doc-anchor-double-hyphen c97ba64
 - PR #154 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/154
+- merged #154
+
+---
+
+# PROGRESS — Issues #152 and #153: doc/example accuracy fixes
+
+Plan: `plans/doc-accuracy-fixes-152-153.md` (this repo). Filed by a sibling Claude
+session (macp-sdk-typescript #160 / PR #162) during a cross-SDK sync check.
+Two independent PRs: PR-A (branch `fix/152-doc-example-governance-bugs`, phases
+1-2, closes #152) and PR-B (phases 3-5, closes #153, branched separately from
+`main`).
+
+## Phase status
+
+- **Phase 1 — Issue #152 doc snippet fixes (6 files):** DONE
+- **Phase 2 — `examples/policy_registration.py` cleanup-on-failure fix:** DONE
+- **Phase 3 — Issue #153 identity-scoping claims:** DONE
+- **Phase 4 — Issue #153 `WatchSessions` initial-sync claims + code examples (incl. 4d, a 4th occurrence found during re-verification):** DONE
+- **Phase 5 — Issue #153 stale state-machine diagram:** DONE
+
+## Log
+
+### Planning — 2026-10-04
+
+- Fresh Opus planning agent read both issues and verified every claim against
+  current code (`HEAD` `53d7ffd`) and the sibling `macp-runtime` checkout,
+  rather than trusting the issue text. Found 2 corrections to the issues'
+  own claims: (1) #152 item 4 (handoff.md) actually fails at `offer()` with
+  `INVALID_ENVELOPE`, not at `accept_handoff()` with `FORBIDDEN` as the issue
+  claimed; (2) #153 item 3's cited spec-repo files (`docs/lifecycle.md`,
+  `envelope.proto`) don't exist in this repo — the fix uses this repo's own
+  internal cross-references instead.
+- **Independent re-verification pass** (fresh Opus, per `/implement` §0's
+  mandatory second check) caught a real implementation-breaking error the
+  first pass missed: the plan's `macp.v1.core_pb2.SessionState.OPEN` enum
+  path doesn't exist — `SessionState` lives on `macp.v1.envelope_pb2`, values
+  prefixed `SESSION_STATE_*`. Confirmed live against the installed
+  `macp-proto` 0.1.10. Also caught a 4th occurrence of the Phase 4 bug the
+  original issue missed (`docs/guides/streaming.md:114`), added as Phase 4d.
+  Both corrections applied to the plan before any code was written.
+
+### Phase 1+2 — 2026-10-04
+
+- **Delivered:** Phase 1 — 6 doc-snippet fixes across `docs/index.md`,
+  `docs/guides/building-orchestrators.md`, `docs/guides/streaming.md`,
+  `docs/modes/handoff.md`, `docs/modes/quorum.md`, `docs/modes/proposal.md`
+  (each one would raise `MacpIdentityMismatchError` or a runtime
+  `INVALID_ENVELOPE`/`FORBIDDEN` if actually run — see plan for per-file
+  detail). Phase 2 — `examples/policy_registration.py`'s cleanup-on-failure
+  leak: `unregister_policy` moved from the end of `try` into `finally`,
+  guarded by `registered = resp.ok`.
+- **Verifier:** Opus, fresh subagent, batched (2 simple phases, 1 gate per
+  the plan's batching call, 2 independent verdicts). Verdict: **PASS/PASS**,
+  no gaps. Independently confirmed the `_sender_for()` auth-precedence
+  mechanism (`base_session.py:64-77`) against each Phase-1 fix, confirmed
+  the handoff.rs/quorum.rs runtime rejection codes directly against the
+  sibling `macp-runtime` source, traced the Phase 2 early-return path by
+  hand to confirm `finally`'s guard behaves correctly, and ran every
+  acceptance-criteria grep itself.
+- **Rounds:** 1 execute + 1 verify (PASS). No fixer round needed.
+- **Final state:** `make lint`/`make typecheck` clean; `pytest tests/ -q`
+  1957 passed, 76 skipped (unaffected by this change).
+- **Assumptions:** none logged — both the plan and its re-verification pass
+  resolved every ambiguity before implementation; nothing deferred to
+  `ASSUMPTIONS.md`.
+- **Known, accepted limitation (not a gap):** Phase 2's fix has zero
+  automated regression protection — no test forces a mid-script failure to
+  prove the `finally`-guard fires; both existing example tests only exercise
+  the happy path. Flagged explicitly in the plan rather than silently
+  presented as covered.
+- **Files touched:** the 6 Phase-1 docs files + `examples/policy_registration.py`.
+- **Ship decision:** ship as PR-A, closes #152.
+- **What's next:** hand PR-A to `/ship`; continue the phase loop for PR-B
+  (phases 3-5, issue #153) independently.

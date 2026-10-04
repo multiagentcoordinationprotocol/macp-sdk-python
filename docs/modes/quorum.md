@@ -226,6 +226,7 @@ import time
 request_id = "r1"
 session.request_approval(request_id, "deploy", required_approvals=2)
 proj = session.quorum_projection
+total_eligible = len(participants)  # this session's SessionStart participant list
 
 deadline = time.time() + 3600  # 1 hour
 while time.time() < deadline:
@@ -236,8 +237,15 @@ while time.time() < deadline:
 
 if proj.has_quorum(request_id):
     session.commit(action="approved", ...)
+elif proj.is_threshold_unreachable(request_id, total_eligible):
+    session.commit(action="rejected", reason="deadline reached: threshold mathematically unreachable")
 else:
-    session.commit(action="rejected", reason="deadline reached without quorum")
+    # Deadline reached with the threshold neither met nor mathematically
+    # unreachable -- ballots are still outstanding. The runtime rejects a
+    # Commitment here with INVALID_ENVELOPE (RFC-MACP-0011 §4); escalate,
+    # extend the deadline, or treat this as an orchestrator-level timeout
+    # instead of calling commit().
+    raise TimeoutError(f"{request_id}: quorum undecided at deadline")
 ```
 
 ### Weighted quorum (orchestrator logic)

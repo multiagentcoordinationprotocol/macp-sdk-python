@@ -25,6 +25,7 @@ def main() -> None:
         allow_insecure=True,  # local dev only; production requires TLS (RFC-0006 §3)
         auth=AuthConfig.for_dev_agent("coordinator"),
     )
+    registered = False
     try:
         init = client.initialize()
         print("runtime:", init.runtime_info.name)
@@ -63,6 +64,7 @@ def main() -> None:
 
         # ── Register with the runtime ────────────────────────────
         resp = client.register_policy(policy)
+        registered = resp.ok
         print("registered:", resp.ok)
 
         # ── Verify it's listed ───────────────────────────────────
@@ -132,11 +134,10 @@ def main() -> None:
         metadata = session.metadata().metadata
         print("state:", metadata.state, "mode:", metadata.mode)
 
-        # ── Cleanup ──────────────────────────────────────────────
-        client.unregister_policy("policy.deploy.majority-veto")
-        print("unregistered policy")
-
     finally:
+        if registered:
+            client.unregister_policy("policy.deploy.majority-veto")
+            print("unregistered policy")
         client.close()
 
 
