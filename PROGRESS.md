@@ -1184,3 +1184,4 @@ Two independent PRs: PR-A (branch `fix/152-doc-example-governance-bugs`, phases
 
 - pushed fix/153-doc-runtime-behavior-claims 99ddca6
 - PR #157 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/157
+- merged #157
