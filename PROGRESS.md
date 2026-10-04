@@ -1116,3 +1116,71 @@ Two independent PRs: PR-A (branch `fix/152-doc-example-governance-bugs`, phases
   message quality) were independently confirmed **PASS** on the first pass.
 - pushed fix/152-doc-example-governance-bugs 7e3c90e
 - PR #156 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/156
+- CI green (build, conformance, lint, parity, test×3, typecheck, verify-fixtures)
+- merged #156
+
+### Phase status (updated after PR-A merged)
+
+- **Phase 1 — Issue #152 doc snippet fixes (6 files):** DONE (PR-A, #156, merged)
+- **Phase 2 — `examples/policy_registration.py` cleanup-on-failure fix:** DONE (PR-A, #156, merged)
+- **Phase 3 — Issue #153 identity-scoping claims:** DONE
+- **Phase 4 — Issue #153 `WatchSessions` initial-sync claims + code examples (incl. 4d, a 4th occurrence found during re-verification):** DONE
+- **Phase 5 — Issue #153 stale state-machine diagram:** DONE
+
+### Phase 3+4+5 — 2026-10-04
+
+- **Delivered:** Phase 3 — corrected the false "ListSessions/WatchSessions
+  are identity-scoped" claim in `docs/guides/session-discovery.md`'s
+  "Authorisation" section and `docs/guides/building-orchestrators.md`'s
+  supervisor-pattern intro, replacing it with the runtime's actual
+  (unscoped-to-all-authenticated-identities) behavior. Phase 4 — corrected
+  the false "WatchSessions initial sync only includes already-open
+  sessions" claim across 4 locations: `src/macp_sdk/watchers.py`'s
+  `SessionLifecycleWatcher` docstring, `session-discovery.md`'s "Startup
+  snapshot semantics" (prose + code example), `building-orchestrators.md`'s
+  supervisor code example + prose, and `docs/guides/streaming.md:114`'s
+  "Consumer lag and reconnect" parenthetical (4d — a 4th occurrence the
+  original issue missed, found during the plan's re-verification pass).
+  Phase 5 — corrected `docs/protocol.md:32`'s stale state-machine diagram
+  (`OPEN → RESOLVED | EXPIRED`, missing `CANCELLED`/`SUSPENDED`) to match
+  the already-correct event tables elsewhere in the same file and in
+  `session-discovery.md`.
+- **Verifier:** Opus, fresh subagent, batched (3 simple phases in one gate,
+  a deliberate judgment-call extension beyond the stated 2-phase cap, 3
+  independent verdicts — justified by total diff size, ~5 files/~45 lines
+  across all three). Verdict: **PASS/PASS/PASS**, no gaps. Independently
+  confirmed every runtime-behavior claim directly against the sibling
+  `macp-runtime` repo (`pagination.rs`, `server.rs`, `watch_sync.rs`,
+  `registry.rs`), confirmed the critical enum-path correction
+  (`envelope_pb2.SessionState.SESSION_STATE_OPEN`, not `core_pb2`/bare
+  `.OPEN`) survived into the actual diff and not just the plan text, ran a
+  repo-wide grep confirming zero remaining instances of either false claim
+  anywhere, and manually re-derived both in-page anchor slugs
+  (`#authorisation`, `#server-streaming-watchers`) against the real
+  heading text.
+- **Rounds:** 1 execute + 1 verify (PASS). No fixer round needed.
+- **Mid-flight branch surgery:** this branch was created from `main` before
+  PR-A (#156) merged, with Phase 3-5's edits as uncommitted working-tree
+  changes. After PR-A merged, stashed the uncommitted edits, fast-forwarded
+  this branch onto the new `main`, and popped the stash — auto-merged
+  cleanly (`docs/guides/building-orchestrators.md` and
+  `docs/guides/streaming.md` each carry one hunk from PR-A and one from
+  this PR, non-overlapping). Re-ran the full gate post-rebase to confirm:
+  `make lint`/`make typecheck` clean, `pytest tests/ -q` 1957 passed/76
+  skipped, and the live enum check
+  (`python3 -c "from macp.v1 import envelope_pb2; ...SESSION_STATE_OPEN"`
+  → `1`) still resolves correctly.
+- **Final state:** `git diff main...HEAD --stat` — exactly `docs/guides/
+  building-orchestrators.md`, `docs/guides/session-discovery.md`,
+  `docs/guides/streaming.md`, `docs/protocol.md`,
+  `src/macp_sdk/watchers.py`. `src/` diff is confined to one docstring hunk
+  in `watchers.py` — zero logic/behavior change confirmed.
+- **Assumptions:** none logged — the plan's two-round verification resolved
+  every ambiguity (the enum path and the 4th Phase-4 location) before this
+  code was written.
+- **Files touched:** the 5 files listed above.
+- **Ship decision:** ship as PR-B, closes #153.
+- **What's next:** hand PR-B to `/ship`.
+
+- pushed fix/153-doc-runtime-behavior-claims 99ddca6
+- PR #157 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/157

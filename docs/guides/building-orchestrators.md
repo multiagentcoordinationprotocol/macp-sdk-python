@@ -89,12 +89,14 @@ def deployment_pipeline(client):
 
 ## Pattern: Supervisor / observer
 
-Use `list_sessions()` + `SessionLifecycleWatcher` to build a supervisor that
-tracks every session a tenant/agent can see — no need to pre-register session
-ids or poll `GetSession`:
+Use `list_sessions()` + `SessionLifecycleWatcher` to build a supervisor.
+Both RPCs return metadata for every session in the runtime, not just ones
+scoped to this identity (see [Session Discovery § Authorisation](session-discovery.md#authorisation))
+— no need to pre-register session ids or poll `GetSession`:
 
 ```python
 from macp_sdk import MacpClient, AuthConfig, SessionLifecycleWatcher
+from macp.v1 import envelope_pb2
 
 supervisor = MacpClient(
     target="runtime:50051",
@@ -108,15 +110,18 @@ for meta in supervisor.list_sessions():
 
 # React to live events
 for ev in SessionLifecycleWatcher(supervisor).changes():
-    if ev.is_created:
+    if ev.is_created and ev.session.state == envelope_pb2.SessionState.SESSION_STATE_OPEN:
         spawn_monitor(ev.session.session_id)
     elif ev.is_terminal:
         reconcile(ev.session.session_id, ev.event_type)
 ```
 
-The runtime emits an initial `CREATED` event for each already-open session at
-subscribe time, so the watcher is safe to (re)start at any point — you won't
-miss live sessions.
+The runtime emits an initial `CREATED` event for every session currently in
+its registry at subscribe time — open or terminal (a terminal session is
+only evicted from memory after `MACP_SESSION_RETENTION_SECS`) — so check
+`ev.session.state` if you only want to act on open sessions, as the pattern
+above now does. The watcher is still safe to (re)start at any point — you
+won't miss live sessions.
 
 ## Pattern: Event-driven orchestrator
 
