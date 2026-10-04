@@ -134,15 +134,23 @@ Convenience predicates:
 
 ### Startup snapshot semantics
 
-The runtime emits an initial `CREATED` event for every session that is
-already OPEN at subscribe time, then live events thereafter. That means a
-freshly-started supervisor sees every in-flight session without a separate
-`list_sessions()` call:
+The runtime's initial sync emits a `CREATED` event for **every session
+currently in its registry** at subscribe time — not just open ones. A
+terminal session still resident in memory (terminal sessions are evicted
+after `MACP_SESSION_RETENTION_SECS`, one hour by default) arrives as a
+`CREATED` event too; its real lifecycle state is only visible via
+`event.session.state`. `event.is_created` therefore does not mean "still
+open" — check `event.session.state` if you only want to act on open
+sessions. Live events follow the initial sync. That means a freshly-started
+supervisor sees every session in the registry, open or terminal, without a
+separate `list_sessions()` call:
 
 ```python
+from macp.v1 import envelope_pb2
+
 for event in SessionLifecycleWatcher(client).changes():
-    if event.is_created:
-        register(event.session)   # fires once per pre-existing session, plus every new one
+    if event.is_created and event.session.state == envelope_pb2.SessionState.SESSION_STATE_OPEN:
+        register(event.session)   # fires once per pre-existing OPEN session, plus every new one
     elif event.is_terminal:
         finalise(event.session)
 ```
@@ -179,10 +187,13 @@ threading.Thread(target=run_watcher, daemon=True).start()
 
 ## Authorisation
 
-Both RPCs require the same Bearer auth as any other SDK call — the runtime
-scopes results to the authenticated identity. An agent only sees sessions it
-is a participant in, plus any sessions its token is authorised to observe
-via runtime config.
+Both RPCs require the same Bearer auth as any other SDK call, but neither
+is scoped to the caller's identity. `GetSession` is participant/observer-
+scoped, while `ListSessions` and `WatchSessions` return metadata for **all**
+sessions to any authenticated identity (RFC-0006 permits this shape; see the
+runtime's [Deployment § Observation-surface authorization](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#observation-surface-authorization)).
+Deployments with confidentiality requirements between agent groups should
+front these RPCs with a proxy, or restrict which identities may call them.
 
 ## Related
 

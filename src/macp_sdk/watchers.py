@@ -230,9 +230,12 @@ class SessionLifecycleWatcher:
     a ``SessionLifecycleEvent`` record carrying the event type as a short
     string (``CREATED`` / ``RESOLVED`` / ``EXPIRED`` / ``CANCELLED`` /
     ``SUSPENDED`` / ``RESUMED``) and the full ``SessionMetadata``. The
-    runtime emits an initial CREATED event for every already-open session at
-    subscribe time, then live events thereafter — see
-    ``runtime/src/server.rs::watch_sessions``.
+    runtime emits an initial CREATED event for every session currently in
+    its registry at subscribe time -- regardless of state, so a terminal
+    session still within its eviction window arrives as CREATED too, with
+    the real state readable from the event's ``session.state`` -- then live
+    events thereafter. See ``runtime/src/server.rs::watch_sessions`` and
+    ``runtime/src/watch_sync.rs``.
     """
 
     def __init__(self, client: MacpClient, *, auth: AuthConfig | None = None) -> None:

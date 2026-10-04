@@ -29,7 +29,7 @@ Two SDK-relevant invariants worth knowing:
 
 ## Session lifecycle
 
-The state machine (`OPEN → RESOLVED | EXPIRED`), monotonic transitions, and terminal-message rules are defined and enforced by the runtime. See [Runtime API § Session Lifecycle](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#session-lifecycle) and [Runtime Architecture § Coordination Kernel](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md#layers).
+The state machine (`OPEN → RESOLVED | EXPIRED | CANCELLED`, with a non-terminal `OPEN ↔ SUSPENDED` pause — see the full event set at [§ Server-streaming (watchers)](#server-streaming-watchers) below), monotonic transitions, and terminal-message rules are defined and enforced by the runtime. See [Runtime API § Session Lifecycle](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#session-lifecycle) and [Runtime Architecture § Coordination Kernel](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/architecture.md#layers).
 
 The SDK tracks the lifecycle locally via projections — see [Architecture § Why projections exist](architecture.md#why-projections-exist).
 

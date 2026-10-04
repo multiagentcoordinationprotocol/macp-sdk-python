@@ -111,7 +111,8 @@ runtime with gRPC `RESOURCE_EXHAUSTED` (rather than silently closing). This
 surfaces as `MacpTransportError(code="RESOURCE_EXHAUSTED")`. Treat it as a
 **reconnect** signal, not a retryable send: reopen the stream and re-subscribe
 with your last-seen `after_sequence`. (`WatchSessions` re-sync replays a
-`CREATED` snapshot for already-open sessions **without duplicating** it.)
+`CREATED` snapshot for every session currently in the registry, open or
+terminal, **without duplicating** it.)
 
 ```python
 from macp_sdk import MacpTransportError
