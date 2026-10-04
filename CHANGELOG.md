@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.1...v0.14.2) (2026-10-04)
+
+
+### Documentation
+
+* close 5 gaps left by Sep-Oct 2026 behavior fixes ([#149](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/149)) ([37ae098](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/37ae098ccc62622062481529b36ede8ea47cb065))
+
 ## [0.14.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.0...v0.14.1) (2026-10-03)
 
 
