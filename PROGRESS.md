@@ -1028,9 +1028,9 @@ Two independent PRs: PR-A (branch `fix/152-doc-example-governance-bugs`, phases
 
 - **Phase 1 — Issue #152 doc snippet fixes (6 files):** DONE
 - **Phase 2 — `examples/policy_registration.py` cleanup-on-failure fix:** DONE
-- **Phase 3 — Issue #153 identity-scoping claims:** DONE
-- **Phase 4 — Issue #153 `WatchSessions` initial-sync claims + code examples (incl. 4d, a 4th occurrence found during re-verification):** DONE
-- **Phase 5 — Issue #153 stale state-machine diagram:** DONE
+- **Phase 3 — Issue #153 identity-scoping claims:** implemented + phase-verified (PASS), not yet committed to PR-B at the time PR-A ships (see ship-gate note below)
+- **Phase 4 — Issue #153 `WatchSessions` initial-sync claims + code examples (incl. 4d, a 4th occurrence found during re-verification):** implemented + phase-verified (PASS), not yet committed to PR-B
+- **Phase 5 — Issue #153 stale state-machine diagram:** implemented + phase-verified (PASS), not yet committed to PR-B
 
 ## Log
 
@@ -1086,3 +1086,31 @@ Two independent PRs: PR-A (branch `fix/152-doc-example-governance-bugs`, phases
 - **Ship decision:** ship as PR-A, closes #152.
 - **What's next:** hand PR-A to `/ship`; continue the phase loop for PR-B
   (phases 3-5, issue #153) independently.
+
+### Ship-gate (PR-A) — 2026-10-04
+
+- Ship-gate verifier (fresh Opus, independent of the phase-level verifier
+  above): **GAPS (1 item)**, otherwise clean. Independently re-derived the
+  auth-precedence mechanism and both runtime rejection codes directly
+  against the `macp-runtime` sibling repo (not just re-reading the plan),
+  traced the `policy_registration.py` early-return path by hand, and
+  confirmed zero doc drift elsewhere in the repo.
+- **Gap:** this PROGRESS.md section's own "Phase status" header (committed
+  in this same diff) claimed Phases 3-5 (issue #153 / PR-B) as `DONE`,
+  contradicting `plans/doc-accuracy-fixes-152-153.md`'s own `TODO (pending
+  verification)` status for those phases and the fact that PR-B's edits
+  were still uncommitted working-tree changes at the time — a real
+  overclaim, caught because this PR's entire purpose is progress-tracking
+  accuracy. **Closed:** corrected the three lines to state "implemented +
+  phase-verified (PASS), not yet committed to PR-B" rather than `DONE`,
+  since the phase-level verifier did already PASS them — they are simply
+  not yet shipped.
+- **Re-verify:** not re-dispatched as a full round — this was a one-line
+  textual correction to this tracking file, re-read by the orchestrator
+  directly against the gap description to confirm exact closure, consistent
+  with `/implement`'s guidance that mechanical/textual gap closures don't
+  need the full re-verify ceremony when the fix is unambiguous and the
+  verifier's own gap description names the exact replacement needed.
+- All other ship-gate checks (diff correctness, 2 fix-correctness items,
+  doc-drift, ASSUMPTIONS/DECISIONS, lint/typecheck/test gates, commit
+  message quality) were independently confirmed **PASS** on the first pass.
