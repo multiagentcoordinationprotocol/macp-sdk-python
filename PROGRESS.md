@@ -1005,3 +1005,9 @@ Plan: `plans/docs-anchor-double-hyphen-fix-151.md` (this repo).
   reversible, no reason to bundle with anything else.
 - **What's next:** hand to `/ship` — push, open PR (`Fixes #151`), watch CI,
   merge on green.
+
+### Ship — 2026-10-04
+
+- Ship-gate verifier (fresh Opus, independent re-derivation of the slug algorithm
+  and a full repo grep for stale anchors): **PASS**, no gaps.
+- pushed fix/151-doc-anchor-double-hyphen c97ba64
