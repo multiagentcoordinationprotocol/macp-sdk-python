@@ -168,7 +168,7 @@ proj.is_committed                 # True after Commitment
 > the senders who have actually accepted, so it returns a `proposal_id` as soon as
 > *those* senders agree — even if one of three declared participants has accepted
 > and the other two are silent. Enforcing "all declared participants accepted" (the
-> `all_parties` criterion described under [Authorization & termination](#authorization-termination))
+> `all_parties` criterion described under [Authorization & termination](#authorization--termination))
 > is the runtime's job at commit time, and the orchestrator's if it wants to gate
 > earlier; it is not what this helper checks.
 
