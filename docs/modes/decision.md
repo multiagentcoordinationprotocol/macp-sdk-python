@@ -41,7 +41,7 @@ Vote (per-participant: approve|reject|abstain)
 Commitment → RESOLVED
 ```
 
-The phases are advisory — the runtime does not strictly enforce phase ordering beyond basic structural rules. However, the projection tracks phase transitions for your orchestrator logic.
+The phases are advisory — the runtime does not strictly enforce phase ordering beyond basic structural rules. However, the projection tracks phase transitions for your orchestrator logic. Note that `phase` advances from `"Proposal"` to `"Evaluation"` as soon as the `Proposal` itself is applied, not when the first `Evaluation` arrives — so an `on_phase_change("Evaluation", ...)` handler fires one envelope earlier than its name might suggest.
 
 ## Authorization & termination
 
@@ -165,6 +165,14 @@ proj.anomalies[-1].sender        # "alice"
 proj.anomalies[-1].subject_id    # "p1"
 proj.has_anomalies               # True
 ```
+
+A `Vote` naming a `proposal_id` this projection never saw a `Proposal` for is a
+different case — it is ignored entirely: no vote record, no phase advance, and
+**deliberately no anomaly**. Rejecting an unknown `proposal_id` is the runtime's
+obligation; a projection is a local, possibly partial view, and a mid-session joiner
+whose replay window starts after the `Proposal` legitimately never saw it. This is why
+the duplicate-vote case above records an anomaly (a known proposal, a real conflict)
+while this one does not (no way to tell a stale view apart from a fabrication).
 
 ## Error cases
 
