@@ -137,7 +137,7 @@ Session helpers use unary `Send` RPCs by default. To combine session helpers wit
 
 ```python
 session = DecisionSession(client, session_id="my-session")
-session.start(intent="...", participants=["a", "b"], ttl_ms=60_000)
+session.start(intent="...", participants=["coordinator", "a", "b"], ttl_ms=60_000)
 
 # Open a stream to observe accepted envelopes
 stream = session.open_stream()

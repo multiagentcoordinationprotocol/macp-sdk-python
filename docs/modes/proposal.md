@@ -197,21 +197,34 @@ proj.is_committed                 # True after Commitment
 
 ## Real-world scenario: multi-round negotiation
 
+This scenario negotiates between a different pair of parties than the
+`Session helper` example above, so it starts its own session rather than
+reusing the buyer/seller one:
+
 ```python
 # Per-agent auth configs
 vendor_auth = AuthConfig.for_dev_agent("vendor")
 client_auth = AuthConfig.for_dev_agent("client")
 
+negotiation = ProposalSession(client, session_id="vendor-deal")
+negotiation.start(
+    intent="negotiate vendor services contract",
+    participants=["vendor", "client"],
+    ttl_ms=120_000,
+    sender="vendor",
+    auth=vendor_auth,
+)
+
 # Round 1: Initial offers
-session.propose("p1", "Plan A", summary="$50k, 6-month term", sender="vendor", auth=vendor_auth)
+negotiation.propose("p1", "Plan A", summary="$50k, 6-month term", sender="vendor", auth=vendor_auth)
 
 # Round 2: Counter
-session.counter_propose(
+negotiation.counter_propose(
     "p2", "p1", "Plan A Revised", summary="$45k, 12-month term", sender="client", auth=client_auth
 )
 
 # Round 3: Final counter
-session.counter_propose(
+negotiation.counter_propose(
     "p3",
     "p2",
     "Plan A Final",
@@ -221,10 +234,10 @@ session.counter_propose(
 )
 
 # Both accept the final version
-session.accept("p3", sender="client", auth=client_auth)
-session.accept("p3", sender="vendor", auth=vendor_auth)
+negotiation.accept("p3", sender="client", auth=client_auth)
+negotiation.accept("p3", sender="vendor", auth=vendor_auth)
 
-# At this point, proj.accepted_proposal() == "p3"
+# At this point, negotiation.proposal_projection.accepted_proposal() == "p3"
 ```
 
 ## API Reference

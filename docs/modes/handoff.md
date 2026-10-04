@@ -64,7 +64,7 @@ client = MacpClient(target="127.0.0.1:50051", allow_insecure=True, auth=owner_a_
 session = HandoffSession(client, auth=owner_a_auth)
 session.start(
     intent="transfer service-xyz oncall to owner-b",
-    participants=["owner-a", "owner-b"],
+    participants=["owner-a", "owner-b", "owner-c"],
     ttl_ms=60_000,
     context_id="service-xyz",
 )
@@ -201,6 +201,7 @@ session.commit(
 | `FORBIDDEN` on HandoffAccept | Sender is not the target participant | Only the named target can accept |
 | `FORBIDDEN` on HandoffDecline | Sender is not the target participant | Only the named target can decline |
 | `INVALID_ENVELOPE` | Accept/Decline references non-existent handoff_id | Verify the handoff_id |
+| `INVALID_ENVELOPE` on HandoffOffer | `target_participant` is not a declared session participant | Add the target to `participants` at `SessionStart`, or offer to an existing participant |
 
 ## API Reference
 

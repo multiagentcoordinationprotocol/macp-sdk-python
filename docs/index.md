@@ -63,9 +63,18 @@ session.start(
     ttl_ms=60_000,
 )
 session.propose("p1", "deploy v2.1", rationale="tests passed")
-session.evaluate("p1", "APPROVE", confidence=0.9, reason="low risk", sender="alice")
-session.vote("p1", "approve", reason="ship it", sender="alice")
-session.vote("p1", "approve", reason="agreed", sender="bob")
+session.evaluate(
+    "p1", "APPROVE", confidence=0.9, reason="low risk",
+    sender="alice", auth=AuthConfig.for_dev_agent("alice"),
+)
+session.vote(
+    "p1", "approve", reason="ship it",
+    sender="alice", auth=AuthConfig.for_dev_agent("alice"),
+)
+session.vote(
+    "p1", "approve", reason="agreed",
+    sender="bob", auth=AuthConfig.for_dev_agent("bob"),
+)
 
 winner = session.decision_projection.majority_winner()
 if winner and not session.decision_projection.has_blocking_objection(winner):

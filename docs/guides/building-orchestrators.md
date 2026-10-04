@@ -36,7 +36,10 @@ def run_decision(client, intent, participants, proposals):
             continue
         # Your policy logic: ask each agent to vote
         vote = ask_agent_for_vote(participant, session.session_id)
-        session.vote(vote.proposal_id, vote.choice, sender=participant)
+        session.vote(
+            vote.proposal_id, vote.choice,
+            sender=participant, auth=AuthConfig.for_dev_agent(participant),
+        )
 
     # Apply your policy: majority wins
     proj = session.decision_projection
