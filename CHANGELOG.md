@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.3](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.2...v0.14.3) (2026-10-04)
+
+
+### Bug Fixes
+
+* **docs,examples:** correct identity/participant bugs in doc snippets and policy_registration cleanup ([#156](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/156)) ([116a818](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/116a8186632010f570a86e676092881b6749d991))
+* **docs:** correct 3 in-page anchors to GitHub's double-hyphen slugs ([#154](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/154)) ([53d7ffd](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/53d7ffd48c2b8c498dbcc9f1fcab52a003eec2f8))
+* **docs:** correct runtime-behavior claims about session discovery and lifecycle ([#157](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/157)) ([0fbe5db](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/0fbe5db6d49f38f846cd0428bf4c94e9ee7df6be))
+
 ## [0.14.2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.1...v0.14.2) (2026-10-04)
 
 
