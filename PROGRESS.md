@@ -953,3 +953,62 @@ lint`/`make typecheck` clean.
 **Next:** push the two additional commits closing these gaps, then merge PR #98 on green CI —
 routine, not-critical tier. PR #97 (release-please 0.10.2) remains untouched and unmerged, flagged
 for the user per the standing rule on release/publish-triggering actions.
+
+---
+
+# PROGRESS — Issue #151: 3 in-page doc anchors use a single hyphen where GitHub slugs double it
+
+Plan: `plans/docs-anchor-double-hyphen-fix-151.md` (this repo).
+
+## Phase status
+
+- **Phase 1 — Fix the 4 link locations:** DONE
+
+## Log
+
+### Phase 1 — 2026-10-04
+
+- **Delivered:** 4 one-line anchor fixes, exactly as named in issue #151:
+  `docs/auth.md` and `docs/guides/streaming.md` → `#session-subscription--replay`;
+  `docs/guides/session-discovery.md` → `#pattern-supervisor--observer`;
+  `docs/modes/proposal.md` → `#authorization--termination`. No plan/scope
+  ambiguity — the issue itself was the complete spec, so no planning agent was
+  dispatched (per `/implement` §0's "skip if the existing spec already satisfies
+  the requirements" rule).
+- **Pre-fix research (Explore agent):** confirmed no automated link/anchor checker
+  exists anywhere in this repo (no CI job, no Makefile target, no mkdocs-build step,
+  no markdown-link-check/remark/pre-commit config) — the breakage is only caught by
+  the separate `website` repo's own link checker per the issue body. Also surfaced 6
+  more headings elsewhere with the same susceptible shape
+  (`## Authorization & termination` in `docs/modes/{decision,quorum,task,handoff}.md`,
+  two `/`-headings in `docs/architecture.md:92,230`) — none currently linked by
+  anchor, so none are actually broken today; deliberately left untouched as
+  out-of-scope for #151 (flagged in the plan file as a follow-up candidate, not
+  filed as a new issue without being asked).
+- **Verifier:** Opus, fresh subagent (default tier — docs-only typo fix, no
+  one-way door, no trust boundary). Verdict: **PASS**, no gaps. Independently
+  re-derived GitHub's slug algorithm character-by-character against each of the 3
+  real heading texts (confirming `&`/`/`/`+` are deleted rather than
+  space-replaced, producing the double-hyphen collapse), confirmed the diff is
+  exactly these 4 one-line changes with nothing else touched, and grepped the
+  whole repo for the 3 old broken anchor strings — zero remaining references.
+- **Rounds:** 1 execute + 1 verify (PASS). No fixer round needed.
+- **Final state:** `git status` shows exactly 4 files modified. `make lint` green
+  (`ruff check` all checks passed, `ruff format --check` unaffected — no Python
+  files touched). No test suite run needed beyond lint — no `src/` change, no
+  anchor-checker exists to exercise.
+- **Files touched:** `docs/auth.md`, `docs/guides/streaming.md`,
+  `docs/guides/session-discovery.md`, `docs/modes/proposal.md`.
+- **Assumptions:** none logged — the issue fully specified the fix with no
+  ambiguous choice to make.
+- **Ship decision:** ship alone, single PR, closes #151. Trivial, fully
+  reversible, no reason to bundle with anything else.
+- **What's next:** hand to `/ship` — push, open PR (`Fixes #151`), watch CI,
+  merge on green.
+
+### Ship — 2026-10-04
+
+- Ship-gate verifier (fresh Opus, independent re-derivation of the slug algorithm
+  and a full repo grep for stale anchors): **PASS**, no gaps.
+- pushed fix/151-doc-anchor-double-hyphen c97ba64
+- PR #154 opened: https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/154

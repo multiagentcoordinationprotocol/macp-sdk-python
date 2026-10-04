@@ -79,7 +79,7 @@ Supported algorithms, JWKS configuration (`MACP_AUTH_JWKS_JSON` inline or `MACP_
 
 ## Observer identities
 
-Non-participant agents (audit agents, dashboards, read-only observers) authenticate with a normal bearer credential whose runtime-side identity carries `is_observer: true`. On the SDK side, observers open a stream and call [`send_subscribe(session_id, after_sequence=0)`](guides/streaming.md#session-subscription-replay) to replay accepted history and then consume live envelopes — no membership in the session's `participants` list is required.
+Non-participant agents (audit agents, dashboards, read-only observers) authenticate with a normal bearer credential whose runtime-side identity carries `is_observer: true`. On the SDK side, observers open a stream and call [`send_subscribe(session_id, after_sequence=0)`](guides/streaming.md#session-subscription--replay) to replay accepted history and then consume live envelopes — no membership in the session's `participants` list is required.
 
 ```python
 auth = AuthConfig.for_bearer(observer_token, expected_sender="agent://auditor")

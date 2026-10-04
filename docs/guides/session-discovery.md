@@ -188,5 +188,5 @@ via runtime config.
 
 - [Streaming → Watchers](streaming.md#server-streaming-watchers-macp_sdkwatchers)
   for the full watcher catalogue (`PolicyWatcher`, `SignalWatcher`, …).
-- [Building Orchestrators → Supervisor pattern](building-orchestrators.md#pattern-supervisor-observer)
+- [Building Orchestrators → Supervisor pattern](building-orchestrators.md#pattern-supervisor--observer)
   for a worked example.

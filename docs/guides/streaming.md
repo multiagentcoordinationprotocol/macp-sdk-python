@@ -50,7 +50,7 @@ stream.close()
 
 - `send()` puts envelopes in an outgoing queue
 - `send_subscribe(session_id, after_sequence=0)` enqueues a *subscribe-only*
-  frame (RFC-MACP-0006-A1) — see [Session subscription + replay](#session-subscription-replay)
+  frame (RFC-MACP-0006-A1) — see [Session subscription + replay](#session-subscription--replay)
 - A background thread reads from the gRPC stream and puts responses in an incoming queue
 - `read()` and `responses()` pull from the incoming queue
 - `close()` signals the background thread to stop
