@@ -42,19 +42,23 @@ from macp_sdk.constants import (
     STANDARD_MODES,
 )
 from macp_sdk.errors import (
+    AGENT_NOT_FOUND,
     DUPLICATE_MESSAGE,
     FORBIDDEN,
     INTERNAL_ERROR,
     INVALID_ENVELOPE,
     INVALID_POLICY_DEFINITION,
+    INVALID_REQUEST,
     INVALID_SESSION_ID,
     MODE_NOT_SUPPORTED,
     PAYLOAD_TOO_LARGE,
     POLICY_DENIED,
     RATE_LIMITED,
+    REGISTRY_READ_ONLY,
     SESSION_ALREADY_EXISTS,
     SESSION_NOT_FOUND,
     SESSION_NOT_OPEN,
+    STREAM_LAGGED,
     UNAUTHENTICATED,
     UNKNOWN_POLICY_VERSION,
     UNSUPPORTED_PROTOCOL_VERSION,
@@ -71,11 +75,11 @@ sections = contract["sections"]
 registry = ProtoRegistry()
 
 
-def test_pins_contract_version_1_3_0_a_version_bump_means_re_reading_this_whole_file():
+def test_pins_contract_version_1_4_0_a_version_bump_means_re_reading_this_whole_file():
     # Not a manifest-content assertion: a tripwire so a future contract_version
     # bump (MINOR or MAJOR, per the manifest's own versioning rule) forces a
     # human to re-review every section below, not just whichever one changed.
-    assert contract["contract_version"] == "1.3.0"
+    assert contract["contract_version"] == "1.4.0"
 
 
 class TestProtocol:
@@ -121,9 +125,14 @@ class TestErrorCodes:
         "INVALID_SESSION_ID": INVALID_SESSION_ID,
         "UNKNOWN_POLICY_VERSION": UNKNOWN_POLICY_VERSION,
         "INVALID_POLICY_DEFINITION": INVALID_POLICY_DEFINITION,
+        # Promoted to permanent in contract 1.4.0 (spec #196, runtime 0.9.0).
+        "REGISTRY_READ_ONLY": REGISTRY_READ_ONLY,
+        "INVALID_REQUEST": INVALID_REQUEST,
+        "STREAM_LAGGED": STREAM_LAGGED,
+        "AGENT_NOT_FOUND": AGENT_NOT_FOUND,
     }
 
-    def test_exports_exactly_the_16_permanent_codes_order_independent(self):
+    def test_exports_exactly_the_20_permanent_codes_order_independent(self):
         assert sorted(self._EXPORTED) == sorted(sections["error_codes"]["permanent"])
         for name, value in self._EXPORTED.items():
             assert value == name, name
