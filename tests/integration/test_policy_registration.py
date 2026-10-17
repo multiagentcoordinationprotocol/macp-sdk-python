@@ -14,8 +14,16 @@ import uuid
 
 import pytest
 
-from macp_sdk import MacpClient, build_quorum_policy
-from macp_sdk.policy import QuorumThreshold
+from macp_sdk import (
+    AuthConfig,
+    MacpAckError,
+    MacpClient,
+    build_decision_policy,
+    build_quorum_policy,
+)
+from macp_sdk.decision import DecisionSession
+from macp_sdk.errors import DENY_VETO
+from macp_sdk.policy import ObjectionHandlingRules, QuorumThreshold
 from tests.integration.conftest import make_client
 
 pytestmark = pytest.mark.integration
@@ -76,5 +84,52 @@ class TestPolicyRegistrationRoundTrip:
                 assert not second.ok, "duplicate register_policy must not succeed twice"
             except MacpAckError:
                 pass  # ALREADY_EXISTS surfaced as an ack error — also correct
+        finally:
+            admin.unregister_policy(policy_id)
+
+
+class TestPolicyDeniedDetails:
+    def test_veto_denial_reasons_and_denials(self, admin: MacpClient) -> None:
+        """A critical-objection veto surfaces as POLICY_DENIED with
+        ``reasons`` (every runtime) and, on runtime ≥ 0.9.0, structured
+        ``denials`` naming the objector in ``participants``."""
+        init = admin.initialize()
+        if not init.capabilities.policy_registry.register_policy:
+            pytest.skip("runtime policy registry is read-only (MACP_POLICIES_DIR)")
+
+        policy_id = f"policy.itest-veto-{uuid.uuid4().hex[:8]}"
+        descriptor = build_decision_policy(
+            policy_id,
+            "veto on critical objection",
+            objection_handling=ObjectionHandlingRules(
+                critical_severity_vetoes=True, veto_threshold=1
+            ),
+        )
+        assert admin.register_policy(descriptor).ok
+        try:
+            session = DecisionSession(admin, policy_version=policy_id)
+            assert session.start(
+                intent="veto denial details",
+                participants=["admin", "alice", "bob"],
+                ttl_ms=30_000,
+            ).ok
+            assert session.propose("p1", "Option A", rationale="test").ok
+            bob = AuthConfig.for_dev_agent("bob")
+            assert session.raise_objection(
+                "p1", reason="unsafe", severity="critical", sender="bob", auth=bob
+            ).ok
+            for voter in ("alice", "bob"):
+                session.vote("p1", "APPROVE", sender=voter, auth=AuthConfig.for_dev_agent(voter))
+
+            with pytest.raises(MacpAckError) as excinfo:
+                session.commit(action="decision.approved", authority_scope="test", reason="r")
+            err = excinfo.value
+            assert err.failure.code == "POLICY_DENIED"
+            assert err.reasons
+            if err.denials:  # runtime ≥ 0.9.0
+                vetoes = [d for d in err.denials if d.code == DENY_VETO]
+                assert vetoes, err.denials
+                assert any("bob" in p for p in vetoes[0].participants)
+                assert not any("bob" in r for r in err.reasons)
         finally:
             admin.unregister_policy(policy_id)

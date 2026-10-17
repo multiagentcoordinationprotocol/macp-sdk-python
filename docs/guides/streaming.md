@@ -76,10 +76,14 @@ semantics:
   `N+1` onward, so envelope `N` is **never re-delivered**.
 - Ordinals are contiguous and **stable across log compaction and runtime
   restart** — they count accepted envelopes, not raw internal log entries.
-- Resuming **below a compacted range** fails the stream with gRPC
-  `FAILED_PRECONDITION`, surfaced as
-  `MacpTransportError(code="FAILED_PRECONDITION")` from `read()`. Recover by
-  restarting from `0` and reconciling against what you already processed.
+- Resuming **below a compacted range** is refused. Since runtime 0.9.0 the
+  refusal is an **inline** `INVALID_ENVELOPE` error frame — delivered to
+  `stream.on_inline_error(...)` callbacks, with the stream left open. Older
+  runtimes instead fail the stream with gRPC `FAILED_PRECONDITION`, surfaced
+  as `MacpTransportError(code="FAILED_PRECONDITION")` from `read()`. Either
+  way the message names the compacted base: resubscribe with
+  `after_sequence` at or above it (not `0`), or re-read state via
+  `GetSession`.
 
 To resume after a disconnect, track how many envelopes you have consumed and
 pass that count as `after_sequence` on reconnect.
@@ -108,7 +112,11 @@ stream.send_subscribe("sess-xyz", after_sequence=17)  # exclusive: resume from 1
 
 A watch/stream consumer that falls too far behind is terminated by the
 runtime with gRPC `RESOURCE_EXHAUSTED` (rather than silently closing). This
-surfaces as `MacpTransportError(code="RESOURCE_EXHAUSTED")`. Treat it as a
+surfaces as `MacpTransportError(code="RESOURCE_EXHAUSTED")` with
+`macp_code=None`. (Since runtime 0.9.0, `RATE_LIMITED` and
+`PAYLOAD_TOO_LARGE` also map to `RESOURCE_EXHAUSTED`, but carry their
+registry code in `exc.macp_code`, so check it before treating the error as
+lag.) Treat lag as a
 **reconnect** signal, not a retryable send: reopen the stream and re-subscribe
 with your last-seen `after_sequence`. (`WatchSessions` re-sync replays a
 `CREATED` snapshot for every session currently in the registry, open or
@@ -121,10 +129,31 @@ try:
     for envelope in stream.responses(timeout=10.0):
         handle(envelope)
 except MacpTransportError as exc:
-    if exc.code in ("RESOURCE_EXHAUSTED", "FAILED_PRECONDITION"):
+    lagged = exc.code == "RESOURCE_EXHAUSTED" and exc.macp_code is None
+    if lagged or exc.code == "FAILED_PRECONDITION":  # pre-0.9 compaction refusal
         ...  # reconnect: reopen stream and re-subscribe
     else:
         raise
+```
+
+#### Inline errors
+
+Application-level rejections (validation failures, authorization and policy
+denials) arrive as inline `macp.v1.MACPError` frames, and the stream stays
+open. Since runtime 0.9.0 the frame's `code` is the registry code
+(`INVALID_ENVELOPE`, `POLICY_DENIED`, ...; before, it held the status message
+text), `message_id` names the rejected envelope, and `details` carries the
+same JSON as an `Ack`:
+
+```python
+from macp_sdk import parse_error_details
+
+def on_error(err):
+    if err.code == "POLICY_DENIED":
+        for denial in parse_error_details(err.details).denials:
+            print(err.message_id, denial.code, denial.participants)
+
+stream.on_inline_error(on_error)
 ```
 
 Subscribe-only frames do not carry a sender envelope and leave

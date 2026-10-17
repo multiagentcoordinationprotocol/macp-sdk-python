@@ -40,6 +40,65 @@ except MacpAckError as e:
     print(e.failure.message_id)  # message that was rejected
 ```
 
+### Structured policy denials
+
+A `POLICY_DENIED` failure carries two views of why the commitment was
+rejected. `e.reasons` is a list of human-readable strings (all runtime
+versions). Runtime ≥ 0.9.0 also sends `e.denials`, a list of `PolicyDenial`
+objects (RFC-MACP-0012 §6.2) with a stable `code`, a `message`, and the
+`participants` the reason concerns:
+
+```python
+from macp_sdk import MacpAckError
+from macp_sdk.errors import DENY_VETO
+
+try:
+    session.commit(...)
+except MacpAckError as e:
+    if e.failure.code == "POLICY_DENIED":
+        for denial in e.denials:
+            if denial.code == DENY_VETO:
+                print("vetoed by", denial.participants)
+```
+
+Since 0.9.0 the `reasons` strings **no longer embed participant ids** (a veto
+used to end in `", from: agent://a, agent://b"`), so read participants from
+`denials`, not by parsing `reasons`. Known codes are in `KNOWN_DENY_CODES`
+(`veto`, `veto_hold`, `quorum_not_met`, `threshold_not_met`,
+`confidence_below_minimum`, `evaluation_required`, `no_votes`,
+`decline_over_approval`, `decline_not_backed`, `criterion_not_met`,
+`output_required`, `reassignment_not_allowed`, `unsupported_schema_version`,
+`invalid_rules`, `unspecified`). The set is open: the SDK reports a code it
+doesn't recognise as `unspecified` and keeps the original string in
+`denial.raw_code`. Against a pre-0.9 runtime `denials` is empty.
+
+`parse_error_details(raw_bytes)` decodes the same JSON from any source:
+`Ack.error.details`, an inline stream `MACPError.details`, or the
+`macp-error-details-bin` trailing metadata.
+
+### gRPC status vs. MACP code (runtime 0.9.0)
+
+Most rejections arrive in the `Ack`, with the RPC itself succeeding. When a MACP error is
+returned as a gRPC status instead, runtime ≥ 0.9.0 picks the status from the
+error-codes registry (`POLICY_DENIED`/`FORBIDDEN` → `PERMISSION_DENIED`,
+`SESSION_NOT_FOUND`/`UNKNOWN_POLICY_VERSION` → `NOT_FOUND`, `INVALID_*` →
+`INVALID_ARGUMENT`, `DUPLICATE_MESSAGE`/`SESSION_ALREADY_EXISTS` →
+`ALREADY_EXISTS`, `SESSION_NOT_OPEN` → `FAILED_PRECONDITION`,
+`PAYLOAD_TOO_LARGE`/`RATE_LIMITED` → `RESOURCE_EXHAUSTED`, `INTERNAL_ERROR` →
+`INTERNAL`) and attaches the registry code as `macp-error-code` metadata.
+Several codes share one status, so the SDK branches on that metadata key:
+
+- `client.send()` raises `MacpAckError` with `failure.code` set to the
+  registry code (and `reasons`/`denials` from `macp-error-details-bin`). The
+  exception is `UNAUTHENTICATED`, which stays a `MacpTransportError`.
+- Every other RPC raises `MacpTransportError`, where `exc.code` is the gRPC
+  status name and `exc.macp_code` is the registry code. `macp_code` is
+  `None` when the runtime attached no code.
+
+Against a pre-0.9 runtime (no `macp-error-code`) `send()` keeps the old
+inference: `ALREADY_EXISTS` → `SESSION_ALREADY_EXISTS`,
+`FAILED_PRECONDITION` → `POLICY_DENIED`, anything else → `MacpTransportError`.
+
 ### Error code categories
 
 **Permanent errors** — Do not retry. Fix the underlying issue.

@@ -18,12 +18,14 @@ from .envelope import (
 )
 from .errors import (
     AckFailure,
+    ErrorDetails,
     MacpAckError,
     MacpIdentityMismatchError,
     MacpSdkError,
     MacpSessionError,
     MacpTimeoutError,
     MacpTransportError,
+    parse_error_details,
 )
 from .validation import validate_progress_scope, validate_signal_type
 
@@ -34,42 +36,64 @@ from .validation import validate_progress_scope, validate_signal_type
 InlineErrorCallback = Callable[[Any], None]
 
 
-def _parse_ack_reasons(ack: object) -> list[str]:
-    """Extract structured denial reasons from an ACK error's details."""
-    import json as _json
-
+def _parse_ack_details(ack: object) -> ErrorDetails:
+    """Decode an ACK error's details into ``reasons`` + ``denials``."""
     error = getattr(ack, "error", None)
     if not error:
-        return []
-    details_bytes = getattr(error, "details", None) or b""
-    if not details_bytes:
-        return []
+        return ErrorDetails()
+    return parse_error_details(getattr(error, "details", None) or b"")
+
+
+def _parse_ack_reasons(ack: object) -> list[str]:
+    """Extract structured denial reasons from an ACK error's details."""
+    return _parse_ack_details(ack).reasons
+
+
+def _trailing_metadata_value(rpc_error: grpc.RpcError, key: str) -> str | bytes | None:
+    """Return the first trailing-metadata value for *key*, or None."""
     try:
-        parsed = _json.loads(details_bytes)
-        reasons = parsed.get("reasons", [])
-        return list(reasons) if isinstance(reasons, list) else []
+        metadata = rpc_error.trailing_metadata()
+        if not metadata:
+            return None
+        for item in metadata:
+            if item.key == key:
+                value: str | bytes = item.value
+                return value
     except Exception:
-        return []
+        pass
+    return None
+
+
+def _parse_grpc_metadata_details(rpc_error: grpc.RpcError) -> ErrorDetails:
+    """Decode ``macp-error-details-bin`` trailing metadata."""
+    value = _trailing_metadata_value(rpc_error, "macp-error-details-bin")
+    if value is None:
+        return ErrorDetails()
+    return parse_error_details(value)
 
 
 def _parse_grpc_metadata_reasons(rpc_error: grpc.RpcError) -> list[str]:
     """Extract structured reasons from gRPC trailing metadata."""
-    import json as _json
+    return _parse_grpc_metadata_details(rpc_error).reasons
 
-    try:
-        metadata = rpc_error.trailing_metadata()
-        if not metadata:
-            return []
-        for item in metadata:
-            key, value = item.key, item.value
-            if key == "macp-error-details-bin":
-                data = value if isinstance(value, bytes) else value.encode("utf-8")
-                parsed = _json.loads(data)
-                reasons = parsed.get("reasons", [])
-                return list(reasons) if isinstance(reasons, list) else []
-    except Exception:
-        pass
-    return []
+
+def _rpc_macp_error_code(rpc_error: grpc.RpcError) -> str | None:
+    """Return the MACP registry code from ``macp-error-code`` metadata, or None.
+
+    Runtime ≥ 0.9.0 attaches it to every status that carries a MACP error
+    (S13). Several registry codes share one gRPC status, so this — not the
+    status — is what to branch on. Older runtimes don't send it.
+    """
+    value = _trailing_metadata_value(rpc_error, "macp-error-code")
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return value or None
+
+
+# Registry codes a ``Send`` status keeps surfacing as ``MacpTransportError``
+# rather than ``MacpAckError``: a failed authentication is a transport/auth
+# problem the caller fixes in config, not a rejection of this envelope.
+_TRANSPORT_MACP_CODES = frozenset({"UNAUTHENTICATED"})
 
 
 def _rpc_status_name(rpc_err: grpc.RpcError) -> str | None:
@@ -214,7 +238,15 @@ class MacpStream:
             self._responses.put(self._END)
 
     def on_inline_error(self, callback: InlineErrorCallback) -> None:
-        """Register a callback for inline application-level stream errors."""
+        """Register a callback for inline application-level stream errors.
+
+        The callback receives the ``macp.v1.MACPError``. Since runtime 0.9.0
+        its ``code`` is the registry code (``INVALID_ENVELOPE``,
+        ``POLICY_DENIED``, ...; before, it held the status message text),
+        ``message_id`` names the rejected envelope, and ``details`` carries
+        the same JSON as an ``Ack`` — decode it with
+        :func:`macp_sdk.parse_error_details`.
+        """
         self._inline_error_callbacks.append(callback)
 
     def send(self, envelope: envelope_pb2.Envelope) -> None:
@@ -233,9 +265,13 @@ class MacpStream:
         contiguous and stable across log compaction and runtime restart. To
         resume, track how many envelopes you have consumed and pass that count
         as ``after_sequence`` on reconnect. Resuming below a compacted range
-        fails the stream with gRPC ``FAILED_PRECONDITION`` (surfaced as
-        ``MacpTransportError(code="FAILED_PRECONDITION")`` from :meth:`read`) —
-        restart from ``0`` and reconcile.
+        is refused: runtime ≥ 0.9.0 sends an inline ``INVALID_ENVELOPE``
+        error frame (delivered to :meth:`on_inline_error` callbacks; the
+        stream stays open), while older runtimes fail the stream with gRPC
+        ``FAILED_PRECONDITION`` (surfaced as
+        ``MacpTransportError(code="FAILED_PRECONDITION")`` from :meth:`read`).
+        Either way the message names the compacted base — resubscribe at or
+        above it, or re-read state via ``GetSession``.
         """
         if self._closed:
             raise MacpSdkError("stream is already closed")
@@ -260,6 +296,7 @@ class MacpStream:
             raise MacpTransportError(
                 _rpc_details(item) or str(item),
                 code=_rpc_status_name(item),
+                macp_code=_rpc_macp_error_code(item),
             )
         assert isinstance(item, envelope_pb2.Envelope)
         return item
@@ -406,6 +443,7 @@ class MacpClient:
         return MacpTransportError(
             _rpc_details(rpc_err) or str(rpc_err),
             code=_rpc_status_name(rpc_err),
+            macp_code=_rpc_macp_error_code(rpc_err),
         )
 
     @staticmethod
@@ -430,6 +468,7 @@ class MacpClient:
         return MacpTransportError(
             _rpc_details(rpc_err) or str(rpc_err),
             code=name,
+            macp_code=_rpc_macp_error_code(rpc_err),
         )
 
     @staticmethod
@@ -459,12 +498,14 @@ class MacpClient:
         them.
         """
         error = ack.error
+        details = _parse_ack_details(ack)
         return AckFailure(
             code=(error.code if error else "UNKNOWN"),
             message=(error.message if error else "runtime returned nack"),
             session_id=ack.session_id,
             message_id=ack.message_id,
-            reasons=_parse_ack_reasons(ack),
+            reasons=details.reasons,
+            denials=details.denials,
         )
 
     def initialize(
@@ -503,6 +544,23 @@ class MacpClient:
                 timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
+            # Runtime ≥ 0.9.0: the registry code rides `macp-error-code`, and
+            # the gRPC status no longer identifies it (S13) — trust the key.
+            macp_code = _rpc_macp_error_code(rpc_err)
+            if macp_code is not None and macp_code not in _TRANSPORT_MACP_CODES:
+                details = _parse_grpc_metadata_details(rpc_err)
+                failure = AckFailure(
+                    code=macp_code,
+                    message=_rpc_details(rpc_err) or macp_code,
+                    session_id=envelope.session_id,
+                    message_id=envelope.message_id,
+                    reasons=details.reasons,
+                    denials=details.denials,
+                )
+                raise MacpAckError(failure) from rpc_err
+            if macp_code is not None:
+                raise self._transport_error_from_rpc(rpc_err) from rpc_err
+            # Pre-0.9 runtimes: infer the MACP code from the gRPC status.
             code = rpc_err.code()
             if code == grpc.StatusCode.ALREADY_EXISTS:
                 failure = AckFailure(
@@ -511,11 +569,12 @@ class MacpClient:
                 )
                 raise MacpAckError(failure) from rpc_err
             if code == grpc.StatusCode.FAILED_PRECONDITION:
-                reasons = _parse_grpc_metadata_reasons(rpc_err)
+                details = _parse_grpc_metadata_details(rpc_err)
                 failure = AckFailure(
                     code="POLICY_DENIED",
                     message=rpc_err.details() or "policy denied",
-                    reasons=reasons,
+                    reasons=details.reasons,
+                    denials=details.denials,
                 )
                 raise MacpAckError(failure) from rpc_err
             if code == grpc.StatusCode.INVALID_ARGUMENT:
