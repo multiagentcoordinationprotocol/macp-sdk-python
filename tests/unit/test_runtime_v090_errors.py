@@ -57,13 +57,11 @@ class TestParseErrorDetails:
             PolicyDenial(
                 code="confidence_below_minimum",
                 message=_DENIED["denials"][0]["message"],
-                raw_code="confidence_below_minimum",
             ),
             PolicyDenial(
                 code=DENY_VETO,
                 message=_DENIED["denials"][1]["message"],
                 participants=("agent://compliance",),
-                raw_code="veto",
             ),
         ]
 
@@ -71,11 +69,17 @@ class TestParseErrorDetails:
         details = parse_error_details(b'{"reasons": ["a", "b"]}')
         assert details == ErrorDetails(reasons=["a", "b"], denials=[])
 
-    def test_unknown_code_normalised_to_unspecified(self):
+    def test_unknown_code_passed_through(self):
         raw = {"denials": [{"code": "brand_new_rule", "message": "x"}]}
         (denial,) = parse_error_details(json.dumps(raw)).denials
-        assert denial.code == DENY_UNSPECIFIED
-        assert denial.raw_code == "brand_new_rule"
+        assert denial.code == "brand_new_rule"
+        assert denial.code not in KNOWN_DENY_CODES
+
+    def test_missing_code_is_unspecified_and_missing_message_kept(self):
+        raw = {"denials": [{"participants": ["a"]}, {"code": "", "message": "m"}]}
+        first, second = parse_error_details(json.dumps(raw)).denials
+        assert first == PolicyDenial(code=DENY_UNSPECIFIED, message="", participants=("a",))
+        assert second.code == DENY_UNSPECIFIED
 
     def test_missing_or_mistyped_fields(self):
         raw = {
@@ -164,6 +168,7 @@ class TestSendStatusMapping:
         assert failure.code == macp_code
         assert failure.message == "boom"
         assert (failure.session_id, failure.message_id) == ("s1", "m1")
+        assert excinfo.value.macp_code == macp_code
 
     def test_policy_denied_status_carries_denials(self):
         client, stub = _client_with_stub()
@@ -194,16 +199,17 @@ class TestSendStatusMapping:
         assert excinfo.value.failure.code == "SESSION_NOT_FOUND"
         assert excinfo.value.failure.message == "SESSION_NOT_FOUND"
 
-    def test_unauthenticated_stays_transport_error(self):
+    def test_unauthenticated_is_ack_error(self):
+        """Permanent registry code, so retry_send won't retry it (TS parity)."""
         client, stub = _client_with_stub()
         stub.Send.side_effect = FakeRpcError(
             grpc.StatusCode.UNAUTHENTICATED,
             "bad token",
             trailing_metadata=[("macp-error-code", "UNAUTHENTICATED")],
         )
-        with pytest.raises(MacpTransportError) as excinfo:
+        with pytest.raises(MacpAckError) as excinfo:
             client.send(_envelope())
-        assert excinfo.value.code == "UNAUTHENTICATED"
+        assert excinfo.value.failure.code == "UNAUTHENTICATED"
         assert excinfo.value.macp_code == "UNAUTHENTICATED"
 
     def test_pre_090_failed_precondition_still_policy_denied(self):
@@ -248,6 +254,7 @@ class TestTransportErrorMacpCode:
         with pytest.raises(MacpAckError) as excinfo:
             client.unregister_policy("policy.x")
         assert excinfo.value.failure.code == "FAILED_PRECONDITION"
+        assert excinfo.value.macp_code is None
 
     def test_registry_read_only_code(self):
         client, stub = _client_with_stub()
@@ -259,18 +266,20 @@ class TestTransportErrorMacpCode:
         with pytest.raises(MacpAckError) as excinfo:
             client.register_policy(build_quorum_policy("policy.x", "d"))
         assert excinfo.value.failure.code == "FAILED_PRECONDITION"
+        assert excinfo.value.macp_code == "REGISTRY_READ_ONLY"
+        assert "macp_code='REGISTRY_READ_ONLY'" in repr(excinfo.value)
 
-    def test_registry_other_failed_precondition_is_transport(self):
-        """With a MACP code present, only REGISTRY_READ_ONLY is the read-only error."""
+    def test_registry_failed_precondition_keeps_macp_code(self):
+        """Any FAILED_PRECONDITION is the ack error; macp_code names the cause (TS parity)."""
         client, stub = _client_with_stub()
         stub.UnregisterPolicy.side_effect = FakeRpcError(
             grpc.StatusCode.FAILED_PRECONDITION,
             "other",
             trailing_metadata=[("macp-error-code", "SESSION_NOT_OPEN")],
         )
-        with pytest.raises(MacpTransportError) as excinfo:
+        with pytest.raises(MacpAckError) as excinfo:
             client.unregister_policy("policy.x")
-        assert excinfo.value.code == "FAILED_PRECONDITION"
+        assert excinfo.value.failure.code == "FAILED_PRECONDITION"
         assert excinfo.value.macp_code == "SESSION_NOT_OPEN"
 
     def test_registry_invalid_request_is_transport(self):

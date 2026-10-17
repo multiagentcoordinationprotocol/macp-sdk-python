@@ -29,8 +29,9 @@ AGENT_NOT_FOUND = "AGENT_NOT_FOUND"  # NOT_FOUND: GetManifest for an agent not h
 
 # ── POLICY_DENIED denial codes (RFC-MACP-0012 §6.2, runtime ≥ 0.9.0) ──
 #
-# The set is open: a code outside it is surfaced as ``DENY_UNSPECIFIED``
-# (the raw value stays on ``PolicyDenial.raw_code``).
+# The set is open: a custom evaluator may send a code outside it, which the
+# SDK passes through unchanged. Treat any code not in ``KNOWN_DENY_CODES`` as
+# ``DENY_UNSPECIFIED``.
 
 DENY_VETO = "veto"
 DENY_VETO_HOLD = "veto_hold"
@@ -73,8 +74,9 @@ KNOWN_DENY_CODES: frozenset[str] = frozenset(
 class PolicyDenial:
     """One structured ``POLICY_DENIED`` reason (runtime ≥ 0.9.0).
 
-    ``code`` is a member of :data:`KNOWN_DENY_CODES`; an unrecognised wire
-    code is normalised to ``"unspecified"`` and kept verbatim in ``raw_code``.
+    ``code`` is the wire code, unchanged (``"unspecified"`` when the runtime
+    sent none). The set is open, so check it against :data:`KNOWN_DENY_CODES`
+    and treat anything else as ``"unspecified"``.
     ``participants`` lists the agents the reason concerns (e.g. a veto's
     objectors) — since 0.9.0 they no longer appear inside ``message``.
     """
@@ -82,7 +84,6 @@ class PolicyDenial:
     code: str
     message: str = ""
     participants: tuple[str, ...] = ()
-    raw_code: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,18 +122,16 @@ def parse_error_details(details: bytes | str | None) -> ErrorDetails:
         for item in raw_denials:
             if not isinstance(item, dict):
                 continue
-            raw_code = item.get("code")
-            raw_code = raw_code if isinstance(raw_code, str) else ""
+            code = item.get("code")
             message = item.get("message")
             participants = item.get("participants")
             denials.append(
                 PolicyDenial(
-                    code=raw_code if raw_code in KNOWN_DENY_CODES else DENY_UNSPECIFIED,
+                    code=code if isinstance(code, str) and code else DENY_UNSPECIFIED,
                     message=message if isinstance(message, str) else "",
                     participants=tuple(p for p in participants if isinstance(p, str))
                     if isinstance(participants, list)
                     else (),
-                    raw_code=raw_code,
                 )
             )
     return ErrorDetails(reasons=reasons, denials=denials)
@@ -161,10 +160,17 @@ class MacpAckError(MacpSdkError):
         *,
         mode: str = "",
         message_type: str = "",
+        macp_code: str | None = None,
     ):
         self.failure = failure
         self.mode = mode
         self.message_type = message_type
+        # Registry code from ``macp-error-code`` metadata (runtime ≥ 0.9.0) when
+        # this NACK was built from a gRPC status. Usually equals
+        # ``failure.code``; differs on the policy-registry mutations, which keep
+        # ``failure.code="FAILED_PRECONDITION"`` while this names the cause
+        # (``REGISTRY_READ_ONLY``). ``None`` for in-band NACKs and old runtimes.
+        self.macp_code = macp_code
         super().__init__(f"{failure.code}: {failure.message}")
 
     @property
@@ -179,6 +185,8 @@ class MacpAckError(MacpSdkError):
 
     def __repr__(self) -> str:
         parts = [f"code={self.failure.code!r}", f"message={self.failure.message!r}"]
+        if self.macp_code and self.macp_code != self.failure.code:
+            parts.append(f"macp_code={self.macp_code!r}")
         if self.failure.session_id:
             parts.append(f"session_id={self.failure.session_id!r}")
         if self.mode:
