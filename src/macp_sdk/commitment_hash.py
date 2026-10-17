@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import hashlib
 import re
+from typing import Literal
 
 from google.protobuf import unknown_fields  # type: ignore[import-untyped]
+from google.protobuf.message import DecodeError  # type: ignore[import-untyped]
 from macp.v1 import core_pb2
 
 from .errors import MacpSessionError
@@ -24,6 +26,9 @@ from .errors import MacpSessionError
 #: Identifies this projection/preimage construction (RFC-MACP-0013 §4, §7).
 #: A change here is a MACP protocol MINOR change (new label, e.g. "/2").
 LABEL = "macp-commitment-hash/1"
+
+#: The three outcomes of `verify_commitment_hash` (RFC-MACP-0013 §6.1).
+VerifyOutcome = Literal["match", "mismatch", "cannot_verify"]
 
 #: The frozen nine-field set ``CommitmentPayload`` MUST be limited to for this
 #: hash label (RFC-MACP-0013 §5). A future ``macp-proto`` release that adds a
@@ -315,3 +320,34 @@ def is_canonical_commitment_hash(value: str) -> bool:
     with no such quirk, so no separate `strip()` check is needed.
     """
     return bool(_HASH_RE.fullmatch(value))
+
+
+def verify_commitment_hash(wire: bytes, claimed_hash: str) -> VerifyOutcome:
+    """Verify ``claimed_hash`` against a ``CommitmentPayload``'s wire encoding.
+
+    RFC-MACP-0013 §6.1. Takes the payload's Protobuf wire bytes, exactly as
+    received, rather than a decoded message, so fields outside the frozen
+    set stay observable. Returns exactly one of:
+
+    - ``"match"``: ``claimed_hash`` equals the canonical hash of the payload.
+    - ``"mismatch"``: it doesn't. Comparison is exact string equality, so a
+      claim not in canonical form (uppercase hex, no ``sha256:`` prefix,
+      surrounding whitespace) is a mismatch, never normalized or an error.
+    - ``"cannot_verify"``: the *payload* can't be hashed under this label:
+      the bytes don't parse as a ``CommitmentPayload`` (truncated, invalid
+      UTF-8, field number 0, ...) or carry a field outside the frozen set,
+      at either level (§5). Never a verdict on the claim.
+
+    Repeated known fields follow Protobuf merge semantics, and empty
+    ``wire`` is the all-default payload, which is hashable.
+    """
+    payload = core_pb2.CommitmentPayload()
+    try:
+        payload.ParseFromString(wire)
+    except DecodeError:
+        return "cannot_verify"
+    try:
+        actual = commitment_hash(payload)
+    except MacpSessionError:
+        return "cannot_verify"
+    return "match" if claimed_hash == actual else "mismatch"

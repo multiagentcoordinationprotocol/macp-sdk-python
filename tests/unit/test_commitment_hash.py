@@ -18,6 +18,7 @@ from macp_sdk.commitment_hash import (
     canonical_projection,
     commitment_hash,
     is_canonical_commitment_hash,
+    verify_commitment_hash,
 )
 from macp_sdk.errors import MacpSessionError
 
@@ -596,3 +597,63 @@ class TestUnknownRefWireFieldGuard:
         payload = core_pb2.CommitmentPayload(outcome_positive=False)
         canonical_projection(payload)  # must not raise
         commitment_hash(payload)  # must not raise
+
+
+class TestVerifyCommitmentHash:
+    """RFC-MACP-0013 §6.1: verification over wire bytes, three outcomes."""
+
+    _PAYLOAD = core_pb2.CommitmentPayload(commitment_id="c1", action="a")
+    _WIRE = _PAYLOAD.SerializeToString()
+    _HASH = commitment_hash(_PAYLOAD)
+
+    def test_match(self) -> None:
+        assert verify_commitment_hash(self._WIRE, self._HASH) == "match"
+
+    @pytest.mark.parametrize(
+        "claim",
+        [
+            "sha256:" + "0" * 64,
+            _HASH.upper(),
+            _HASH.removeprefix("sha256:"),
+            " " + _HASH,
+            _HASH + "\n",
+            "",
+        ],
+    )
+    def test_any_other_claim_is_mismatch(self, claim: str) -> None:
+        assert verify_commitment_hash(self._WIRE, claim) == "mismatch"
+
+    @pytest.mark.parametrize(
+        "wire",
+        [
+            _WIRE[:-1],  # truncated
+            bytes([0x08, 0x01]),  # known field 1 (string) with varint wire type
+            bytes([0x0A, 0x02, 0xFF, 0xFE]),  # invalid UTF-8 in a string field
+            bytes([0x2B, 0x2C]),  # group
+            bytes([0x00, 0x01]),  # field number 0
+            _WIRE + bytes([0xA2, 0x06, 0x01]) + b"x",  # unknown field 100
+        ],
+        ids=["truncated", "wrong-wire-type", "bad-utf8", "group", "field-0", "unknown-field"],
+    )
+    def test_unparseable_or_unhashable_payload_is_cannot_verify(self, wire: bytes) -> None:
+        assert verify_commitment_hash(wire, self._HASH) == "cannot_verify"
+
+    def test_empty_wire_is_the_all_default_payload(self) -> None:
+        claim = commitment_hash(core_pb2.CommitmentPayload())
+        assert verify_commitment_hash(b"", claim) == "match"
+
+    def test_repeated_scalar_last_value_wins(self) -> None:
+        wire = core_pb2.CommitmentPayload(commitment_id="zz").SerializeToString() + self._WIRE
+        assert verify_commitment_hash(wire, self._HASH) == "match"
+
+    def test_repeated_supersedes_merges(self) -> None:
+        first = core_pb2.CommitmentPayload(
+            commitment_id="c1", supersedes=core_pb2.CommitmentRef(session_id="s0")
+        )
+        second = core_pb2.CommitmentPayload(supersedes=core_pb2.CommitmentRef(commitment_hash="x"))
+        merged = core_pb2.CommitmentPayload(
+            commitment_id="c1",
+            supersedes=core_pb2.CommitmentRef(session_id="s0", commitment_hash="x"),
+        )
+        wire = first.SerializeToString() + second.SerializeToString()
+        assert verify_commitment_hash(wire, commitment_hash(merged)) == "match"

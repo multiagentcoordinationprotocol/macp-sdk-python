@@ -14,7 +14,12 @@ from .base_projection import (
 )
 from .base_session import BaseSession
 from .client import UNBOUNDED, InlineErrorCallback, MacpClient, MacpStream, macp_error_code
-from .commitment_hash import commitment_hash, is_canonical_commitment_hash
+from .commitment_hash import (
+    VerifyOutcome,
+    commitment_hash,
+    is_canonical_commitment_hash,
+    verify_commitment_hash,
+)
 from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
     DEFAULT_MODE_VERSION,
@@ -255,6 +260,7 @@ __all__ = [
     "TaskRejectRecord",
     "TaskSession",
     "TaskUpdateRecord",
+    "VerifyOutcome",
     "VotingRules",
     "build_commitment_payload",
     "build_commitment_ref",
@@ -295,6 +301,7 @@ __all__ = [
     "validate_signal_type",
     "validate_ttl_ms",
     "validate_vote",
+    "verify_commitment_hash",
 ]
 
 # ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────
