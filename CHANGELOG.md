@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.15.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.2...v0.15.0) (2026-10-17)
+
+
+### Features
+
+* **commitment-hash:** add RFC-MACP-0013 §6.1 verify_commitment_hash ([#161](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/161)) ([daf98cb](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/daf98cb010485f01a41c6de9ff310dd8d42f67ae))
+* **errors:** absorb runtime 0.9.0 error codes and structured policy denials ([#158](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/158)) ([1ac3801](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1ac38010fc4e7501890e0ee59c1a8978ef4b26c1))
+* **errors:** align runtime 0.9.0 error semantics with macp-sdk-typescript ([#160](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/160)) ([1484a40](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1484a405c568ca8c7231267e1fdb899603fdd1cf))
+
+
+### Bug Fixes
+
+* **docs,examples:** correct identity/participant bugs in doc snippets and policy_registration cleanup ([#156](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/156)) ([116a818](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/116a8186632010f570a86e676092881b6749d991))
+* **docs:** correct 3 in-page anchors to GitHub's double-hyphen slugs ([#154](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/154)) ([53d7ffd](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/53d7ffd48c2b8c498dbcc9f1fcab52a003eec2f8))
+* **docs:** correct runtime-behavior claims about session discovery and lifecycle ([#157](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/157)) ([0fbe5db](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/0fbe5db6d49f38f846cd0428bf4c94e9ee7df6be))
+
 ## [0.14.2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.1...v0.14.2) (2026-10-04)
 
 
