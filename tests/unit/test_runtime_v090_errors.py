@@ -10,6 +10,7 @@ import pytest
 from macp.v1 import envelope_pb2
 
 from macp_sdk import (
+    AGENT_NOT_FOUND,
     INVALID_REQUEST,
     KNOWN_DENY_CODES,
     STREAM_LAGGED,
@@ -18,6 +19,7 @@ from macp_sdk import (
     MacpTransportError,
     PolicyDenial,
     build_quorum_policy,
+    macp_error_code,
     parse_error_details,
 )
 from macp_sdk.errors import DENY_UNSPECIFIED, DENY_VETO
@@ -300,3 +302,28 @@ class TestTransportErrorMacpCode:
 def _raising_iter(exc: Exception):
     raise exc
     yield  # pragma: no cover
+
+
+class TestMacpErrorCodeHelper:
+    def test_raw_rpc_error_code(self):
+        client, stub = _client_with_stub()
+        stub.GetManifest.side_effect = FakeRpcError(
+            grpc.StatusCode.NOT_FOUND,
+            "no such agent",
+            trailing_metadata=[("macp-error-code", AGENT_NOT_FOUND)],
+        )
+        with pytest.raises(grpc.RpcError) as excinfo:
+            client.get_manifest("agent://nobody")
+        assert macp_error_code(excinfo.value) == AGENT_NOT_FOUND
+
+    def test_bytes_value_decoded(self):
+        err = FakeRpcError(
+            grpc.StatusCode.NOT_FOUND,
+            "x",
+            trailing_metadata=[("macp-error-code", b"SESSION_NOT_FOUND")],
+        )
+        assert macp_error_code(err) == "SESSION_NOT_FOUND"
+
+    def test_absent_on_pre_090(self):
+        assert macp_error_code(FakeRpcError(grpc.StatusCode.NOT_FOUND, "x")) is None
+        assert macp_error_code(grpc.RpcError()) is None

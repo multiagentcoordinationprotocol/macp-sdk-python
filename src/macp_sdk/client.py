@@ -78,12 +78,24 @@ def _parse_grpc_metadata_reasons(rpc_error: grpc.RpcError) -> list[str]:
     return _parse_grpc_metadata_details(rpc_error).reasons
 
 
-def _rpc_macp_error_code(rpc_error: grpc.RpcError) -> str | None:
+def macp_error_code(rpc_error: grpc.RpcError) -> str | None:
     """Return the MACP registry code from ``macp-error-code`` metadata, or None.
 
     Runtime ≥ 0.9.0 attaches it to every status that carries a MACP error
     (S13). Several registry codes share one gRPC status, so this — not the
     status — is what to branch on. Older runtimes don't send it.
+
+    Most ``MacpClient`` methods already surface the code (``MacpAckError``
+    ``failure.code`` or ``MacpTransportError.macp_code``). Use this on the raw
+    ``grpc.RpcError`` raised by ``initialize``, ``get_session``,
+    ``get_manifest``, ``list_sessions_page``/``list_sessions``,
+    ``get_policy`` and ``list_policies``::
+
+        try:
+            client.get_session(session_id)
+        except grpc.RpcError as e:
+            if macp_error_code(e) == SESSION_NOT_FOUND:
+                ...
     """
     value = _trailing_metadata_value(rpc_error, "macp-error-code")
     if isinstance(value, bytes):
@@ -297,7 +309,7 @@ class MacpStream:
             raise MacpTransportError(
                 _rpc_details(item) or str(item),
                 code=_rpc_status_name(item),
-                macp_code=_rpc_macp_error_code(item),
+                macp_code=macp_error_code(item),
             )
         assert isinstance(item, envelope_pb2.Envelope)
         return item
@@ -444,7 +456,7 @@ class MacpClient:
         return MacpTransportError(
             _rpc_details(rpc_err) or str(rpc_err),
             code=_rpc_status_name(rpc_err),
-            macp_code=_rpc_macp_error_code(rpc_err),
+            macp_code=macp_error_code(rpc_err),
         )
 
     @staticmethod
@@ -462,7 +474,7 @@ class MacpClient:
         attached.
         """
         name = _rpc_status_name(rpc_err)
-        macp_code = _rpc_macp_error_code(rpc_err)
+        macp_code = macp_error_code(rpc_err)
         read_only = (
             macp_code == REGISTRY_READ_ONLY
             if macp_code is not None
@@ -555,7 +567,7 @@ class MacpClient:
         except grpc.RpcError as rpc_err:
             # Runtime ≥ 0.9.0: the registry code rides `macp-error-code`, and
             # the gRPC status no longer identifies it (S13) — trust the key.
-            macp_code = _rpc_macp_error_code(rpc_err)
+            macp_code = macp_error_code(rpc_err)
             if macp_code is not None and macp_code not in _TRANSPORT_MACP_CODES:
                 details = _parse_grpc_metadata_details(rpc_err)
                 failure = AckFailure(

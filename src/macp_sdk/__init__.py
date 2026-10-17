@@ -13,7 +13,7 @@ from .base_projection import (
     ProjectionAnomaly,
 )
 from .base_session import BaseSession
-from .client import UNBOUNDED, InlineErrorCallback, MacpClient, MacpStream
+from .client import UNBOUNDED, InlineErrorCallback, MacpClient, MacpStream, macp_error_code
 from .commitment_hash import commitment_hash, is_canonical_commitment_hash
 from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
@@ -273,6 +273,7 @@ __all__ = [
     "configure_logging",
     "infer_outcome_positive",
     "is_canonical_commitment_hash",
+    "macp_error_code",
     "new_commitment_id",
     "new_message_id",
     "new_session_id",

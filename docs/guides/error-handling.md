@@ -104,6 +104,22 @@ Runtime 0.9.0 also adds four control-plane codes, all exported from
 `AGENT_NOT_FOUND` (`NOT_FOUND`; `get_manifest` for an agent the runtime
 doesn't host). Treat an unrecognised `macp_code` by its gRPC status.
 
+A few read-only RPCs (`initialize`, `get_session`, `get_manifest`,
+`list_sessions`/`list_sessions_page`, `get_policy`, `list_policies`) raise
+the raw `grpc.RpcError` rather than an SDK error. Read its registry code with
+`macp_error_code()` (`None` against a pre-0.9 runtime):
+
+```python
+import grpc
+from macp_sdk import SESSION_NOT_FOUND, macp_error_code
+
+try:
+    client.get_session(session_id)
+except grpc.RpcError as e:
+    if macp_error_code(e) == SESSION_NOT_FOUND:
+        ...
+```
+
 Against a pre-0.9 runtime (no `macp-error-code`) `send()` keeps the old
 inference: `ALREADY_EXISTS` → `SESSION_ALREADY_EXISTS`,
 `FAILED_PRECONDITION` → `POLICY_DENIED`, anything else → `MacpTransportError`.
