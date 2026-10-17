@@ -14,7 +14,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import queue
 import threading
 import time
 
@@ -23,6 +22,7 @@ import pytest
 from macp_sdk import (
     AuthConfig,
     MacpClient,
+    MacpTimeoutError,
     MacpTransportError,
     TaskSession,
     build_contribute_payload,
@@ -71,7 +71,7 @@ class TestSubscribeResumeExclusivity:
                     while time.time() < deadline:
                         try:
                             env = stream.read(timeout=0.5)
-                        except queue.Empty:
+                        except MacpTimeoutError:
                             if seen:  # got the replayed tail; stream is quiet
                                 break
                             continue

@@ -11,12 +11,11 @@ Requires a running MACP runtime on localhost:50051 started with
 
 from __future__ import annotations
 
-import queue
 import time
 
 import pytest
 
-from macp_sdk import DecisionSession, new_session_id
+from macp_sdk import DecisionSession, MacpTimeoutError, new_session_id
 from tests.integration.conftest import make_client as _client
 
 pytestmark = pytest.mark.integration
@@ -122,11 +121,11 @@ class TestSessionSubscribeReplay:
                     seen_types: list[str] = []
                     deadline = time.time() + 5.0
                     while time.time() < deadline:
-                        # read(timeout) raises queue.Empty on a quiet stream;
+                        # read(timeout) raises MacpTimeoutError on a quiet stream;
                         # treat that as "nothing yet" and keep polling.
                         try:
                             env = stream.read(timeout=0.5)
-                        except queue.Empty:
+                        except MacpTimeoutError:
                             continue
                         if env is None:
                             break
@@ -140,7 +139,7 @@ class TestSessionSubscribeReplay:
                             while time.time() < tail:
                                 try:
                                     env = stream.read(timeout=0.2)
-                                except queue.Empty:
+                                except MacpTimeoutError:
                                     continue
                                 if env is None or env.session_id != session_id:
                                     continue
