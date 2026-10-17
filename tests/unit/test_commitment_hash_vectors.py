@@ -30,7 +30,12 @@ from typing import Any
 import pytest
 from macp.v1 import core_pb2
 
-from macp_sdk.commitment_hash import LABEL, canonical_projection, commitment_hash
+from macp_sdk.commitment_hash import (
+    LABEL,
+    canonical_projection,
+    commitment_hash,
+    verify_commitment_hash,
+)
 
 VECTORS_DIR = Path(__file__).parent.parent / "vectors" / "cmt-hash"
 SCHEMA_PATH = VECTORS_DIR / "vector-schema.json"
@@ -47,6 +52,13 @@ VECTOR_FILES = _discover_vector_files()
 
 def _load_vector(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# Two vector shapes (vector-schema.json ``oneOf``): COMPUTE vectors pin a
+# payload and its hash (§4); VERIFY vectors pin wire bytes, a claimed hash and
+# the outcome a verifier MUST return (§6.1).
+COMPUTE_FILES = [p for p in VECTOR_FILES if "payload" in _load_vector(p)]
+VERIFY_FILES = [p for p in VECTOR_FILES if "wire_hex" in _load_vector(p)]
 
 
 def _build_payload(payload_data: dict[str, Any]) -> core_pb2.CommitmentPayload:
@@ -76,10 +88,16 @@ def _build_payload(payload_data: dict[str, Any]) -> core_pb2.CommitmentPayload:
     return core_pb2.CommitmentPayload(**kwargs)
 
 
+def test_every_vector_has_a_known_shape() -> None:
+    assert len(COMPUTE_FILES) + len(VERIFY_FILES) == len(VECTOR_FILES)
+    assert COMPUTE_FILES
+    assert VERIFY_FILES
+
+
 @pytest.mark.parametrize(
     "vector_path",
-    VECTOR_FILES,
-    ids=[p.stem for p in VECTOR_FILES],
+    COMPUTE_FILES,
+    ids=[p.stem for p in COMPUTE_FILES],
 )
 def test_commitment_hash_vector(vector_path: Path) -> None:
     vector = _load_vector(vector_path)
@@ -90,6 +108,19 @@ def test_commitment_hash_vector(vector_path: Path) -> None:
     assert jcs_bytes.hex() == vector["jcs_utf8_hex"]
     assert preimage.hex() == vector["preimage_utf8_hex"]
     assert commitment_hash(payload) == vector["hash"]
+    # A compute vector's own hash verifies against its wire encoding.
+    assert verify_commitment_hash(payload.SerializeToString(), vector["hash"]) == "match"
+
+
+@pytest.mark.parametrize(
+    "vector_path",
+    VERIFY_FILES,
+    ids=[p.stem for p in VERIFY_FILES],
+)
+def test_verify_vector(vector_path: Path) -> None:
+    vector = _load_vector(vector_path)
+    outcome = verify_commitment_hash(bytes.fromhex(vector["wire_hex"]), vector["claimed_hash"])
+    assert outcome == vector["expected_outcome"]
 
 
 @pytest.mark.parametrize(
@@ -116,7 +147,7 @@ def test_must_differ_from_vectors_produce_distinct_hashes() -> None:
     rather than hardcoding "003 vs 004" so this stays correct if more such
     vectors are added later.
     """
-    vectors_by_name = {vector_path.stem: _load_vector(vector_path) for vector_path in VECTOR_FILES}
+    vectors_by_name = {vector_path.stem: _load_vector(vector_path) for vector_path in COMPUTE_FILES}
 
     pairs_checked = 0
     for name, vector in vectors_by_name.items():
