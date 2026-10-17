@@ -17,7 +17,6 @@ from .envelope import (
     serialize_message,
 )
 from .errors import (
-    REGISTRY_READ_ONLY,
     AckFailure,
     ErrorDetails,
     MacpAckError,
@@ -101,12 +100,6 @@ def macp_error_code(rpc_error: grpc.RpcError) -> str | None:
     if isinstance(value, bytes):
         value = value.decode("utf-8", errors="replace")
     return value or None
-
-
-# Registry codes a ``Send`` status keeps surfacing as ``MacpTransportError``
-# rather than ``MacpAckError``: a failed authentication is a transport/auth
-# problem the caller fixes in config, not a rejection of this envelope.
-_TRANSPORT_MACP_CODES = frozenset({"UNAUTHENTICATED"})
 
 
 def _rpc_status_name(rpc_err: grpc.RpcError) -> str | None:
@@ -468,24 +461,19 @@ class MacpClient:
         capability as ``false`` in ``Initialize`` and rejects every mutating
         RPC with gRPC ``FAILED_PRECONDITION`` (``macp-error-code:
         REGISTRY_READ_ONLY`` on runtime ≥ 0.9.0). Surface that as a
-        :class:`MacpAckError` with ``code="FAILED_PRECONDITION"`` so callers can
-        branch on it, mirroring how ``send``/``cancel_session`` surface NACKs.
-        Any other failure stays a :class:`MacpTransportError` with the codes
-        attached.
+        :class:`MacpAckError` with ``code="FAILED_PRECONDITION"`` and the
+        registry code on ``macp_code``, mirroring how ``send``/``cancel_session``
+        surface NACKs (and macp-sdk-typescript). Any other status stays a
+        :class:`MacpTransportError` with the codes attached.
         """
         name = _rpc_status_name(rpc_err)
         macp_code = macp_error_code(rpc_err)
-        read_only = (
-            macp_code == REGISTRY_READ_ONLY
-            if macp_code is not None
-            else name == "FAILED_PRECONDITION"  # pre-0.9: no macp-error-code
-        )
-        if read_only:
+        if name == "FAILED_PRECONDITION":
             failure = AckFailure(
                 code="FAILED_PRECONDITION",
                 message=_rpc_details(rpc_err) or read_only_hint,
             )
-            return MacpAckError(failure)
+            return MacpAckError(failure, macp_code=macp_code)
         return MacpTransportError(
             _rpc_details(rpc_err) or str(rpc_err),
             code=name,
@@ -567,8 +555,10 @@ class MacpClient:
         except grpc.RpcError as rpc_err:
             # Runtime ≥ 0.9.0: the registry code rides `macp-error-code`, and
             # the gRPC status no longer identifies it (S13) — trust the key.
+            # UNAUTHENTICATED included: a permanent code, so retry_send won't
+            # retry it (macp-sdk-typescript parity).
             macp_code = macp_error_code(rpc_err)
-            if macp_code is not None and macp_code not in _TRANSPORT_MACP_CODES:
+            if macp_code is not None:
                 details = _parse_grpc_metadata_details(rpc_err)
                 failure = AckFailure(
                     code=macp_code,
@@ -578,9 +568,7 @@ class MacpClient:
                     reasons=details.reasons,
                     denials=details.denials,
                 )
-                raise MacpAckError(failure) from rpc_err
-            if macp_code is not None:
-                raise self._transport_error_from_rpc(rpc_err) from rpc_err
+                raise MacpAckError(failure, macp_code=macp_code) from rpc_err
             # Pre-0.9 runtimes: infer the MACP code from the gRPC status.
             code = rpc_err.code()
             if code == grpc.StatusCode.ALREADY_EXISTS:

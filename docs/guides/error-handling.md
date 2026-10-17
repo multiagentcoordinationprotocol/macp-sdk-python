@@ -68,9 +68,10 @@ used to end in `", from: agent://a, agent://b"`), so read participants from
 `confidence_below_minimum`, `evaluation_required`, `no_votes`,
 `decline_over_approval`, `decline_not_backed`, `criterion_not_met`,
 `output_required`, `reassignment_not_allowed`, `unsupported_schema_version`,
-`invalid_rules`, `unspecified`). The set is open: the SDK reports a code it
-doesn't recognise as `unspecified` and keeps the original string in
-`denial.raw_code`. Against a pre-0.9 runtime `denials` is empty.
+`invalid_rules`, `unspecified`). The set is open: a custom evaluator may send
+its own code, which the SDK passes through unchanged, so treat any
+`denial.code` not in `KNOWN_DENY_CODES` as `unspecified`. Against a pre-0.9
+runtime `denials` is empty.
 
 `parse_error_details(raw_bytes)` decodes the same JSON from any source:
 `Ack.error.details`, an inline stream `MACPError.details`, or the
@@ -89,13 +90,14 @@ error-codes registry (`POLICY_DENIED`/`FORBIDDEN` → `PERMISSION_DENIED`,
 Several codes share one status, so the SDK branches on that metadata key:
 
 - `client.send()` raises `MacpAckError` with `failure.code` set to the
-  registry code (and `reasons`/`denials` from `macp-error-details-bin`). The
-  exception is `UNAUTHENTICATED`, which stays a `MacpTransportError`.
+  registry code (and `reasons`/`denials` from `macp-error-details-bin`),
+  including `UNAUTHENTICATED`, which `retry_send` therefore doesn't retry.
 - Every other RPC raises `MacpTransportError`, where `exc.code` is the gRPC
   status name and `exc.macp_code` is the registry code. `macp_code` is
   `None` when the runtime attached no code.
-- Mutating a read-only policy registry (`macp_code` `REGISTRY_READ_ONLY`)
-  still raises `MacpAckError(code="FAILED_PRECONDITION")`, as before 0.9.
+- Mutating a read-only policy registry still raises
+  `MacpAckError(code="FAILED_PRECONDITION")`, as before 0.9; on 0.9 its
+  `e.macp_code` is `REGISTRY_READ_ONLY`.
 
 Runtime 0.9.0 also adds four control-plane codes, all exported from
 `macp_sdk`: `REGISTRY_READ_ONLY` (`FAILED_PRECONDITION`), `INVALID_REQUEST`
