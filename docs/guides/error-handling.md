@@ -94,6 +94,15 @@ Several codes share one status, so the SDK branches on that metadata key:
 - Every other RPC raises `MacpTransportError`, where `exc.code` is the gRPC
   status name and `exc.macp_code` is the registry code. `macp_code` is
   `None` when the runtime attached no code.
+- Mutating a read-only policy registry (`macp_code` `REGISTRY_READ_ONLY`)
+  still raises `MacpAckError(code="FAILED_PRECONDITION")`, as before 0.9.
+
+Runtime 0.9.0 also adds four control-plane codes, all exported from
+`macp_sdk`: `REGISTRY_READ_ONLY` (`FAILED_PRECONDITION`), `INVALID_REQUEST`
+(`INVALID_ARGUMENT`; e.g. a negative `page_size` or bad `page_token`),
+`STREAM_LAGGED` (`RESOURCE_EXHAUSTED`; resubscribe with `after_sequence`) and
+`AGENT_NOT_FOUND` (`NOT_FOUND`; `get_manifest` for an agent the runtime
+doesn't host). Treat an unrecognised `macp_code` by its gRPC status.
 
 Against a pre-0.9 runtime (no `macp-error-code`) `send()` keeps the old
 inference: `ALREADY_EXISTS` → `SESSION_ALREADY_EXISTS`,

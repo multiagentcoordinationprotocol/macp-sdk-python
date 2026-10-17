@@ -21,6 +21,11 @@ PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
 RATE_LIMITED = "RATE_LIMITED"
 INTERNAL_ERROR = "INTERNAL_ERROR"
 INVALID_SESSION_ID = "INVALID_SESSION_ID"
+# Control-plane codes added in runtime 0.9.0.
+REGISTRY_READ_ONLY = "REGISTRY_READ_ONLY"  # FAILED_PRECONDITION: file-loaded registry
+INVALID_REQUEST = "INVALID_REQUEST"  # INVALID_ARGUMENT: malformed non-envelope request
+STREAM_LAGGED = "STREAM_LAGGED"  # RESOURCE_EXHAUSTED: subscriber fell behind; resubscribe
+AGENT_NOT_FOUND = "AGENT_NOT_FOUND"  # NOT_FOUND: GetManifest for an agent not hosted here
 
 # ── POLICY_DENIED denial codes (RFC-MACP-0012 §6.2, runtime ≥ 0.9.0) ──
 #
@@ -194,8 +199,9 @@ class MacpTransportError(MacpSdkError):
     ``"UNAUTHENTICATED"``, ``"FAILED_PRECONDITION"``) when the failure
     originated from an ``RpcError``, or ``None`` otherwise. It lets callers
     distinguish a lagging watch/stream consumer (``RESOURCE_EXHAUSTED`` →
-    reconnect) or a missing-auth watch (``UNAUTHENTICATED``) from a generic
-    transport failure without parsing the message string.
+    reconnect; ``macp_code == "STREAM_LAGGED"`` on runtime ≥ 0.9.0) or a
+    missing-auth watch (``UNAUTHENTICATED``) from a generic transport failure
+    without parsing the message string.
 
     ``macp_code`` carries the MACP registry code from the ``macp-error-code``
     trailing metadata (runtime ≥ 0.9.0), e.g. ``"SESSION_NOT_FOUND"`` behind

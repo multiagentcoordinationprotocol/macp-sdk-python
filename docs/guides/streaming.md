@@ -112,10 +112,10 @@ stream.send_subscribe("sess-xyz", after_sequence=17)  # exclusive: resume from 1
 
 A watch/stream consumer that falls too far behind is terminated by the
 runtime with gRPC `RESOURCE_EXHAUSTED` (rather than silently closing). This
-surfaces as `MacpTransportError(code="RESOURCE_EXHAUSTED")` with
-`macp_code=None`. (Since runtime 0.9.0, `RATE_LIMITED` and
-`PAYLOAD_TOO_LARGE` also map to `RESOURCE_EXHAUSTED`, but carry their
-registry code in `exc.macp_code`, so check it before treating the error as
+surfaces as `MacpTransportError(code="RESOURCE_EXHAUSTED")`, with
+`macp_code="STREAM_LAGGED"` on runtime ≥ 0.9.0 (`None` on older runtimes).
+(Since 0.9.0, `RATE_LIMITED` and `PAYLOAD_TOO_LARGE` also map to
+`RESOURCE_EXHAUSTED`, so check `exc.macp_code` before treating the error as
 lag.) Treat lag as a
 **reconnect** signal, not a retryable send: reopen the stream and re-subscribe
 with your last-seen `after_sequence`. (`WatchSessions` re-sync replays a
@@ -123,13 +123,15 @@ with your last-seen `after_sequence`. (`WatchSessions` re-sync replays a
 terminal, **without duplicating** it.)
 
 ```python
-from macp_sdk import MacpTransportError
+from macp_sdk import STREAM_LAGGED, MacpTransportError
 
 try:
     for envelope in stream.responses(timeout=10.0):
         handle(envelope)
 except MacpTransportError as exc:
-    lagged = exc.code == "RESOURCE_EXHAUSTED" and exc.macp_code is None
+    lagged = exc.macp_code == STREAM_LAGGED or (
+        exc.code == "RESOURCE_EXHAUSTED" and exc.macp_code is None  # pre-0.9
+    )
     if lagged or exc.code == "FAILED_PRECONDITION":  # pre-0.9 compaction refusal
         ...  # reconnect: reopen stream and re-subscribe
     else:

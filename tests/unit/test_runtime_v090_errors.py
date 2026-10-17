@@ -10,11 +10,14 @@ import pytest
 from macp.v1 import envelope_pb2
 
 from macp_sdk import (
+    INVALID_REQUEST,
     KNOWN_DENY_CODES,
+    STREAM_LAGGED,
     ErrorDetails,
     MacpAckError,
     MacpTransportError,
     PolicyDenial,
+    build_quorum_policy,
     parse_error_details,
 )
 from macp_sdk.errors import DENY_UNSPECIFIED, DENY_VETO
@@ -243,3 +246,57 @@ class TestTransportErrorMacpCode:
         with pytest.raises(MacpAckError) as excinfo:
             client.unregister_policy("policy.x")
         assert excinfo.value.failure.code == "FAILED_PRECONDITION"
+
+    def test_registry_read_only_code(self):
+        client, stub = _client_with_stub()
+        stub.RegisterPolicy.side_effect = FakeRpcError(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "policies are loaded from MACP_POLICIES_DIR",
+            trailing_metadata=[("macp-error-code", "REGISTRY_READ_ONLY")],
+        )
+        with pytest.raises(MacpAckError) as excinfo:
+            client.register_policy(build_quorum_policy("policy.x", "d"))
+        assert excinfo.value.failure.code == "FAILED_PRECONDITION"
+
+    def test_registry_other_failed_precondition_is_transport(self):
+        """With a MACP code present, only REGISTRY_READ_ONLY is the read-only error."""
+        client, stub = _client_with_stub()
+        stub.UnregisterPolicy.side_effect = FakeRpcError(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "other",
+            trailing_metadata=[("macp-error-code", "SESSION_NOT_OPEN")],
+        )
+        with pytest.raises(MacpTransportError) as excinfo:
+            client.unregister_policy("policy.x")
+        assert excinfo.value.code == "FAILED_PRECONDITION"
+        assert excinfo.value.macp_code == "SESSION_NOT_OPEN"
+
+    def test_registry_invalid_request_is_transport(self):
+        client, stub = _client_with_stub()
+        stub.RegisterPolicy.side_effect = FakeRpcError(
+            grpc.StatusCode.INVALID_ARGUMENT,
+            "missing descriptor",
+            trailing_metadata=[("macp-error-code", INVALID_REQUEST)],
+        )
+        with pytest.raises(MacpTransportError) as excinfo:
+            client.register_policy(build_quorum_policy("policy.x", "d"))
+        assert excinfo.value.macp_code == INVALID_REQUEST
+
+    def test_watch_lag_carries_stream_lagged(self):
+        client, stub = _client_with_stub()
+        stub.WatchPolicies.return_value = _raising_iter(
+            FakeRpcError(
+                grpc.StatusCode.RESOURCE_EXHAUSTED,
+                "lagged",
+                trailing_metadata=[("macp-error-code", STREAM_LAGGED)],
+            )
+        )
+        with pytest.raises(MacpTransportError) as excinfo:
+            list(client.watch_policies())
+        assert excinfo.value.code == "RESOURCE_EXHAUSTED"
+        assert excinfo.value.macp_code == STREAM_LAGGED
+
+
+def _raising_iter(exc: Exception):
+    raise exc
+    yield  # pragma: no cover

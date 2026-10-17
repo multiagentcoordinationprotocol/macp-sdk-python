@@ -17,6 +17,7 @@ from .envelope import (
     serialize_message,
 )
 from .errors import (
+    REGISTRY_READ_ONLY,
     AckFailure,
     ErrorDetails,
     MacpAckError,
@@ -453,13 +454,21 @@ class MacpClient:
         A runtime configured with a read-only registry (e.g.
         ``MACP_POLICIES_DIR`` for policies) advertises the corresponding
         capability as ``false`` in ``Initialize`` and rejects every mutating
-        RPC with gRPC ``FAILED_PRECONDITION``. Surface that as a
-        :class:`MacpAckError` carrying the code so callers can branch on it,
-        mirroring how ``send``/``cancel_session`` surface NACKs. Any other
-        status stays a :class:`MacpTransportError` with the code attached.
+        RPC with gRPC ``FAILED_PRECONDITION`` (``macp-error-code:
+        REGISTRY_READ_ONLY`` on runtime ≥ 0.9.0). Surface that as a
+        :class:`MacpAckError` with ``code="FAILED_PRECONDITION"`` so callers can
+        branch on it, mirroring how ``send``/``cancel_session`` surface NACKs.
+        Any other failure stays a :class:`MacpTransportError` with the codes
+        attached.
         """
         name = _rpc_status_name(rpc_err)
-        if name == "FAILED_PRECONDITION":
+        macp_code = _rpc_macp_error_code(rpc_err)
+        read_only = (
+            macp_code == REGISTRY_READ_ONLY
+            if macp_code is not None
+            else name == "FAILED_PRECONDITION"  # pre-0.9: no macp-error-code
+        )
+        if read_only:
             failure = AckFailure(
                 code="FAILED_PRECONDITION",
                 message=_rpc_details(rpc_err) or read_only_hint,
@@ -468,7 +477,7 @@ class MacpClient:
         return MacpTransportError(
             _rpc_details(rpc_err) or str(rpc_err),
             code=name,
-            macp_code=_rpc_macp_error_code(rpc_err),
+            macp_code=macp_code,
         )
 
     @staticmethod
@@ -1027,7 +1036,8 @@ class MacpClient:
 
         Auth is forwarded when available (``auth`` arg or ``client.auth``) but
         not required. A lagging consumer is terminated with
-        ``RESOURCE_EXHAUSTED``; reconnect to resume.
+        ``RESOURCE_EXHAUSTED`` (``macp_code="STREAM_LAGGED"`` on runtime
+        ≥ 0.9.0); reconnect to resume.
         """
         logger.debug("watch_policies starting")
         call = self.stub.WatchPolicies(
@@ -1102,7 +1112,8 @@ class MacpClient:
         Requires authentication since runtime v0.5.0 — an unauthenticated
         ``WatchSignals`` is rejected with gRPC ``UNAUTHENTICATED`` (surfaced
         as ``MacpTransportError(code="UNAUTHENTICATED")``). A lagging consumer
-        is terminated with ``RESOURCE_EXHAUSTED``; reconnect to resume.
+        is terminated with ``RESOURCE_EXHAUSTED`` (``macp_code="STREAM_LAGGED"``
+        on runtime ≥ 0.9.0); reconnect to resume.
         """
         logger.debug("watch_signals starting")
         auth_cfg = self._require_auth(auth)
