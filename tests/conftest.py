@@ -20,18 +20,36 @@ VALID_SESSION_ID = "00000000-0000-4000-8000-000000000001"
 VALID_COMMITMENT_HASH = "sha256:9f58e9d114d11860d48aa2bcb8cda458b9618b1cc8560595a802b68c4af85d41"
 
 
+class _MetadataItem:
+    """Shape of a grpc trailing-metadata entry (``.key`` / ``.value``)."""
+
+    def __init__(self, key: str, value: str | bytes) -> None:
+        self.key = key
+        self.value = value
+
+
 class FakeRpcError(grpc.RpcError):
     """An RpcError that implements ``code()`` / ``details()`` like a real call."""
 
-    def __init__(self, code: grpc.StatusCode, details: str = "") -> None:
+    def __init__(
+        self,
+        code: grpc.StatusCode,
+        details: str = "",
+        *,
+        trailing_metadata: list[tuple[str, str | bytes]] | None = None,
+    ) -> None:
         self._code = code
         self._details = details
+        self._trailing = [_MetadataItem(k, v) for k, v in trailing_metadata or []]
 
     def code(self) -> grpc.StatusCode:
         return self._code
 
     def details(self) -> str:
         return self._details
+
+    def trailing_metadata(self) -> list[_MetadataItem]:
+        return self._trailing
 
     def __str__(self) -> str:
         return self._details or self._code.name

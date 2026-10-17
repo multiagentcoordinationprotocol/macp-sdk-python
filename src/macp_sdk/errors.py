@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 # ── Well-known error codes ───────────────────────────────────────────
@@ -20,6 +21,121 @@ PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
 RATE_LIMITED = "RATE_LIMITED"
 INTERNAL_ERROR = "INTERNAL_ERROR"
 INVALID_SESSION_ID = "INVALID_SESSION_ID"
+# Control-plane codes added in runtime 0.9.0.
+REGISTRY_READ_ONLY = "REGISTRY_READ_ONLY"  # FAILED_PRECONDITION: file-loaded registry
+INVALID_REQUEST = "INVALID_REQUEST"  # INVALID_ARGUMENT: malformed non-envelope request
+STREAM_LAGGED = "STREAM_LAGGED"  # RESOURCE_EXHAUSTED: subscriber fell behind; resubscribe
+AGENT_NOT_FOUND = "AGENT_NOT_FOUND"  # NOT_FOUND: GetManifest for an agent not hosted here
+
+# ── POLICY_DENIED denial codes (RFC-MACP-0012 §6.2, runtime ≥ 0.9.0) ──
+#
+# The set is open: a code outside it is surfaced as ``DENY_UNSPECIFIED``
+# (the raw value stays on ``PolicyDenial.raw_code``).
+
+DENY_VETO = "veto"
+DENY_VETO_HOLD = "veto_hold"
+DENY_QUORUM_NOT_MET = "quorum_not_met"
+DENY_THRESHOLD_NOT_MET = "threshold_not_met"
+DENY_CONFIDENCE_BELOW_MINIMUM = "confidence_below_minimum"
+DENY_EVALUATION_REQUIRED = "evaluation_required"
+DENY_NO_VOTES = "no_votes"
+DENY_DECLINE_OVER_APPROVAL = "decline_over_approval"
+DENY_DECLINE_NOT_BACKED = "decline_not_backed"
+DENY_CRITERION_NOT_MET = "criterion_not_met"
+DENY_OUTPUT_REQUIRED = "output_required"
+DENY_REASSIGNMENT_NOT_ALLOWED = "reassignment_not_allowed"
+DENY_UNSUPPORTED_SCHEMA_VERSION = "unsupported_schema_version"
+DENY_INVALID_RULES = "invalid_rules"
+DENY_UNSPECIFIED = "unspecified"
+
+KNOWN_DENY_CODES: frozenset[str] = frozenset(
+    {
+        DENY_VETO,
+        DENY_VETO_HOLD,
+        DENY_QUORUM_NOT_MET,
+        DENY_THRESHOLD_NOT_MET,
+        DENY_CONFIDENCE_BELOW_MINIMUM,
+        DENY_EVALUATION_REQUIRED,
+        DENY_NO_VOTES,
+        DENY_DECLINE_OVER_APPROVAL,
+        DENY_DECLINE_NOT_BACKED,
+        DENY_CRITERION_NOT_MET,
+        DENY_OUTPUT_REQUIRED,
+        DENY_REASSIGNMENT_NOT_ALLOWED,
+        DENY_UNSUPPORTED_SCHEMA_VERSION,
+        DENY_INVALID_RULES,
+        DENY_UNSPECIFIED,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyDenial:
+    """One structured ``POLICY_DENIED`` reason (runtime ≥ 0.9.0).
+
+    ``code`` is a member of :data:`KNOWN_DENY_CODES`; an unrecognised wire
+    code is normalised to ``"unspecified"`` and kept verbatim in ``raw_code``.
+    ``participants`` lists the agents the reason concerns (e.g. a veto's
+    objectors) — since 0.9.0 they no longer appear inside ``message``.
+    """
+
+    code: str
+    message: str = ""
+    participants: tuple[str, ...] = ()
+    raw_code: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorDetails:
+    """Decoded MACP error ``details`` JSON (``reasons`` + ``denials``)."""
+
+    reasons: list[str] = field(default_factory=list)
+    denials: list[PolicyDenial] = field(default_factory=list)
+
+
+def parse_error_details(details: bytes | str | None) -> ErrorDetails:
+    """Decode MACP error ``details`` bytes, tolerating malformed input.
+
+    Accepts the bytes found in ``Ack.error.details``, an inline stream
+    ``MACPError.details``, or the ``macp-error-details-bin`` trailing
+    metadata. Pre-0.9 runtimes send only ``reasons``; ``denials`` is then
+    empty. Anything that doesn't decode yields empty lists, never raises.
+    """
+    if not details:
+        return ErrorDetails()
+    try:
+        parsed = json.loads(details)
+    except (ValueError, TypeError):
+        return ErrorDetails()
+    if not isinstance(parsed, dict):
+        return ErrorDetails()
+
+    raw_reasons = parsed.get("reasons")
+    reasons = (
+        [r for r in raw_reasons if isinstance(r, str)] if isinstance(raw_reasons, list) else []
+    )
+
+    denials: list[PolicyDenial] = []
+    raw_denials = parsed.get("denials")
+    if isinstance(raw_denials, list):
+        for item in raw_denials:
+            if not isinstance(item, dict):
+                continue
+            raw_code = item.get("code")
+            raw_code = raw_code if isinstance(raw_code, str) else ""
+            message = item.get("message")
+            participants = item.get("participants")
+            denials.append(
+                PolicyDenial(
+                    code=raw_code if raw_code in KNOWN_DENY_CODES else DENY_UNSPECIFIED,
+                    message=message if isinstance(message, str) else "",
+                    participants=tuple(p for p in participants if isinstance(p, str))
+                    if isinstance(participants, list)
+                    else (),
+                    raw_code=raw_code,
+                )
+            )
+    return ErrorDetails(reasons=reasons, denials=denials)
 
 
 class MacpSdkError(Exception):
@@ -33,6 +149,7 @@ class AckFailure:
     session_id: str = ""
     message_id: str = ""
     reasons: list[str] = field(default_factory=list)
+    denials: list[PolicyDenial] = field(default_factory=list)
 
 
 class MacpAckError(MacpSdkError):
@@ -55,6 +172,11 @@ class MacpAckError(MacpSdkError):
         """Structured denial reasons (populated for POLICY_DENIED)."""
         return self.failure.reasons
 
+    @property
+    def denials(self) -> list[PolicyDenial]:
+        """Structured denials with stable codes (POLICY_DENIED, runtime ≥ 0.9.0)."""
+        return self.failure.denials
+
     def __repr__(self) -> str:
         parts = [f"code={self.failure.code!r}", f"message={self.failure.message!r}"]
         if self.failure.session_id:
@@ -65,6 +187,8 @@ class MacpAckError(MacpSdkError):
             parts.append(f"message_type={self.message_type!r}")
         if self.failure.reasons:
             parts.append(f"reasons={self.failure.reasons!r}")
+        if self.failure.denials:
+            parts.append(f"denials={[d.code for d in self.failure.denials]!r}")
         return f"MacpAckError({', '.join(parts)})"
 
 
@@ -75,12 +199,22 @@ class MacpTransportError(MacpSdkError):
     ``"UNAUTHENTICATED"``, ``"FAILED_PRECONDITION"``) when the failure
     originated from an ``RpcError``, or ``None`` otherwise. It lets callers
     distinguish a lagging watch/stream consumer (``RESOURCE_EXHAUSTED`` →
-    reconnect) or a missing-auth watch (``UNAUTHENTICATED``) from a generic
-    transport failure without parsing the message string.
+    reconnect; ``macp_code == "STREAM_LAGGED"`` on runtime ≥ 0.9.0) or a
+    missing-auth watch (``UNAUTHENTICATED``) from a generic transport failure
+    without parsing the message string.
+
+    ``macp_code`` carries the MACP registry code from the ``macp-error-code``
+    trailing metadata (runtime ≥ 0.9.0), e.g. ``"SESSION_NOT_FOUND"`` behind
+    a ``NOT_FOUND`` status. Several MACP codes share one gRPC status, so
+    branch on ``macp_code`` when it is set. ``None`` against older runtimes
+    or for failures the runtime didn't attribute to a MACP code.
     """
 
-    def __init__(self, message: str, *, code: str | None = None) -> None:
+    def __init__(
+        self, message: str, *, code: str | None = None, macp_code: str | None = None
+    ) -> None:
         self.code = code
+        self.macp_code = macp_code
         super().__init__(message)
 
 

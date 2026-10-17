@@ -13,7 +13,7 @@ from .base_projection import (
     ProjectionAnomaly,
 )
 from .base_session import BaseSession
-from .client import UNBOUNDED, InlineErrorCallback, MacpClient, MacpStream
+from .client import UNBOUNDED, InlineErrorCallback, MacpClient, MacpStream, macp_error_code
 from .commitment_hash import commitment_hash, is_canonical_commitment_hash
 from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
@@ -46,23 +46,29 @@ from .envelope import (
     serialize_message,
 )
 from .errors import (
+    AGENT_NOT_FOUND,
     DUPLICATE_MESSAGE,
     FORBIDDEN,
     INTERNAL_ERROR,
     INVALID_ENVELOPE,
     INVALID_POLICY_DEFINITION,
+    INVALID_REQUEST,
     INVALID_SESSION_ID,
+    KNOWN_DENY_CODES,
     MODE_NOT_SUPPORTED,
     PAYLOAD_TOO_LARGE,
     POLICY_DENIED,
     RATE_LIMITED,
+    REGISTRY_READ_ONLY,
     SESSION_ALREADY_EXISTS,
     SESSION_NOT_FOUND,
     SESSION_NOT_OPEN,
+    STREAM_LAGGED,
     UNAUTHENTICATED,
     UNKNOWN_POLICY_VERSION,
     UNSUPPORTED_PROTOCOL_VERSION,
     AckFailure,
+    ErrorDetails,
     MacpAckError,
     MacpIdentityMismatchError,
     MacpRetryError,
@@ -70,6 +76,8 @@ from .errors import (
     MacpSessionError,
     MacpTimeoutError,
     MacpTransportError,
+    PolicyDenial,
+    parse_error_details,
 )
 from .handoff import HandoffProjection, HandoffRecord, HandoffSession
 from .policy import (
@@ -147,6 +155,7 @@ from .watchers import (
 __version__ = _version("macp-sdk-python")
 
 __all__ = [
+    "AGENT_NOT_FOUND",
     "ANOMALY_DUPLICATE_BALLOT",
     "ANOMALY_DUPLICATE_TASK_ACCEPT",
     "ANOMALY_DUPLICATE_VOTE",
@@ -159,7 +168,9 @@ __all__ = [
     "INTERNAL_ERROR",
     "INVALID_ENVELOPE",
     "INVALID_POLICY_DEFINITION",
+    "INVALID_REQUEST",
     "INVALID_SESSION_ID",
+    "KNOWN_DENY_CODES",
     "MACP_VERSION",
     "MODE_DECISION",
     "MODE_HANDOFF",
@@ -171,10 +182,12 @@ __all__ = [
     "PAYLOAD_TOO_LARGE",
     "POLICY_DENIED",
     "RATE_LIMITED",
+    "REGISTRY_READ_ONLY",
     "SESSION_ALREADY_EXISTS",
     "SESSION_NOT_FOUND",
     "SESSION_NOT_OPEN",
     "STANDARD_MODES",
+    "STREAM_LAGGED",
     "TERMINAL_SESSION_LIFECYCLE_EVENT_NAMES",
     "UNAUTHENTICATED",
     "UNBOUNDED",
@@ -195,6 +208,7 @@ __all__ = [
     "DecisionProposalRecord",
     "DecisionSession",
     "DecisionVoteRecord",
+    "ErrorDetails",
     "EvaluationRules",
     "HandoffAcceptanceRules",
     "HandoffProjection",
@@ -213,6 +227,7 @@ __all__ = [
     "ModeRegistryWatcher",
     "ObjectionHandlingRules",
     "PolicyChange",
+    "PolicyDenial",
     "PolicyWatcher",
     "ProjectionAnomaly",
     "ProposalAcceptRecord",
@@ -258,10 +273,12 @@ __all__ = [
     "configure_logging",
     "infer_outcome_positive",
     "is_canonical_commitment_hash",
+    "macp_error_code",
     "new_commitment_id",
     "new_message_id",
     "new_session_id",
     "now_unix_ms",
+    "parse_error_details",
     "retry_send",
     "serialize_message",
     "validate_commitment_hash",

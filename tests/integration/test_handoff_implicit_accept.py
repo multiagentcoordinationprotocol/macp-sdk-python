@@ -32,14 +32,13 @@ the assertion message names the version requirement.
 
 from __future__ import annotations
 
-import queue
 import time
 import uuid
 
 import pytest
 from macp.v1 import envelope_pb2
 
-from macp_sdk import AuthConfig, HandoffSession, MacpStream, new_session_id
+from macp_sdk import AuthConfig, HandoffSession, MacpStream, MacpTimeoutError, new_session_id
 from macp_sdk.policy import HandoffAcceptanceRules, build_handoff_policy
 from tests.integration.conftest import make_client
 
@@ -61,7 +60,7 @@ def _wait_for_message_type(
     while time.time() < deadline:
         try:
             env = stream.read(timeout=1.0)
-        except queue.Empty:
+        except MacpTimeoutError:
             continue
         if env is None:
             return None
