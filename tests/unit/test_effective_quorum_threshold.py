@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 from macp.modes.quorum.v1 import quorum_pb2
@@ -136,3 +137,23 @@ class TestProjectionHelpersHonourEffectiveThreshold:
         assert not p.is_threshold_unreachable("nope", 3, effective_threshold=5)
         assert p.threshold("nope", effective_threshold=5) == 0
         assert p.remaining_votes_needed("nope", effective_threshold=5) == 0
+
+    def test_unsatisfiable_verdict_survives_pass_through(self):
+        # effective_quorum_threshold returns None for "unsatisfiable"; passing
+        # it straight in must read as an infinite bar, not as "no override".
+        p = self._proj(required=0)
+        t = effective_quorum_threshold(_rules("percentage", 50), 0, 0)
+        assert t is None
+        assert p.has_quorum("r1")  # payload bar of 0 is met
+        assert not p.has_quorum("r1", effective_threshold=t)
+        assert not p.commitment_ready("r1", effective_threshold=t)
+        assert p.is_threshold_unreachable("r1", 0, effective_threshold=t)
+        assert p.threshold("r1", effective_threshold=t) == math.inf
+        assert p.remaining_votes_needed("r1", effective_threshold=t) == math.inf
+
+    def test_unknown_request_wins_over_unsatisfiable(self):
+        p = QuorumProjection()
+        assert not p.has_quorum("nope", effective_threshold=None)
+        assert not p.is_threshold_unreachable("nope", 3, effective_threshold=None)
+        assert p.threshold("nope", effective_threshold=None) == 0
+        assert p.remaining_votes_needed("nope", effective_threshold=None) == 0

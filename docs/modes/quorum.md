@@ -71,12 +71,16 @@ policy = build_quorum_policy("policy.q5", "5 of m", threshold=QuorumThreshold(ty
 req = proj.requests[request_id]
 t = effective_quorum_threshold(policy, len(participants), req.required_approvals)
 
-if t is None:
-    ...  # unsatisfiable (percentage with no participants, or an unknown type)
-elif proj.is_threshold_unreachable(request_id, len(participants), effective_threshold=t):
+if proj.is_threshold_unreachable(request_id, len(participants), effective_threshold=t):
     session.commit(action="quorum.rejected", authority_scope="ops",
                    reason="threshold unreachable", outcome_positive=False)
 ```
+
+Pass `t` through unchanged. `effective_quorum_threshold` returns `None` when the threshold is
+unsatisfiable (a percentage with no participants, or an unknown type), and the helpers treat
+an explicit `effective_threshold=None` as a bar no count can reach: `is_threshold_unreachable`
+is `True`, `has_quorum`/`commitment_ready` are `False`, and `threshold`/`remaining_votes_needed`
+return `math.inf`. Leave the argument out for no override.
 
 `effective_quorum_threshold` ports the runtime's arithmetic exactly. A percentage is
 `ceil(value × participants / 100)` computed with integers, and the result is never less
