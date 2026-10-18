@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 from google.protobuf import symbol_database
@@ -380,3 +381,33 @@ def test_reject_messages_are_well_formed(name: str, fixture: dict):
             f"{name}: reject message {msg['message_type']} carries "
             f"payload_type {msg['payload_type']!r}, which this SDK cannot build"
         )
+
+
+# ── Per-fixture semantic assertions (runtime 0.9.0, semantics_rev 4) ────────
+#
+# The generic replay above checks phase/commitment only. These pin the mode
+# state the rev-4 reject-path fixtures exist to exercise.
+
+_FIXTURES_BY_NAME = dict(FIXTURES)
+
+
+def _replay_accepted(name: str) -> tuple[dict, Any]:
+    fixture = _FIXTURES_BY_NAME[name]
+    projection = MODE_PROJECTIONS[fixture["mode"]]()
+    for msg in fixture["messages"]:
+        if msg.get("expect") == "accept":
+            projection.apply_envelope(_build_envelope(fixture["mode"], msg, "conformance-session"))
+    return fixture, projection
+
+
+@pytest.mark.conformance
+def test_task_reject_paths_personal_decline():
+    """RFC-MACP-0009 §5 rule 2a: w1's pre-assignment decline is personal --
+    the task stays open, w2 accepts, w1 is barred."""
+    _, projection = _replay_accepted("task_reject_paths")
+    assert projection.declined_participants() == ["agent://w1"]
+    assert projection.rejections[0].while_assigned is False
+    assert projection.active_assignment == ("agent://w2", "t1")
+    assert not projection.can_accept("agent://w1")
+    assert projection.current_status("t1") == "in_progress"
+    assert not projection.is_committed
