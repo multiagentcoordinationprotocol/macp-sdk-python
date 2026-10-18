@@ -167,25 +167,42 @@ class QuorumProjection(BaseProjection):
     def abstention_count(self, request_id: str) -> int:
         return self._count_votes(request_id, "abstain")
 
-    def has_quorum(self, request_id: str) -> bool:
+    def _required(self, request_id: str, effective_threshold: int | None) -> int | None:
+        """The approval bar: *effective_threshold* if given, else the payload's."""
+        req = self.requests.get(request_id)
+        if req is None:
+            return None
+        return req.required_approvals if effective_threshold is None else effective_threshold
+
+    def has_quorum(self, request_id: str, *, effective_threshold: int | None = None) -> bool:
         """True if the approval count has reached the required threshold.
 
         Canonical name across SDKs (parity with TypeScript ``hasQuorum``).
+        Pass *effective_threshold* (from
+        :func:`~macp_sdk.policy.effective_quorum_threshold`) when a bound
+        policy's ``threshold`` overrides ``required_approvals``.
         """
-        req = self.requests.get(request_id)
-        if req is None:
+        required = self._required(request_id, effective_threshold)
+        if required is None:
             return False
-        return self.approval_count(request_id) >= req.required_approvals
+        return self.approval_count(request_id) >= required
 
-    def is_threshold_unreachable(self, request_id: str, total_eligible: int) -> bool:
-        """True if remaining possible approvals cannot reach the threshold."""
-        req = self.requests.get(request_id)
-        if req is None:
+    def is_threshold_unreachable(
+        self, request_id: str, total_eligible: int, *, effective_threshold: int | None = None
+    ) -> bool:
+        """True if remaining possible approvals cannot reach the threshold.
+
+        Under a policy ``threshold`` override above the participant count
+        (runtime >= 0.9.0, S4) this is True before any ballot -- pass
+        *effective_threshold* to see it.
+        """
+        required = self._required(request_id, effective_threshold)
+        if required is None:
             return False
         remaining = total_eligible - len(self.voted_senders(request_id))
-        return self.approval_count(request_id) + remaining < req.required_approvals
+        return self.approval_count(request_id) + remaining < required
 
-    def commitment_ready(self, request_id: str) -> bool:
+    def commitment_ready(self, request_id: str, *, effective_threshold: int | None = None) -> bool:
         """True if quorum is reached and commit has not yet been issued.
 
         Canonical cross-SDK semantics (parity with TypeScript
@@ -195,24 +212,29 @@ class QuorumProjection(BaseProjection):
         happened. Callers that want the pure threshold-reached check
         should use :meth:`has_quorum`.
         """
-        return self.has_quorum(request_id) and self.phase != "Committed"
+        return (
+            self.has_quorum(request_id, effective_threshold=effective_threshold)
+            and self.phase != "Committed"
+        )
 
-    def threshold(self, request_id: str) -> int:
+    def threshold(self, request_id: str, *, effective_threshold: int | None = None) -> int:
         """Return the required approval count, or 0 if no request yet."""
-        req = self.requests.get(request_id)
-        return req.required_approvals if req else 0
+        required = self._required(request_id, effective_threshold)
+        return required if required is not None else 0
 
     def voted_senders(self, request_id: str) -> list[str]:
         """Return list of senders who have cast a ballot for this request."""
         sender_map = self.ballots.get(request_id)
         return list(sender_map.keys()) if sender_map else []
 
-    def remaining_votes_needed(self, request_id: str) -> int:
+    def remaining_votes_needed(
+        self, request_id: str, *, effective_threshold: int | None = None
+    ) -> int:
         """Return how many more approvals are needed to reach quorum."""
-        req = self.requests.get(request_id)
-        if req is None:
+        required = self._required(request_id, effective_threshold)
+        if required is None:
             return 0
-        return max(0, req.required_approvals - self.approval_count(request_id))
+        return max(0, required - self.approval_count(request_id))
 
 
 # ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ Commitment → RESOLVED
 ### Key semantics
 
 - At most **one ApprovalRequest** per session (v1)
-- `required_approvals` must be > 0 and ≤ participant count
+- `required_approvals` (the payload field) must be > 0 and ≤ participant count. A bound policy's `threshold` override is **not** bounded by participant count (RFC-MACP-0011 §5 rule 6, runtime ≥ 0.9.0). See [Policy threshold overrides](#policy-threshold-overrides)
 - Each participant casts at most **one ballot** — the first ballot stands and later ballots from the same sender are discarded (see ["First ballot stands"](#first-ballot-stands) below)
 
 > **`threshold` is the approval bar, not a participation quorum (RFC-MACP-0012 §4.2).** When you override `required_approvals` with a bound policy via `build_quorum_policy(threshold=QuorumThreshold(...))`, the `threshold.value` is an **integer**: an approval *count* for `type="n_of_m"`, and an integer *percentage 1-100* for `type="percentage"` (rounded up to an effective approval count: `ceil(value * declared_participant_count / 100)`). There is no separate participation quorum in schema_version ≤ 3. The identifier `"weighted"` some earlier drafts mentioned for `type` is **reserved** — it was removed from the canonical schema without ever having defined semantics and must not be used. `build_quorum_policy` rejects a non-integer value (e.g. a fractional `0.75`), a zero or negative value, a `percentage` value over `100`, and any `type` other than `"n_of_m"`/`"percentage"` — all with `MacpSessionError` — matching the runtime's schema so a bad descriptor fails immediately instead of round-tripping through `RegisterPolicy`.
@@ -50,7 +50,39 @@ Commitment → RESOLVED
 
 ## Authorization & termination
 
-Per-message authorization and the runtime's commitment-readiness check (threshold reached *or* mathematically unreachable) are defined in [Runtime Modes § Quorum Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#quorum-mode). `proj.commitment_ready(request_id)` mirrors the threshold-reached half of that check on the SDK side (and folds in "not already committed"); pair it with `proj.is_threshold_unreachable(request_id, total_eligible)` for the mathematically-unreachable half before calling `commit()`.
+Per-message authorization and the runtime's commitment-readiness check (threshold reached *or* mathematically unreachable) are defined in [Runtime Modes § Quorum Mode](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#quorum-mode). `proj.commitment_ready(request_id)` mirrors the threshold-reached half of that check on the SDK side (and folds in "not already committed"); pair it with `proj.is_threshold_unreachable(request_id, total_eligible)` for the mathematically-unreachable half before calling `commit()`. When a policy is bound, pass `effective_threshold=` to both, or they check the wrong bar. See [Policy threshold overrides](#policy-threshold-overrides).
+
+## Policy threshold overrides
+
+From runtime 0.9.0 (S4), a bound policy's `threshold` **replaces** the `ApprovalRequest`'s
+`required_approvals` as given, even when it is above the participant count. A
+`n_of_m` override of 5 over 3 participants can never be met, so a negative Commitment is
+eligible immediately, before any ballot.
+
+The projection only sees the payload's `required_approvals`. Compute the effective bar with
+`effective_quorum_threshold` and pass it to the readiness helpers. Every helper
+(`has_quorum`, `is_threshold_unreachable`, `commitment_ready`, `threshold`,
+`remaining_votes_needed`) takes it as a keyword argument:
+
+```python
+from macp_sdk import QuorumThreshold, build_quorum_policy, effective_quorum_threshold
+
+policy = build_quorum_policy("policy.q5", "5 of m", threshold=QuorumThreshold(type="n_of_m", value=5))
+req = proj.requests[request_id]
+t = effective_quorum_threshold(policy, len(participants), req.required_approvals)
+
+if t is None:
+    ...  # unsatisfiable (percentage with no participants, or an unknown type)
+elif proj.is_threshold_unreachable(request_id, len(participants), effective_threshold=t):
+    session.commit(action="quorum.rejected", authority_scope="ops",
+                   reason="threshold unreachable", outcome_positive=False)
+```
+
+`effective_quorum_threshold` ports the runtime's arithmetic exactly. A percentage is
+`ceil(value × participants / 100)` computed with integers, and the result is never less
+than 1. It returns `required_approvals` when no override applies, which covers no policy,
+no `threshold`, and `value <= 0`. Sessions started on a runtime older than 0.9.0 refused
+an over-count override at `ApprovalRequest` instead.
 
 ## Session helper
 
