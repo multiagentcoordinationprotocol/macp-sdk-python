@@ -56,6 +56,22 @@ prefixed string from a TypeScript-written log, normalise it first:
 """
 
 
+@dataclass(frozen=True, slots=True)
+class SignalEvent:
+    """A single ambient Signal from ``WatchSignals``, with its auth status.
+
+    ``sender_authenticated`` is ``True`` only when the runtime explicitly
+    reported that the Signal's ``envelope.sender`` was authenticated
+    (RFC-MACP-0004 §4.1, runtime ≥ 0.9.0). A runtime that predates the field
+    leaves it at the proto3 default, so every Signal from it reads as
+    unauthenticated -- the safe direction. Subscribers must not let a Signal
+    with ``sender_authenticated=False`` drive behaviour that trusts its sender.
+    """
+
+    envelope: Any
+    sender_authenticated: bool
+
+
 @dataclass(slots=True)
 class SessionLifecycleEvent:
     """A single session lifecycle event from ``WatchSessions``.
@@ -175,6 +191,10 @@ class SignalWatcher:
     def signals(self) -> Generator[Any, None, None]:
         """Yield envelope objects extracted from ``WatchSignalsResponse``.
 
+        The bare envelope does not say whether its ``sender`` was
+        authenticated (RFC-MACP-0004 §4.1); use :meth:`events` when that
+        matters.
+
         Forwards the watcher's stored ``auth`` — runtime v0.5.0 requires
         authentication for ``WatchSignals``.
 
@@ -189,6 +209,23 @@ class SignalWatcher:
             for response in responses:
                 if hasattr(response, "envelope") and response.envelope.ByteSize() > 0:
                     yield response.envelope
+
+    def events(self) -> Generator[SignalEvent, None, None]:
+        """Yield :class:`SignalEvent` items carrying ``sender_authenticated``.
+
+        Same stream, auth forwarding and empty-envelope filtering as
+        :meth:`signals`. Only an explicit ``True`` on the wire counts as
+        authenticated; an absent field (pre-0.9 runtime, or an older
+        macp-proto without it) yields ``False``.
+        """
+        with closing(self._client.watch_signals(auth=self._auth)) as responses:
+            for response in responses:
+                if hasattr(response, "envelope") and response.envelope.ByteSize() > 0:
+                    yield SignalEvent(
+                        envelope=response.envelope,
+                        sender_authenticated=getattr(response, "sender_authenticated", False)
+                        is True,
+                    )
 
     def watch(self, handler: Callable[[Any], None]) -> None:
         """Block and invoke *handler* for each signal envelope."""

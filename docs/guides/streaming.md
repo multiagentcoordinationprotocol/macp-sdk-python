@@ -246,6 +246,19 @@ for envelope in SignalWatcher(client).signals():
     print(envelope.message_type, envelope.sender)
 ```
 
+A bare envelope does not say whether its `sender` was authenticated
+(RFC-MACP-0004 §4.1). Use `events()` when it matters: each `SignalEvent`
+carries `envelope` and `sender_authenticated`. Only an explicit `true` from
+the runtime (≥ 0.9.0) counts; an older runtime reports every Signal as
+unauthenticated, so do not let `sender_authenticated=False` drive trust
+decisions.
+
+```python
+for event in SignalWatcher(client, auth=auth).events():
+    if event.sender_authenticated:
+        handle_trusted(event.envelope)
+```
+
 ## Known limitations
 
 - **Single session per stream** — each `MacpStream` is scoped to one session. Open multiple streams for multiple sessions, or use `SessionLifecycleWatcher` for cross-session observability.

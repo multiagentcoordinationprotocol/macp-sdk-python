@@ -17,6 +17,7 @@ import os
 import threading
 import time
 
+import grpc
 import pytest
 
 from macp_sdk import (
@@ -24,6 +25,8 @@ from macp_sdk import (
     MacpClient,
     MacpTimeoutError,
     MacpTransportError,
+    SignalEvent,
+    SignalWatcher,
     TaskSession,
     build_contribute_payload,
     build_envelope,
@@ -126,6 +129,40 @@ class TestWatchSignalsAuth:
             t.join(timeout=6.0)
 
             assert received, f"watcher received no signal (errors={errors!r})"
+        finally:
+            watcher_client.close()
+            sender_client.close()
+
+    def test_signal_events_report_sender_authenticated(self) -> None:
+        """``SignalWatcher.events()`` surfaces ``sender_authenticated``. The dev
+        runtime binds the bearer verbatim (not a verified identity) and a
+        pre-0.9 runtime omits the field, so both read as ``False``."""
+        watcher_client = _client("watcher")
+        sender_client = _client("emitter")
+        try:
+            watcher_client.initialize()
+            received: list[SignalEvent] = []
+            errors: list[Exception] = []
+
+            def _watch() -> None:
+                try:
+                    for event in SignalWatcher(
+                        watcher_client, auth=AuthConfig.for_dev_agent("watcher")
+                    ).events():
+                        received.append(event)
+                        return
+                except (MacpTransportError, grpc.RpcError) as exc:
+                    errors.append(exc)
+
+            t = threading.Thread(target=_watch, daemon=True)
+            t.start()
+            time.sleep(0.5)  # let the watch stream establish
+            sender_client.send_signal(signal_type="ping", data=b"hi", sender="emitter")
+            t.join(timeout=6.0)
+
+            assert received, f"watcher received no signal (errors={errors!r})"
+            assert received[0].envelope.sender == "emitter"
+            assert received[0].sender_authenticated is False
         finally:
             watcher_client.close()
             sender_client.close()
