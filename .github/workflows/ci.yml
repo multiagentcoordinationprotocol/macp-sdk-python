@@ -37,7 +37,6 @@ jobs:
         env:
           # The image deliberately omits MACP_ALLOW_INSECURE; without it the
           # runtime refuses to start and the readiness poll below fails.
-          MACP_ALLOW_INSECURE: "1"
           MACP_MEMORY_ONLY: "1"
           MACP_BIND_ADDR: "0.0.0.0:50051"
         ports: ["50051:50051"]
