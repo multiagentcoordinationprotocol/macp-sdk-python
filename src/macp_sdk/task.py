@@ -56,6 +56,12 @@ class TaskRejectRecord:
     assignee: str
     reason: str
     sender: str = ""
+    # True when the rejecter held the active assignment (RFC-MACP-0009 §5
+    # rule 3c: the assignee gave the task back); False for a pre-assignment
+    # personal decline (rule 2a, runtime >= 0.9.0), which leaves the task
+    # open for the other participants. Mirrors the runtime's
+    # ``TaskRejectRecord.while_assigned``.
+    while_assigned: bool = False
 
 
 @dataclass(slots=True)
@@ -183,6 +189,12 @@ class TaskProjection(BaseProjection):
             # unconditional check on sender alone (task.ts:158-161) — a
             # slot-holder's TaskReject naming an unknown task_id still frees
             # their held slot.
+            # Computed before the slot is freed (runtime task.rs: the same
+            # order). Only the active assignee's reject (rule 3c) marks the
+            # task "rejected"; a pre-assignment reject is a personal decline
+            # (RFC-MACP-0009 §5 rule 2a) and leaves the task "requested".
+            slot = self.active_assignment
+            while_assigned = slot is not None and slot[0] == envelope.sender
             self.rejections.append(
                 TaskRejectRecord(
                     task_id=p.task_id,
@@ -192,12 +204,12 @@ class TaskProjection(BaseProjection):
                     assignee=p.assignee or envelope.sender,
                     reason=p.reason,
                     sender=envelope.sender,
+                    while_assigned=while_assigned,
                 )
             )
-            if p.task_id in self.tasks:
+            if while_assigned and p.task_id in self.tasks:
                 self.tasks[p.task_id].status = "rejected"
-            slot = self.active_assignment
-            if slot is not None and slot[0] == envelope.sender:
+            if slot is not None and while_assigned:
                 held = self.tasks.get(slot[1])
                 if held is not None:
                     held.assignee = None
@@ -317,6 +329,55 @@ class TaskProjection(BaseProjection):
         """
         active_statuses = {"requested", "accepted", "in_progress"}
         return [t for t in self.tasks.values() if t.status in active_statuses]
+
+    # -- Personal declines (RFC-MACP-0009 §5 rule 2a, runtime >= 0.9.0) --
+    #
+    # Advisory: these model the runtime's rev-4 rules from what this
+    # projection has seen. A projection that joined mid-session may be
+    # partial, and sessions started on a runtime < 0.9.0 keep the earlier
+    # rule (any prior reject gates every later accept). The runtime stays
+    # authoritative.
+
+    def has_declined(self, participant: str) -> bool:
+        """True if *participant* has sent a TaskReject (either kind)."""
+        return any(r.assignee == participant for r in self.rejections)
+
+    def declined_participants(self) -> list[str]:
+        """Participants that sent a TaskReject, in arrival order, de-duplicated."""
+        return list(dict.fromkeys(r.assignee for r in self.rejections))
+
+    def can_accept(self, participant: str) -> bool:
+        """True if *participant* may still send TaskAccept.
+
+        The assignee slot must be free and *participant* must not have
+        declined (rule 2a). Does not evaluate the bound policy's
+        ``allow_reassignment_on_reject``, which the runtime also requires
+        after an active assignee gave the task back.
+        """
+        return self.active_assignment is None and not self.has_declined(participant)
+
+    def negative_commit_eligible(self, task_id: str) -> bool:
+        """True if a negative Commitment is eligible for *task_id*.
+
+        Either a terminal report (TaskComplete/TaskFail) exists, or the
+        named ``requested_assignee`` declined before accepting and no one
+        holds the slot (rule 2a), leaving no eligible assignee.
+        """
+        rec = self.tasks.get(task_id)
+        if rec is None:
+            return False
+        if any(c.task_id == task_id for c in self.completions) or any(
+            f.task_id == task_id for f in self.failures
+        ):
+            return True
+        return (
+            bool(rec.requested_assignee)
+            and self.active_assignment is None
+            and any(
+                r.assignee == rec.requested_assignee and not r.while_assigned
+                for r in self.rejections
+            )
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,10 @@ The requester **directs** the assignee. Roles are asymmetric:
 - **Requester** (session initiator): Creates the task, receives results, commits outcome
 - **Assignee** (worker): Accepts/rejects the task, reports progress and completion/failure
 
+A `TaskReject` sent **before** anyone accepts is a *personal decline* (RFC-MACP-0009 §5
+rule 2a, runtime ≥ 0.9.0). The decliner can never accept afterwards, but other participants
+still can. See [Personal declines](#personal-declines) below.
+
 ## Determinism: structural-only
 
 Session lifecycle transitions (OPEN → RESOLVED) are deterministic on replay. However, the **semantic outcome** (the actual task output) is **not guaranteed** — the assignee's external execution may produce different results on replay.
@@ -165,6 +169,8 @@ proj.get_task(task_id).deadline_unix_ms   # optional soft deadline, or 0
 proj.get_task(task_id).input              # bytes payload the request carried
 proj.get_task(task_id).status     # "requested" | "accepted" | "in_progress" |
                                    # "completed" | "failed" | "rejected"
+                                   # ("rejected" = the active assignee gave the
+                                   # task back; a personal decline keeps "requested")
 proj.get_task(task_id).progress   # 0.0-1.0
 proj.get_task(task_id).assignee   # str or None -- who actually accepted (may
                                    # differ from requested_assignee above)
@@ -185,6 +191,14 @@ proj.is_accepted(task_id)         # status in {"accepted", "in_progress"}
 proj.is_completed(task_id)        # status == "completed"
 proj.is_failed(task_id)           # status == "failed"
 proj.is_retryable(task_id)        # True if it failed with retryable=True
+
+# Personal declines (rule 2a) -- advisory, see the section below
+proj.has_declined("w1")           # True if w1 sent a TaskReject
+proj.can_accept("w2")             # slot free and w2 has not declined
+proj.declined_participants()      # ["w1"] -- arrival order, de-duplicated
+proj.negative_commit_eligible(task_id)  # terminal report, or the named
+                                         # requested_assignee declined
+proj.rejections[-1].while_assigned  # True = the active assignee gave it back
 
 # Full audit trails
 proj.updates                      # list[TaskUpdateRecord]
@@ -214,6 +228,36 @@ proj.phase                        # "Pending" | "Requested" | "InProgress" |
 > record objects, not copies.** Treat them as read-only — mutating a
 > returned `TaskRecord` mutates the projection's internal state directly
 > (same as `ProposalProjection`'s equivalent accessors).
+
+## Personal declines
+
+From runtime 0.9.0 (`semantics_rev` 4), a `TaskReject` means one of two things, and the
+projection tells them apart with `TaskRejectRecord.while_assigned`:
+
+| Who rejects | `while_assigned` | Effect |
+|---|---|---|
+| A participant before anyone accepted (rule 2a) | `False` | A personal decline. The task stays `"requested"`, and the decliner can never accept it. Others still can. |
+| The active assignee (rule 3c, requires `allow_reassignment_on_reject`) | `True` | The assignee gives the task back. The slot frees up and the task is marked `"rejected"`. |
+
+If the task named a `requested_assignee` and that participant declines, no one is eligible
+to accept it. A negative `Commitment` then becomes eligible without a terminal report,
+and `negative_commit_eligible(task_id)` returns `True`.
+
+```python
+proj = session.task_projection
+if proj.negative_commit_eligible("t1"):
+    session.commit(action="task.declined", authority_scope="team", reason="assignee declined",
+                   outcome_positive=False)
+```
+
+`has_declined`, `can_accept` and `negative_commit_eligible` are advisory. They model the
+rev-4 rules from what this projection has seen, and the runtime stays authoritative. A
+refused `TaskAccept` from a decliner comes back as `MacpAckError` with code
+`INVALID_ENVELOPE`. `can_accept` does not evaluate the bound policy's
+`allow_reassignment_on_reject`, which the runtime also requires after an active assignee
+gave the task back. Sessions started on a runtime older than 0.9.0 follow the earlier rule:
+any prior reject gates every later accept. See the runtime's
+[Task mode notes](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/modes.md#task-mode).
 
 ## Handling task failures
 

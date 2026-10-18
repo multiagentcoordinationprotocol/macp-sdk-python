@@ -632,10 +632,10 @@ class TestTaskProjection:
         assert p.current_status("t1") == "in_progress"
         assert p.progress_of("t1") == 0.5
 
-    def test_reject_from_non_slot_holder_sets_status_but_keeps_slot(self):
+    def test_reject_from_non_slot_holder_is_a_personal_decline(self):
         """A TaskReject(task_id=B) from a sender who does NOT hold the
-        session's slot still sets B's status to 'rejected' (gated only on
-        B being a known task) but must not clear the slot-holder's assignee.
+        session's slot is a personal decline (RFC-MACP-0009 §5 rule 2a): B
+        stays 'requested' and the slot-holder's assignee is untouched.
         """
         p = self._proj()
         for task_id in ("A", "B"):
@@ -664,7 +664,8 @@ class TestTaskProjection:
                 sender="worker2",
             )
         )
-        assert p.current_status("B") == "rejected"
+        assert p.current_status("B") == "requested"
+        assert p.rejections[-1].while_assigned is False
         assert p.current_assignee("A") == "worker1"
 
     def test_reject_from_slot_holder_frees_held_task_not_named_task(self):
@@ -1092,3 +1093,94 @@ class TestTaskSubRecordSender:
         """
         record = record_cls(**self._REQUIRED_KWARGS[record_cls])
         assert record.sender == ""
+
+
+def _task_env(message_type: str, payload: object, sender: str) -> core_pb2.Envelope:
+    return make_envelope(MODE_TASK, message_type, payload, sender=sender)
+
+
+class TestPersonalDecline:
+    """RFC-MACP-0009 §5 rule 2a (runtime >= 0.9.0, semantics_rev 4)."""
+
+    def _requested(self, requested_assignee: str = "") -> TaskProjection:
+        p = TaskProjection()
+        p.apply_envelope(
+            _task_env(
+                "TaskRequest",
+                task_pb2.TaskRequestPayload(
+                    task_id="t", title="x", requested_assignee=requested_assignee
+                ),
+                "planner",
+            )
+        )
+        return p
+
+    def _reject(self, p: TaskProjection, sender: str) -> None:
+        p.apply_envelope(
+            _task_env("TaskReject", task_pb2.TaskRejectPayload(task_id="t", reason="no"), sender)
+        )
+
+    def _accept(self, p: TaskProjection, sender: str) -> None:
+        p.apply_envelope(_task_env("TaskAccept", task_pb2.TaskAcceptPayload(task_id="t"), sender))
+
+    def test_broadcast_decline_leaves_task_open_for_others(self):
+        p = self._requested()
+        self._reject(p, "w1")
+        assert p.current_status("t") == "requested"
+        assert p.has_declined("w1")
+        assert not p.can_accept("w1")
+        assert p.can_accept("w2")
+        assert p.rejections[0].while_assigned is False
+        self._accept(p, "w2")
+        assert p.current_status("t") == "accepted"
+        assert p.active_assignment == ("w2", "t")
+        assert not p.can_accept("w3")  # slot held
+
+    def test_named_assignee_decline_makes_negative_commit_eligible(self):
+        p = self._requested("w1")
+        assert not p.negative_commit_eligible("t")
+        self._reject(p, "w1")
+        assert p.rejections[0].while_assigned is False
+        assert p.negative_commit_eligible("t")
+
+    def test_other_participant_decline_does_not_make_named_task_eligible(self):
+        p = self._requested("w1")
+        self._reject(p, "w2")
+        assert not p.negative_commit_eligible("t")
+
+    def test_broadcast_decline_is_not_negative_commit_eligible(self):
+        p = self._requested()
+        self._reject(p, "w1")
+        assert not p.negative_commit_eligible("t")
+
+    def test_terminal_report_makes_negative_commit_eligible(self):
+        p = self._requested()
+        self._accept(p, "w1")
+        p.apply_envelope(
+            _task_env("TaskFail", task_pb2.TaskFailPayload(task_id="t", reason="boom"), "w1")
+        )
+        assert p.negative_commit_eligible("t")
+        q = self._requested()
+        self._accept(q, "w1")
+        q.apply_envelope(_task_env("TaskComplete", task_pb2.TaskCompletePayload(task_id="t"), "w1"))
+        assert q.negative_commit_eligible("t")
+
+    def test_unknown_task_is_not_eligible(self):
+        assert not TaskProjection().negative_commit_eligible("nope")
+
+    def test_active_assignee_reject_marks_rejected_and_frees_slot(self):
+        p = self._requested("w1")
+        self._accept(p, "w1")
+        self._reject(p, "w1")
+        assert p.current_status("t") == "rejected"
+        assert p.active_assignment is None
+        assert p.current_assignee("t") is None
+        assert p.rejections[0].while_assigned is True
+        # A give-back is not a pre-assignment decline: no rule-2a eligibility.
+        assert not p.negative_commit_eligible("t")
+
+    def test_declined_participants_ordered_and_deduplicated(self):
+        p = self._requested()
+        for sender in ("w2", "w1", "w2"):
+            self._reject(p, sender)
+        assert p.declined_participants() == ["w2", "w1"]
