@@ -154,6 +154,7 @@ from .watchers import (
     RootsWatcher,
     SessionLifecycleEvent,
     SessionLifecycleWatcher,
+    SignalEvent,
     SignalWatcher,
 )
 
@@ -250,6 +251,7 @@ __all__ = [
     "RootsWatcher",
     "SessionLifecycleEvent",
     "SessionLifecycleWatcher",
+    "SignalEvent",
     "SignalWatcher",
     "TaskAssignmentRules",
     "TaskCompleteRecord",

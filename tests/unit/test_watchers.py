@@ -27,6 +27,7 @@ from macp_sdk.watchers import (
     RootsWatcher,
     SessionLifecycleEvent,
     SessionLifecycleWatcher,
+    SignalEvent,
     SignalWatcher,
 )
 from tests.conftest import FakeRpcError
@@ -104,6 +105,41 @@ def _fake_signal_response(envelope_bytesize: int) -> MagicMock:
 
 
 class TestSignalWatcher:
+    def test_events_carry_sender_authenticated_from_real_proto(self):
+        from macp.v1 import core_pb2, envelope_pb2
+
+        def resp(authed: bool) -> core_pb2.WatchSignalsResponse:
+            return core_pb2.WatchSignalsResponse(
+                envelope=envelope_pb2.Envelope(message_type="Signal", sender="a"),
+                sender_authenticated=authed,
+            )
+
+        authed, unauthed = resp(True), resp(False)
+        client = _client_with_stream(
+            "watch_signals", [core_pb2.WatchSignalsResponse(), authed, unauthed]
+        )
+        events = list(SignalWatcher(client).events())
+        assert events == [
+            SignalEvent(envelope=authed.envelope, sender_authenticated=True),
+            SignalEvent(envelope=unauthed.envelope, sender_authenticated=False),
+        ]
+
+    def test_events_missing_or_non_bool_field_is_unauthenticated(self):
+        # A pre-0.9 response (field absent) or anything other than an
+        # explicit ``True`` must read as unauthenticated.
+        absent = MagicMock(spec=["envelope"])
+        absent.envelope.ByteSize.return_value = 4
+        truthy = _fake_signal_response(4)  # MagicMock attr: truthy but not True
+        client = _client_with_stream("watch_signals", [absent, truthy])
+        events = list(SignalWatcher(client).events())
+        assert [e.sender_authenticated for e in events] == [False, False]
+        assert events[0].envelope is absent.envelope
+
+    def test_signal_event_is_frozen(self):
+        event = SignalEvent(envelope=None, sender_authenticated=False)
+        with pytest.raises(AttributeError):
+            event.sender_authenticated = True  # type: ignore[misc]
+
     def test_signals_yields_only_populated_envelopes(self):
         empty = _fake_signal_response(0)
         full1 = _fake_signal_response(10)
