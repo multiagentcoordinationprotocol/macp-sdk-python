@@ -59,6 +59,9 @@ From runtime 0.9.0 (S4), a bound policy's `threshold` **replaces** the `Approval
 `n_of_m` override of 5 over 3 participants can never be met, so a negative Commitment is
 eligible immediately, before any ballot.
 
+This models `semantics_rev` 4. A session started on a runtime older than 0.9.0 follows the
+earlier rule and refuses an override above the participant count.
+
 The projection only sees the payload's `required_approvals`. Compute the effective bar with
 `effective_quorum_threshold` and pass it to the readiness helpers. Every helper
 (`has_quorum`, `is_threshold_unreachable`, `commitment_ready`, `threshold`,

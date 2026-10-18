@@ -1,0 +1,11 @@
+{
+  "policy_id": "policy.sdk-it.quorum-two-of-m",
+  "mode": "macp.mode.quorum.v1",
+  "description": "Preloaded via MACP_POLICIES_DIR for the read-only registry integration test.",
+  "rules": {
+    "threshold": {"type": "n_of_m", "value": 2},
+    "abstention": {"counts_toward_quorum": false, "interpretation": "neutral"},
+    "commitment": {"authority": "initiator_only", "designated_roles": []}
+  },
+  "schema_version": 1
+}

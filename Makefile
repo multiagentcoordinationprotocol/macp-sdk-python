@@ -1,4 +1,4 @@
-.PHONY: help setup lint fmt typecheck test test-integration test-conformance test-parity test-all coverage build sync-fixtures verify-fixtures sync-parity verify-parity lint-fixtures dev-link-protos
+.PHONY: help setup lint fmt typecheck test test-integration test-integration-docker test-conformance test-parity test-all coverage build sync-fixtures verify-fixtures sync-parity verify-parity lint-fixtures dev-link-protos
 
 SPEC_CONFORMANCE_DIR := ../multiagentcoordinationprotocol/schemas/conformance
 SPEC_PARITY_DIR := ../multiagentcoordinationprotocol/schemas/parity
@@ -28,6 +28,23 @@ test:  ## Run unit tests with the coverage gate (fail_under from pyproject).
 
 test-integration:  ## Run integration tests (requires a running MACP runtime).
 	pytest tests/integration/ -v -m integration
+
+RUNTIME_IMAGE := ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+
+test-integration-docker:  ## Run integration tests against the CI-pinned runtime image (needs docker).
+	docker rm -f macp-sdk-it macp-sdk-it-ro >/dev/null 2>&1 || true
+	docker run -d --name macp-sdk-it -p 50061:50051 -e MACP_ALLOW_INSECURE=1 \
+		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 $(RUNTIME_IMAGE)
+	docker run -d --name macp-sdk-it-ro -p 50062:50051 -e MACP_ALLOW_INSECURE=1 \
+		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 -e MACP_POLICIES_DIR=/policies \
+		-v "$(CURDIR)/tests/integration/fixtures/policies:/policies:ro" $(RUNTIME_IMAGE)
+	for port in 50061 50062; do \
+		for i in $$(seq 1 30); do nc -z localhost $$port && break; sleep 1; done; \
+		nc -z localhost $$port || { echo "runtime on :$$port never became ready"; exit 1; }; \
+	done
+	MACP_RUNTIME_TARGET=127.0.0.1:50061 MACP_TEST_READ_ONLY_REGISTRY=127.0.0.1:50062 \
+		pytest tests/integration/ -m integration -p no:randomly --strict-markers --no-cov -v -rs; \
+		status=$$?; docker rm -f macp-sdk-it macp-sdk-it-ro >/dev/null; exit $$status
 
 test-conformance:  ## Replay the canonical conformance fixtures.
 	pytest tests/conformance/ -v -m conformance
