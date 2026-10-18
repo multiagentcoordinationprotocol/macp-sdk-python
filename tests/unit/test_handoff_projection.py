@@ -425,3 +425,64 @@ class TestHandoffContextForUnknownHandoff:
         assert handoff is not None
         assert handoff.status == "context_sent"
         assert handoff.context_content_type == "text/plain"
+
+
+class TestDeclinedTargetBar:
+    """RFC-MACP-0010 §5 rule 3a (runtime >= 0.9.0, semantics_rev 4)."""
+
+    def _offer(self, p: HandoffProjection, handoff_id: str, target: str) -> None:
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffOffer",
+                handoff_pb2.HandoffOfferPayload(handoff_id=handoff_id, target_participant=target),
+                sender="owner",
+            )
+        )
+
+    def _decline(self, p: HandoffProjection, handoff_id: str, sender: str, by: str = "") -> None:
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffDecline",
+                handoff_pb2.HandoffDeclinePayload(handoff_id=handoff_id, declined_by=by),
+                sender=sender,
+            )
+        )
+
+    def test_decliner_is_barred_others_are_not(self):
+        p = HandoffProjection()
+        assert p.can_offer_to("b")
+        self._offer(p, "h1", "b")
+        self._decline(p, "h1", "b", by="b")
+        assert p.declined_targets() == ["b"]
+        assert not p.can_offer_to("b")
+        assert p.can_offer_to("c")
+
+    def test_outstanding_offer_blocks_any_new_offer(self):
+        p = HandoffProjection()
+        self._offer(p, "h1", "b")
+        self._decline(p, "h1", "b")
+        self._offer(p, "h2", "c")
+        assert not p.can_offer_to("d")
+
+    def test_accepted_offer_blocks_any_new_offer(self):
+        p = HandoffProjection()
+        self._offer(p, "h1", "b")
+        p.apply_envelope(
+            make_envelope(
+                MODE_HANDOFF,
+                "HandoffAccept",
+                handoff_pb2.HandoffAcceptPayload(handoff_id="h1", accepted_by="b"),
+                sender="b",
+            )
+        )
+        assert not p.can_offer_to("c")
+        assert p.declined_targets() == []
+
+    def test_empty_declined_by_still_bars_target(self):
+        p = HandoffProjection()
+        self._offer(p, "h1", "b")
+        self._decline(p, "h1", "b", by="")
+        assert p.declined_targets() == ["b"]
+        assert not p.can_offer_to("b")
