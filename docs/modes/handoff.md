@@ -41,7 +41,7 @@ Commitment → RESOLVED
 
 ### Key semantics
 
-- Multiple serial offers are allowed (if the first is declined, offer to another target)
+- Multiple serial offers are allowed. If the first is declined, offer to another target. A target that declined can never be offered again in this session (RFC-MACP-0010 §5 rule 3a, runtime ≥ 0.9.0)
 - HandoffAccept/Decline **must** come from the offer's `target_participant`
 - HandoffContext attaches supplemental information (runbooks, credentials, state) to an offer
 - Only one Commitment resolves the session
@@ -182,7 +182,13 @@ owner_c_auth = AuthConfig.for_dev_agent("owner-c")
 # First target declines
 session.decline("h1", reason="on vacation", sender="owner-b", auth=owner_b_auth)
 
+# owner-b is now barred from any new offer in this session (rule 3a)
+proj = session.handoff_projection
+assert proj.declined_targets() == ["owner-b"]
+assert not proj.can_offer_to("owner-b")
+
 # Offer to a different target
+assert proj.can_offer_to("owner-c")
 session.offer("h2", "owner-c", scope="service-xyz-oncall", reason="owner-b unavailable")
 session.accept_handoff("h2", sender="owner-c", auth=owner_c_auth)
 
@@ -194,6 +200,11 @@ session.commit(
 )
 ```
 
+`declined_targets()` and `can_offer_to()` are advisory. They read only what this projection
+has seen, so a mid-session joiner may miss earlier offers, and sessions started on a
+runtime older than 0.9.0 don't enforce rule 3a. `offer()` never refuses client-side, and
+the runtime stays authoritative.
+
 ## Error cases
 
 | Error | When | How to handle |
@@ -201,6 +212,7 @@ session.commit(
 | `FORBIDDEN` on HandoffAccept | Sender is not the target participant | Only the named target can accept |
 | `FORBIDDEN` on HandoffDecline | Sender is not the target participant | Only the named target can decline |
 | `INVALID_ENVELOPE` | Accept/Decline references non-existent handoff_id | Verify the handoff_id |
+| `INVALID_ENVELOPE` on HandoffOffer | `target_participant` previously declined an offer in this session (rule 3a, runtime ≥ 0.9.0) | Choose another target; check `can_offer_to()` first |
 | `INVALID_ENVELOPE` on HandoffOffer | `target_participant` is not a declared session participant | Add the target to `participants` at `SessionStart`, or offer to an existing participant |
 
 ## API Reference

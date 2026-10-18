@@ -195,6 +195,37 @@ class HandoffProjection(BaseProjection):
         """Return handoffs that are still pending (offered or context_sent)."""
         return [h for h in self.handoffs.values() if h.status in ("offered", "context_sent")]
 
+    # -- Declined-target bar (RFC-MACP-0010 §5 rule 3a, runtime >= 0.9.0) --
+
+    def declined_targets(self) -> list[str]:
+        """Targets that declined an offer this session, in offer order, de-duplicated.
+
+        Keyed on the offer's ``target_participant`` (as the runtime is), not
+        on the payload-supplied ``declined_by``, which may be empty.
+        """
+        return list(
+            dict.fromkeys(
+                h.target_participant for h in self.handoffs.values() if h.status == "declined"
+            )
+        )
+
+    def can_offer_to(self, target: str) -> bool:
+        """True if a new HandoffOffer to *target* would be admissible.
+
+        *target* must not have declined earlier in the session (rule 3a), no
+        offer may be outstanding, and no offer may have been accepted.
+        Advisory: it does not check that *target* is a declared participant
+        other than the sender, a partial (mid-session) projection may miss
+        earlier offers, and sessions started on a runtime < 0.9.0 do not
+        enforce rule 3a. The runtime stays authoritative and refuses with
+        ``INVALID_ENVELOPE``.
+        """
+        if target in self.declined_targets():
+            return False
+        return not any(
+            h.status in ("offered", "context_sent", "accepted") for h in self.handoffs.values()
+        )
+
 
 # ---------------------------------------------------------------------------
 # Session helper

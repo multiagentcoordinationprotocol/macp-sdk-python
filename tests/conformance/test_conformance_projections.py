@@ -411,3 +411,18 @@ def test_task_reject_paths_personal_decline():
     assert not projection.can_accept("agent://w1")
     assert projection.current_status("t1") == "in_progress"
     assert not projection.is_committed
+
+
+@pytest.mark.conformance
+def test_handoff_reject_paths_declined_target_bar():
+    """RFC-MACP-0010 §5 rule 3a: the target that declined h1 is the one the
+    fixture's refused re-offer (h2) names; a fresh target (h3) is accepted."""
+    fixture, projection = _replay_accepted("handoff_reject_paths")
+    refused_reoffer = next(
+        m
+        for m in fixture["messages"]
+        if m["message_type"] == "HandoffOffer" and m.get("expect") == "reject"
+    )
+    assert refused_reoffer["payload"]["target_participant"] in projection.declined_targets()
+    assert projection.declined_targets() == ["agent://target"]
+    assert projection.is_accepted("h3")
