@@ -40,8 +40,11 @@ thresholds on the command line. Pytest also runs with `--strict-markers` and
 `filterwarnings = error`, so an undeclared marker or a new warning fails the
 suite.
 
-Integration tests require a running MACP runtime (see `CLAUDE.md`). They are
-**not** run in CI — they stay a local gate. `tests/integration/conftest.py`
+Integration tests require a running MACP runtime (see `CLAUDE.md`). CI runs them
+on every PR against the pinned runtime image (the `integration` job in
+`ci.yml`); reproduce that locally with `make test-integration-docker`, which
+starts both runtimes (one with a read-only policy registry), runs the suite and
+removes the containers. `tests/integration/conftest.py`
 probes the target (`MACP_RUNTIME_TARGET`, default `127.0.0.1:50051`) and
 auto-skips the whole directory when no runtime is reachable, so a bare
 `pytest tests/` is always safe to run.

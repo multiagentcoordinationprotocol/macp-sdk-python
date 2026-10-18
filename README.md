@@ -125,6 +125,18 @@ as the sender.
 
 Full docs available in `docs/` — build with `mkdocs serve` after `make setup`.
 
+## Runtime compatibility
+
+| SDK | Runtime | macp-proto |
+|---|---|---|
+| 0.17.x | 0.9.x (`semantics_rev` 4) | 0.1.11 |
+
+CI runs `tests/integration/` against the pinned runtime image on every PR
+(`make test-integration-docker` runs the same suite locally). Runtimes older than 0.9.0 are
+best-effort: the wire stays compatible, but the mode helpers model the 0.9.0 rules
+(task rule 2a, handoff rule 3a, quorum threshold overrides, Decision casing), so a session
+on an older runtime may diverge from what the projections predict.
+
 ## Architecture boundary
 
 This SDK is a **thin typed client library**. It provides:

@@ -13,11 +13,89 @@ concurrency:
 
 jobs:
   # lint / typecheck / unit-test matrix / conformance — see checks.yml.
-  # Integration tests are intentionally NOT run in CI: they need a live MACP
-  # runtime and stay a local gate (make test-integration; they auto-skip
-  # when no runtime is reachable).
+  # Integration tests run in the sibling `integration` job below, not in
+  # checks.yml: publish.yml also calls checks.yml, and a release must not
+  # depend on pulling a runtime container from GHCR.
   checks:
     uses: ./.github/workflows/checks.yml
+
+  # tests/integration/ against a pinned runtime image. The pin is an
+  # immutable release tag (macp-runtime docs/deployment.md "Published image
+  # tags"); bumping it is a reviewed commit. Keep RUNTIME_IMAGE in sync with
+  # the Makefile's test-integration-docker target.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    env:
+      RUNTIME_IMAGE: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+    services:
+      runtime:
+        image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+        env:
+          # The image deliberately omits MACP_ALLOW_INSECURE; without it the
+          # runtime refuses to start and the readiness poll below fails.
+          MACP_ALLOW_INSECURE: "1"
+          MACP_MEMORY_ONLY: "1"
+          MACP_BIND_ADDR: "0.0.0.0:50051"
+        ports: ["50051:50051"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+
+      # A second runtime with a file-loaded (read-only) policy registry. Not a
+      # service container: services start before checkout, so the fixture
+      # directory would be empty when the runtime preloads it.
+      - name: Start read-only-registry runtime
+        run: |
+          docker run -d --name runtime_ro -p 50052:50051 \
+            -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 \
+            -e MACP_BIND_ADDR=0.0.0.0:50051 -e MACP_POLICIES_DIR=/policies \
+            -v "$GITHUB_WORKSPACE/tests/integration/fixtures/policies:/policies:ro" \
+            "$RUNTIME_IMAGE"
+
+      # Fail loudly if a runtime never binds: conftest.py skips the whole
+      # directory on a connection failure, so without this a misconfigured
+      # runtime turns into a green run that tested nothing.
+      - name: Wait for runtimes
+        run: |
+          for port in 50051 50052; do
+            for i in $(seq 1 30); do
+              nc -z localhost "$port" && break
+              sleep 1
+            done
+            nc -z localhost "$port" || {
+              echo "::error::runtime on :$port never became ready"
+              docker logs runtime_ro || true
+              exit 1
+            }
+          done
+
+      - name: Integration tests
+        env:
+          MACP_RUNTIME_TARGET: 127.0.0.1:50051
+          MACP_TEST_READ_ONLY_REGISTRY: 127.0.0.1:50052
+        run: |
+          set -o pipefail
+          pytest tests/integration/ -m integration -p no:randomly --strict-markers \
+            --no-cov -v -rs | tee integration.log
+
+      # The suite must actually have run: a non-zero pass count, and no more
+      # skips than the documented ones (2 bearer-token tests in
+      # test_direct_agent_auth.py + 1 paired example in test_examples_run.py).
+      - name: Assert the suite ran
+        run: |
+          summary=$(tail -n 1 integration.log)
+          echo "$summary"
+          echo "$summary" | grep -qE '[1-9][0-9]* passed' || { echo "::error::no tests passed"; exit 1; }
+          skipped=$(echo "$summary" | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' || echo 0)
+          [ "$skipped" -le 3 ] || { echo "::error::$skipped skipped (max 3)"; exit 1; }
 
   # This job's build + twine check steps are mirrored by the `build` Makefile
   # target — keep the two in sync (see issue #39).

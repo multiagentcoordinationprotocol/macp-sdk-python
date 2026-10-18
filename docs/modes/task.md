@@ -239,6 +239,9 @@ projection tells them apart with `TaskRejectRecord.while_assigned`:
 | A participant before anyone accepted (rule 2a) | `False` | A personal decline. The task stays `"requested"`, and the decliner can never accept it. Others still can. |
 | The active assignee (rule 3c, requires `allow_reassignment_on_reject`) | `True` | The assignee gives the task back. The slot frees up and the task is marked `"rejected"`. |
 
+These helpers model `semantics_rev` 4. A session started on a runtime older than 0.9.0
+follows the earlier rule, where any pre-assignment reject ended the task for everyone.
+
 If the task named a `requested_assignee` and that participant declines, no one is eligible
 to accept it. A negative `Commitment` then becomes eligible without a terminal report,
 and `negative_commit_eligible(task_id)` returns `True`.
