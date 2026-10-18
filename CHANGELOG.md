@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.15.0...v0.16.0) (2026-10-18)
+
+
+### Features
+
+* **watchers:** surface WatchSignalsResponse.sender_authenticated via SignalWatcher.events() ([#163](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/163)) ([e00d6b9](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/e00d6b961113edbb2be140f57ee10e6e6d193499))
+
 ## [0.15.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.14.2...v0.15.0) (2026-10-17)
 
 
