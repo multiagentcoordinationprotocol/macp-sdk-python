@@ -139,7 +139,7 @@ inference: `ALREADY_EXISTS` → `SESSION_ALREADY_EXISTS`,
 | `INVALID_ENVELOPE` | Malformed envelope or payload | Fix message construction |
 | `MODE_NOT_SUPPORTED` | Runtime doesn't support this mode | Check `client.list_modes()` |
 | `PAYLOAD_TOO_LARGE` | Exceeds max payload size (default 1MB) | Reduce payload |
-| `INVALID_SESSION_ID` | Session ID format invalid | Use `new_session_id()` |
+| `INVALID_SESSION_ID` | Session ID format invalid (lowercase UUID v4/v7, or base64url of 22-128 chars; the runtime caps ids at 128 bytes) | Use `new_session_id()` |
 | `UNSUPPORTED_PROTOCOL_VERSION` | Version mismatch | Update SDK |
 | `UNKNOWN_POLICY_VERSION` | Commitment `policy_version` doesn't match the session's bound policy | Echo the bound id, or send an empty `policy_version` (see below) |
 | `FAILED_PRECONDITION` | Mutating a read-only policy registry (`MACP_POLICIES_DIR`) | Check `Initialize` `policy_registry.register_policy` first |

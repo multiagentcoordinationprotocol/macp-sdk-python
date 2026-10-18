@@ -46,6 +46,14 @@ class TestSessionIdValidation:
         s = DecisionSession(mock_client, session_id="")
         assert len(s.session_id) == 36  # UUID v4
 
+    def test_base64url_128_chars_accepted(self, mock_client):
+        # Runtime cap: MAX_SESSION_ID_BYTES = 128 (RFC-MACP-0004 §11.2).
+        DecisionSession(mock_client, session_id="a" * 128)
+
+    def test_base64url_129_chars_rejected(self, mock_client):
+        with pytest.raises(MacpSessionError, match="22-128 chars"):
+            DecisionSession(mock_client, session_id="a" * 129)
+
     def test_too_short_base64_rejected(self, mock_client):
         with pytest.raises(MacpSessionError, match="session_id must be"):
             DecisionSession(mock_client, session_id="abc123")
