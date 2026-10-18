@@ -21,7 +21,9 @@ _UUID_SHAPE_RE = re.compile(
 _UUID_V4V7_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
-_BASE64URL_RE = re.compile(r"^[A-Za-z0-9_-]{22,}$")
+# 22..128 chars: the runtime caps session_id at MAX_SESSION_ID_BYTES = 128
+# (RFC-MACP-0004 §11.2). The alphabet is ASCII, so 128 chars == 128 bytes.
+_BASE64URL_RE = re.compile(r"^[A-Za-z0-9_-]{22,128}$")
 
 _VALID_VOTES = frozenset({"APPROVE", "REJECT", "ABSTAIN"})
 _VALID_RECOMMENDATIONS = frozenset({"APPROVE", "REVIEW", "BLOCK", "REJECT"})
@@ -32,7 +34,7 @@ _MAX_TTL_MS = 86_400_000  # 24 hours
 
 
 def validate_session_id(sid: str) -> None:
-    """Validate that *sid* is a lowercase UUID v4/v7 or base64url (22+ chars).
+    """Validate that *sid* is a lowercase UUID v4/v7 or base64url (22-128 chars).
 
     Mirrors the runtime's **no-fall-through** rule (runtime v0.5.0 change
     review A4): a string that has the structural shape of a UUID is validated
@@ -55,7 +57,7 @@ def validate_session_id(sid: str) -> None:
     if _BASE64URL_RE.match(sid):
         return
     raise MacpSessionError(
-        f"session_id must be a lowercase UUID v4/v7 or base64url (22+ chars), got: {sid!r}"
+        f"session_id must be a lowercase UUID v4/v7 or base64url (22-128 chars), got: {sid!r}"
     )
 
 
