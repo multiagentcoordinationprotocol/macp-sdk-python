@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
 import warnings
 from dataclasses import dataclass
+from enum import Enum
 
 from macp.modes.quorum.v1 import quorum_pb2
 from macp.v1 import envelope_pb2
@@ -12,6 +14,17 @@ from .base_session import BaseSession
 from .constants import MODE_QUORUM
 from .envelope import build_envelope, serialize_message
 from .validation import validate_required_field
+
+
+class _Unset(Enum):
+    UNSET = 0
+
+
+# Default for the readiness helpers' ``effective_threshold``: no override, use
+# the payload's ``required_approvals``. An explicit ``None`` is different: it is
+# :func:`~macp_sdk.policy.effective_quorum_threshold`'s "unsatisfiable" verdict
+# and acts as an infinite bar (parity with TypeScript ``undefined`` vs ``null``).
+_UNSET = _Unset.UNSET
 
 # ---------------------------------------------------------------------------
 # Projection records
@@ -167,20 +180,33 @@ class QuorumProjection(BaseProjection):
     def abstention_count(self, request_id: str) -> int:
         return self._count_votes(request_id, "abstain")
 
-    def _required(self, request_id: str, effective_threshold: int | None) -> int | None:
-        """The approval bar: *effective_threshold* if given, else the payload's."""
+    def _required(self, request_id: str, effective_threshold: int | _Unset | None) -> float | None:
+        """The approval bar, or None for an unknown request.
+
+        Unset means the payload's ``required_approvals``; an explicit ``None``
+        (an unsatisfiable policy threshold) is an infinite bar.
+        """
         req = self.requests.get(request_id)
         if req is None:
             return None
-        return req.required_approvals if effective_threshold is None else effective_threshold
+        if effective_threshold is _UNSET:
+            return req.required_approvals
+        if effective_threshold is None:
+            return math.inf
+        return effective_threshold
 
-    def has_quorum(self, request_id: str, *, effective_threshold: int | None = None) -> bool:
+    def has_quorum(
+        self, request_id: str, *, effective_threshold: int | _Unset | None = _UNSET
+    ) -> bool:
         """True if the approval count has reached the required threshold.
 
         Canonical name across SDKs (parity with TypeScript ``hasQuorum``).
         Pass *effective_threshold* (from
         :func:`~macp_sdk.policy.effective_quorum_threshold`) when a bound
-        policy's ``threshold`` overrides ``required_approvals``.
+        policy's ``threshold`` overrides ``required_approvals``. Pass its
+        result through unchanged: ``None`` there means unsatisfiable, and the
+        helpers treat it as a bar no count can reach. Omit the argument for
+        no override.
         """
         required = self._required(request_id, effective_threshold)
         if required is None:
@@ -188,7 +214,11 @@ class QuorumProjection(BaseProjection):
         return self.approval_count(request_id) >= required
 
     def is_threshold_unreachable(
-        self, request_id: str, total_eligible: int, *, effective_threshold: int | None = None
+        self,
+        request_id: str,
+        total_eligible: int,
+        *,
+        effective_threshold: int | _Unset | None = _UNSET,
     ) -> bool:
         """True if remaining possible approvals cannot reach the threshold.
 
@@ -202,7 +232,9 @@ class QuorumProjection(BaseProjection):
         remaining = total_eligible - len(self.voted_senders(request_id))
         return self.approval_count(request_id) + remaining < required
 
-    def commitment_ready(self, request_id: str, *, effective_threshold: int | None = None) -> bool:
+    def commitment_ready(
+        self, request_id: str, *, effective_threshold: int | _Unset | None = _UNSET
+    ) -> bool:
         """True if quorum is reached and commit has not yet been issued.
 
         Canonical cross-SDK semantics (parity with TypeScript
@@ -217,8 +249,13 @@ class QuorumProjection(BaseProjection):
             and self.phase != "Committed"
         )
 
-    def threshold(self, request_id: str, *, effective_threshold: int | None = None) -> int:
-        """Return the required approval count, or 0 if no request yet."""
+    def threshold(
+        self, request_id: str, *, effective_threshold: int | _Unset | None = _UNSET
+    ) -> int | float:
+        """Return the required approval count, or 0 if no request yet.
+
+        ``math.inf`` when *effective_threshold* is ``None`` (unsatisfiable).
+        """
         required = self._required(request_id, effective_threshold)
         return required if required is not None else 0
 
@@ -228,9 +265,12 @@ class QuorumProjection(BaseProjection):
         return list(sender_map.keys()) if sender_map else []
 
     def remaining_votes_needed(
-        self, request_id: str, *, effective_threshold: int | None = None
-    ) -> int:
-        """Return how many more approvals are needed to reach quorum."""
+        self, request_id: str, *, effective_threshold: int | _Unset | None = _UNSET
+    ) -> int | float:
+        """Return how many more approvals are needed to reach quorum.
+
+        ``math.inf`` when *effective_threshold* is ``None`` (unsatisfiable).
+        """
         required = self._required(request_id, effective_threshold)
         if required is None:
             return 0
