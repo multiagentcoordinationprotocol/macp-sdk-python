@@ -44,3 +44,15 @@ jobs:
 
       - name: Verify parity contract matches canonical (no drift)
         run: make verify-parity SPEC_PARITY_DIR="$GITHUB_WORKSPACE/_spec/schemas/parity"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e ".[dev]"
+
+      - name: Policy builder domains match canonical rule schemas
+        env:
+          MACP_POLICY_SCHEMAS_DIR: ${{ github.workspace }}/_spec/schemas/json/policy
+        run: pytest tests/unit/test_policy_schema_parity.py -v -rs --no-cov
