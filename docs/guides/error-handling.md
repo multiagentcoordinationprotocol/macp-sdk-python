@@ -142,6 +142,7 @@ inference: `ALREADY_EXISTS` → `SESSION_ALREADY_EXISTS`,
 | `INVALID_SESSION_ID` | Session ID format invalid (lowercase UUID v4/v7, or base64url of 22-128 chars; the runtime caps ids at 128 bytes) | Use `new_session_id()` |
 | `UNSUPPORTED_PROTOCOL_VERSION` | Version mismatch | Update SDK |
 | `UNKNOWN_POLICY_VERSION` | Commitment `policy_version` doesn't match the session's bound policy | Echo the bound id, or send an empty `policy_version` (see below) |
+| `INVALID_POLICY_DEFINITION` | `RegisterPolicy` refused the descriptor (runtime ≥ 0.9.0 closes every rule object): an unknown rule key, an off-domain value, an unsupported `schema_version`, an `x-` key no embedder registered, or a legacy `audit` block | Build descriptors with the `build_*_policy` helpers, which refuse off-domain values client-side with `MacpSessionError` |
 | `FAILED_PRECONDITION` | Mutating a read-only policy registry (`MACP_POLICIES_DIR`) | Check `Initialize` `policy_registry.register_policy` first |
 
 > **Commitment `policy_version` echo contract (runtime v0.5.0).** A commitment

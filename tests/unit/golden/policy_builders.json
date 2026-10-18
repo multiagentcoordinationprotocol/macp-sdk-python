@@ -1,0 +1,52 @@
+{
+  "decision_default": {
+    "mode": "macp.mode.decision.v1",
+    "rules": "{\"voting\": {\"algorithm\": \"none\", \"threshold\": 0.5}, \"objection_handling\": {\"critical_severity_vetoes\": false, \"veto_threshold\": 1, \"critical_objection_action\": \"deny\"}, \"evaluation\": {\"minimum_confidence\": 0.0, \"required_before_voting\": false}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": [], \"require_vote_quorum\": false, \"allow_decline_over_approval\": false}}",
+    "schema_version": 3
+  },
+  "decision_full": {
+    "mode": "macp.mode.decision.v1",
+    "rules": "{\"voting\": {\"algorithm\": \"weighted\", \"threshold\": 0.6, \"quorum\": {\"type\": \"percentage\", \"value\": 50}, \"weights\": {\"a\": 2.0, \"b\": 1.0}}, \"objection_handling\": {\"critical_severity_vetoes\": true, \"veto_threshold\": 2, \"critical_objection_action\": \"hold\"}, \"evaluation\": {\"minimum_confidence\": 0.7, \"required_before_voting\": true}, \"commitment\": {\"authority\": \"designated_role\", \"designated_roles\": [\"lead\"], \"require_vote_quorum\": true, \"allow_decline_over_approval\": true}}",
+    "schema_version": 2
+  },
+  "handoff_default": {
+    "mode": "macp.mode.handoff.v1",
+    "rules": "{\"acceptance\": {\"implicit_accept_timeout_ms\": 0}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": []}}",
+    "schema_version": 1
+  },
+  "handoff_full": {
+    "mode": "macp.mode.handoff.v1",
+    "rules": "{\"acceptance\": {\"implicit_accept_timeout_ms\": 5000}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": []}}",
+    "schema_version": 1
+  },
+  "proposal_default": {
+    "mode": "macp.mode.proposal.v1",
+    "rules": "{\"acceptance\": {\"criterion\": \"all_parties\"}, \"counter_proposal\": {\"max_rounds\": 0}, \"rejection\": {\"terminal_on_any_reject\": false}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": []}}",
+    "schema_version": 1
+  },
+  "proposal_full": {
+    "mode": "macp.mode.proposal.v1",
+    "rules": "{\"acceptance\": {\"criterion\": \"counterparty\"}, \"counter_proposal\": {\"max_rounds\": 3}, \"rejection\": {\"terminal_on_any_reject\": true}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": []}}",
+    "schema_version": 1
+  },
+  "quorum_default": {
+    "mode": "macp.mode.quorum.v1",
+    "rules": "{\"threshold\": {\"type\": \"n_of_m\", \"value\": 1}, \"abstention\": {\"counts_toward_quorum\": false, \"interpretation\": \"neutral\"}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": []}}",
+    "schema_version": 1
+  },
+  "quorum_full": {
+    "mode": "macp.mode.quorum.v1",
+    "rules": "{\"threshold\": {\"type\": \"percentage\", \"value\": 75}, \"abstention\": {\"counts_toward_quorum\": true, \"interpretation\": \"implicit_reject\"}, \"commitment\": {\"authority\": \"any_participant\", \"designated_roles\": []}}",
+    "schema_version": 1
+  },
+  "task_default": {
+    "mode": "macp.mode.task.v1",
+    "rules": "{\"assignment\": {\"allow_reassignment_on_reject\": false}, \"completion\": {\"require_output\": false}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": []}}",
+    "schema_version": 1
+  },
+  "task_full": {
+    "mode": "macp.mode.task.v1",
+    "rules": "{\"assignment\": {\"allow_reassignment_on_reject\": true}, \"completion\": {\"require_output\": true}, \"commitment\": {\"authority\": \"initiator_only\", \"designated_roles\": []}}",
+    "schema_version": 1
+  }
+}

@@ -245,6 +245,30 @@ else:
     ...  # registry is file-managed (MACP_POLICIES_DIR); mutation not allowed
 ```
 
+### Closed policy rule objects (runtime 0.9.0)
+
+From runtime 0.9.0 every rule object in a `PolicyDescriptor` is closed.
+`RegisterPolicy` refuses a raw descriptor with `INVALID_POLICY_DEFINITION` if
+it has an unknown key, an off-domain value, an unsupported `schema_version`
+or a legacy `audit` block. The `build_*_policy` helpers check the same value
+domains client-side. They raise `MacpSessionError` before anything is sent,
+and the enum constants (`COMMITMENT_AUTHORITIES`, `ABSTENTION_INTERPRETATIONS`,
+`PROPOSAL_ACCEPTANCE_CRITERIA`, `CRITICAL_OBJECTION_ACTIONS`) are pinned to
+the canonical schemas in CI.
+
+Two extra key classes are allowed at the rules top level. Builders emit them
+through the `extensions=` and `annotations=` keyword arguments:
+
+- `x-<vendor>.<name>` extension keys take object values. The runtime admits
+  one only if an embedder registered it, and
+  `capabilities.policy_registry.rule_extensions` lists those keys. The stock
+  server advertises `[]` and so refuses every `x-` key. Treat the list as
+  advisory, because the builder checks only the key's shape.
+- `_` / `$` annotation keys can take any value and are ignored by evaluation.
+
+The runtime's [policy docs](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/policy.md)
+are normative for the details.
+
 The runtime also advertises `capabilities.roots.list_changed: false` and does
 not populate roots yet, so `list_roots()` returns an empty list and
 `WatchRoots` idles.

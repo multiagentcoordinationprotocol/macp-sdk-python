@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,6 +17,77 @@ from typing import Any
 from macp.v1 import policy_pb2
 
 from .errors import MacpSessionError
+
+# ── Canonical rule-value domains ────────────────────────────────────
+#
+# Each set mirrors an ``enum`` in the canonical rule schemas
+# (spec ``schemas/json/policy/*-rules.schema.json``). Runtime >= 0.9.0 closes
+# every rule object and refuses an off-domain value at RegisterPolicy with
+# INVALID_POLICY_DEFINITION; the builders refuse it client-side first.
+# tests/unit/test_policy_schema_parity.py pins these against the schemas.
+
+#: ``/properties/commitment/properties/authority`` (all five modes).
+COMMITMENT_AUTHORITIES = frozenset({"initiator_only", "any_participant", "designated_role"})
+#: quorum-rules ``/properties/abstention/properties/interpretation``.
+ABSTENTION_INTERPRETATIONS = frozenset({"neutral", "implicit_reject", "ignored"})
+#: proposal-rules ``/properties/acceptance/properties/criterion``.
+PROPOSAL_ACCEPTANCE_CRITERIA = frozenset({"all_parties", "counterparty", "initiator"})
+#: decision-rules ``/properties/objection_handling/properties/critical_objection_action``.
+CRITICAL_OBJECTION_ACTIONS = frozenset({"deny", "finalize_decline", "hold"})
+
+# decision-rules ``/properties/voting/properties/quorum/properties/type``.
+_VOTING_QUORUM_TYPES = frozenset({"count", "percentage"})
+# quorum-rules ``/properties/threshold/properties/type``.
+_QUORUM_THRESHOLD_TYPES = frozenset({"n_of_m", "percentage"})
+
+# RFC-MACP-0012 §4 key classes legal at the rules top level besides the
+# standard sections: ``x-`` vendor extensions (object-valued) and ``_``/``$``
+# annotations (any value). Same patterns as the schemas' patternProperties.
+_EXTENSION_KEY_RE = re.compile(r"^x-[a-z0-9]+(\.[a-z0-9-]+)+$")
+_ANNOTATION_KEY_RE = re.compile(r"^[_$]")
+
+
+def _check_enum(field_name: str, value: object, allowed: frozenset[str]) -> None:
+    if value not in allowed:
+        raise MacpSessionError(f"{field_name} must be one of {sorted(allowed)}, got {value!r}")
+
+
+def _check_min_int(field_name: str, value: object, minimum: int) -> None:
+    # bool is excluded explicitly: isinstance(True, int) is True in Python.
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise MacpSessionError(f"{field_name} must be an integer >= {minimum}, got {value!r}")
+
+
+def _add_extra_keys(
+    rules: dict[str, object],
+    extensions: Mapping[str, Mapping[str, object]] | None,
+    annotations: Mapping[str, object] | None,
+) -> None:
+    """Append ``x-`` extension and ``_``/``$`` annotation keys to *rules*.
+
+    The runtime accepts an ``x-`` key only if an embedder registered it
+    (``capabilities.policy_registry.rule_extensions``; the stock server
+    registers none), so the builder checks the key's shape, not whether this
+    runtime will admit it.
+    """
+    for key, value in (extensions or {}).items():
+        if key in rules:
+            raise MacpSessionError(f"extension key {key!r} collides with a standard rule section")
+        if not isinstance(key, str) or not _EXTENSION_KEY_RE.match(key):
+            raise MacpSessionError(
+                f"extension key {key!r} must match {_EXTENSION_KEY_RE.pattern} "
+                "(e.g. 'x-com.acme.audit')"
+            )
+        if not isinstance(value, Mapping):
+            raise MacpSessionError(f"extension {key!r} must be an object, got {value!r}")
+        rules[key] = dict(value)
+    for name, note in (annotations or {}).items():
+        if name in rules:
+            raise MacpSessionError(f"annotation key {name!r} collides with a standard rule section")
+        if not isinstance(name, str) or not _ANNOTATION_KEY_RE.match(name):
+            raise MacpSessionError(f"annotation key {name!r} must start with '_' or '$'")
+        rules[name] = note
+
 
 # ── Shared commitment rules (all modes) ─────────────────────────────
 
@@ -57,6 +129,7 @@ def _commitment_dict(c: CommitmentRules) -> dict[str, object]:
     # decision-rules.schema.json enforced it, so a caller building a
     # quorum/proposal/task/handoff policy this way got no client-side signal.
     # Validated once, here, so every mode builder gets it uniformly.
+    _check_enum("commitment.authority", c.authority, COMMITMENT_AUTHORITIES)
     if c.authority == "designated_role" and not c.designated_roles:
         raise MacpSessionError(
             "commitment.authority is 'designated_role' but designated_roles is "
@@ -120,6 +193,8 @@ def build_decision_policy(
     evaluation: EvaluationRules | None = None,
     commitment: CommitmentRules | None = None,
     schema_version: int = 3,
+    extensions: Mapping[str, Mapping[str, object]] | None = None,
+    annotations: Mapping[str, object] | None = None,
 ) -> policy_pb2.PolicyDescriptor:
     """Build a PolicyDescriptor for Decision mode governance.
 
@@ -195,6 +270,34 @@ def build_decision_policy(
                     "literals)"
                 )
 
+    # decision-rules /properties/voting/properties/quorum.
+    if v.quorum_type is not None:
+        _check_enum("voting.quorum_type", v.quorum_type, _VOTING_QUORUM_TYPES)
+    if v.quorum_value is not None and (
+        isinstance(v.quorum_value, bool)
+        or not isinstance(v.quorum_value, (int, float))
+        or not math.isfinite(v.quorum_value)
+        or v.quorum_value < 0
+    ):
+        raise MacpSessionError(
+            f"voting.quorum_value must be a finite number >= 0, got {v.quorum_value!r}"
+        )
+    # /properties/objection_handling and /properties/evaluation.
+    _check_min_int("objection_handling.veto_threshold", o.veto_threshold, 1)
+    _check_enum(
+        "objection_handling.critical_objection_action",
+        o.critical_objection_action,
+        CRITICAL_OBJECTION_ACTIONS,
+    )
+    mc = e.minimum_confidence
+    if (
+        isinstance(mc, bool)
+        or not isinstance(mc, (int, float))
+        or not math.isfinite(mc)
+        or not 0.0 <= mc <= 1.0
+    ):
+        raise MacpSessionError(f"evaluation.minimum_confidence must be in [0.0, 1.0], got {mc!r}")
+
     voting_section: dict[str, object] = {
         "algorithm": v.algorithm,
         "threshold": v.threshold,
@@ -234,6 +337,8 @@ def build_decision_policy(
         },
         "commitment": commitment_section,
     }
+
+    _add_extra_keys(rules, extensions, annotations)
 
     return policy_pb2.PolicyDescriptor(
         policy_id=policy_id,
@@ -288,6 +393,8 @@ def build_quorum_policy(
     threshold: QuorumThreshold | None = None,
     abstention: AbstentionRules | None = None,
     commitment: CommitmentRules | None = None,
+    extensions: Mapping[str, Mapping[str, object]] | None = None,
+    annotations: Mapping[str, object] | None = None,
 ) -> policy_pb2.PolicyDescriptor:
     """Build a PolicyDescriptor for Quorum mode governance."""
     t = threshold or QuorumThreshold()
@@ -321,12 +428,14 @@ def build_quorum_policy(
         raise MacpSessionError(
             f"quorum threshold value must be 1-100 for type 'percentage', got {t.value}"
         )
-    if t.type not in ("n_of_m", "percentage"):
+    if t.type not in _QUORUM_THRESHOLD_TYPES:
         raise MacpSessionError(
             f"quorum threshold type must be 'n_of_m' or 'percentage', got {t.type!r}. "
             "'weighted' is reserved -- it was removed from the canonical schema "
             "without ever having defined semantics and must not be used."
         )
+
+    _check_enum("abstention.interpretation", a.interpretation, ABSTENTION_INTERPRETATIONS)
 
     rules: dict[str, object] = {
         "threshold": {"type": t.type, "value": t.value},
@@ -336,6 +445,8 @@ def build_quorum_policy(
         },
         "commitment": _commitment_dict(c),
     }
+
+    _add_extra_keys(rules, extensions, annotations)
 
     return policy_pb2.PolicyDescriptor(
         policy_id=policy_id,
@@ -446,6 +557,8 @@ def build_proposal_policy(
     counter_proposal: CounterProposalRules | None = None,
     rejection: RejectionRules | None = None,
     commitment: CommitmentRules | None = None,
+    extensions: Mapping[str, Mapping[str, object]] | None = None,
+    annotations: Mapping[str, object] | None = None,
 ) -> policy_pb2.PolicyDescriptor:
     """Build a PolicyDescriptor for Proposal mode governance."""
     acc = acceptance or ProposalAcceptanceRules()
@@ -453,12 +566,17 @@ def build_proposal_policy(
     rej = rejection or RejectionRules()
     c = commitment or CommitmentRules()
 
+    _check_enum("acceptance.criterion", acc.criterion, PROPOSAL_ACCEPTANCE_CRITERIA)
+    _check_min_int("counter_proposal.max_rounds", cp.max_rounds, 0)
+
     rules: dict[str, object] = {
         "acceptance": {"criterion": acc.criterion},
         "counter_proposal": {"max_rounds": cp.max_rounds},
         "rejection": {"terminal_on_any_reject": rej.terminal_on_any_reject},
         "commitment": _commitment_dict(c),
     }
+
+    _add_extra_keys(rules, extensions, annotations)
 
     return policy_pb2.PolicyDescriptor(
         policy_id=policy_id,
@@ -493,6 +611,8 @@ def build_task_policy(
     assignment: TaskAssignmentRules | None = None,
     completion: TaskCompletionRules | None = None,
     commitment: CommitmentRules | None = None,
+    extensions: Mapping[str, Mapping[str, object]] | None = None,
+    annotations: Mapping[str, object] | None = None,
 ) -> policy_pb2.PolicyDescriptor:
     """Build a PolicyDescriptor for Task mode governance."""
     a = assignment or TaskAssignmentRules()
@@ -504,6 +624,8 @@ def build_task_policy(
         "completion": {"require_output": comp.require_output},
         "commitment": _commitment_dict(c),
     }
+
+    _add_extra_keys(rules, extensions, annotations)
 
     return policy_pb2.PolicyDescriptor(
         policy_id=policy_id,
@@ -530,15 +652,21 @@ def build_handoff_policy(
     *,
     acceptance: HandoffAcceptanceRules | None = None,
     commitment: CommitmentRules | None = None,
+    extensions: Mapping[str, Mapping[str, object]] | None = None,
+    annotations: Mapping[str, object] | None = None,
 ) -> policy_pb2.PolicyDescriptor:
     """Build a PolicyDescriptor for Handoff mode governance."""
     acc = acceptance or HandoffAcceptanceRules()
     c = commitment or CommitmentRules()
 
+    _check_min_int("acceptance.implicit_accept_timeout_ms", acc.implicit_accept_timeout_ms, 0)
+
     rules: dict[str, object] = {
         "acceptance": {"implicit_accept_timeout_ms": acc.implicit_accept_timeout_ms},
         "commitment": _commitment_dict(c),
     }
+
+    _add_extra_keys(rules, extensions, annotations)
 
     return policy_pb2.PolicyDescriptor(
         policy_id=policy_id,
