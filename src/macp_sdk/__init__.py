@@ -103,6 +103,7 @@ from .policy import (
     build_proposal_policy,
     build_quorum_policy,
     build_task_policy,
+    effective_quorum_threshold,
 )
 from .projections import (
     DecisionEvaluationRecord,
@@ -279,6 +280,7 @@ __all__ = [
     "build_task_policy",
     "commitment_hash",
     "configure_logging",
+    "effective_quorum_threshold",
     "infer_outcome_positive",
     "is_canonical_commitment_hash",
     "macp_error_code",

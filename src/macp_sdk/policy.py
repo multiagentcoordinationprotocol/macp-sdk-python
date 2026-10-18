@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from macp.v1 import policy_pb2
 
@@ -342,6 +344,74 @@ def build_quorum_policy(
         rules=json.dumps(rules).encode(),
         schema_version=1,
     )
+
+
+_U32_MAX = 2**32 - 1
+
+
+def effective_quorum_threshold(
+    rules: Mapping[str, Any] | bytes | str | policy_pb2.PolicyDescriptor | None,
+    participant_count: int,
+    required_approvals: int,
+) -> int | None:
+    """Return the approval bar a Quorum session actually needs, or ``None``.
+
+    Since runtime 0.9.0 (S4, RFC-MACP-0011 §5 rule 6) a bound policy's
+    ``threshold`` replaces the ``ApprovalRequest.required_approvals`` payload
+    value *as given*, even above the participant count, in which case the
+    threshold is unreachable and a negative Commitment is eligible at once.
+    Pass the result as ``effective_threshold=`` to the
+    :class:`~macp_sdk.quorum.QuorumProjection` readiness helpers.
+
+    A port of the runtime's ``QuorumThreshold::effective`` and
+    ``QuorumMode::effective_threshold``:
+
+    - no policy, no ``threshold``, ``value <= 0`` or unparseable rules (the
+      runtime's ``unwrap_or_default`` path): *required_approvals*;
+    - ``n_of_m`` (and the runtime's ``count`` alias): ``max(1, ceil(value))``;
+    - integer ``percentage``: ``max(1, ceil(value * n / 100))`` in exact
+      integer arithmetic (RFC-MACP-0012 §4.2 forbids float division);
+    - ``percentage`` with no participants, or an unknown ``type``: ``None``
+      (unsatisfiable).
+
+    *rules* may be a :class:`PolicyDescriptor`, its JSON ``rules`` bytes/str,
+    or the decoded mapping.
+    """
+    if isinstance(rules, policy_pb2.PolicyDescriptor):
+        rules = rules.rules
+    if isinstance(rules, (bytes, str)):
+        try:
+            rules = json.loads(rules) if rules else None
+        except ValueError:
+            return required_approvals
+    if not isinstance(rules, Mapping):
+        return required_approvals
+    threshold = rules.get("threshold")
+    if threshold is None:
+        return required_approvals
+    if not isinstance(threshold, Mapping):
+        return required_approvals
+    ttype = threshold.get("type", "n_of_m")
+    value = threshold.get("value", 0)
+    if not isinstance(ttype, str) or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return required_approvals
+    # NaN, 0 and negatives are all inert (the runtime's partial_cmp guard).
+    if not value > 0:
+        return required_approvals
+    if ttype == "percentage":
+        if participant_count == 0:
+            return None
+        if isinstance(value, int) or (math.isfinite(value) and value.is_integer()):
+            required = -(-int(value) * participant_count // 100)
+            return min(max(1, required), _U32_MAX)
+        raw = value * participant_count / 100
+    elif ttype in ("n_of_m", "count"):
+        raw = value
+    else:
+        return None
+    if math.isinf(raw):
+        return _U32_MAX
+    return min(max(1, math.ceil(raw)), _U32_MAX)
 
 
 # ── Proposal mode ────────────────────────────────────────────────────

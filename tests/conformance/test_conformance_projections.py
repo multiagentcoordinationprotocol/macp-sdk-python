@@ -24,6 +24,7 @@ from macp_sdk.base_projection import BaseProjection
 from macp_sdk.constants import MODE_MULTI_ROUND
 from macp_sdk.envelope import new_message_id, now_unix_ms, serialize_message
 from macp_sdk.handoff import HandoffProjection
+from macp_sdk.policy import effective_quorum_threshold
 from macp_sdk.projections import DecisionProjection
 from macp_sdk.proposal import ProposalProjection
 from macp_sdk.proto_registry import CORE_MAP, MODE_MAP, ProtoRegistry
@@ -426,3 +427,32 @@ def test_handoff_reject_paths_declined_target_bar():
     assert refused_reoffer["payload"]["target_participant"] in projection.declined_targets()
     assert projection.declined_targets() == ["agent://target"]
     assert projection.is_accepted("h3")
+
+
+@pytest.mark.conformance
+@pytest.mark.parametrize(
+    "name", ["quorum_unreachable_override", "quorum_percentage_override_reachable"]
+)
+def test_quorum_override_effective_threshold(name: str):
+    """RFC-MACP-0011 §5 rule 6 (S4): at every negative Commitment in the
+    fixture, the SDK's unreachable verdict under the effective threshold
+    matches whether the runtime accepted it."""
+    fixture = _FIXTURES_BY_NAME[name]
+    participants = fixture["participants"]
+    projection = QuorumProjection()
+    checked = 0
+    for msg in fixture["messages"]:
+        if msg["message_type"] == "Commitment" and not msg["payload"].get("outcome_positive"):
+            (request_id,) = projection.requests
+            req = projection.requests[request_id]
+            t = effective_quorum_threshold(
+                fixture["policy"]["rules"], len(participants), req.required_approvals
+            )
+            unreachable = projection.is_threshold_unreachable(
+                request_id, len(participants), effective_threshold=t
+            )
+            assert unreachable is (msg["expect"] == "accept"), f"{name}: {msg['payload']}"
+            checked += 1
+        if msg.get("expect") == "accept":
+            projection.apply_envelope(_build_envelope(fixture["mode"], msg, "conformance-session"))
+    assert checked
