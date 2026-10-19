@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.17.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.16.0...v0.17.0) (2026-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **task:** TaskRecord.status no longer becomes "rejected" on a pre-assignment TaskReject; it stays "requested". "rejected" now means the active assignee gave the task back.
+
+### Features
+
+* **handoff:** expose declined targets and the rule 3a re-offer bar (RFC-MACP-0010 §5) ([#168](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/168)) ([89016fc](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/89016fc579078c7373113d5bebeefcc6065c3d87))
+* **policy:** pre-check every rule domain the 0.9 runtime enforces; add extension/annotation keys ([#170](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/170)) ([cf7c074](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/cf7c0740a2f09f5de5b25295e9ab943c39901c12))
+* **quorum:** honour a bound policy's threshold override in readiness helpers (S4) ([#169](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/169)) ([dab863f](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/dab863fdf095443fb3e3bded5dde04b1f8df5753))
+
+
+### Bug Fixes
+
+* **policy:** refuse off-domain rule values before RegisterPolicy. Against a pre-0.9 runtime a descriptor that used to register with such a value now raises client-side. ([cf7c074](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/cf7c0740a2f09f5de5b25295e9ab943c39901c12))
+* **quorum:** treat an unsatisfiable effective threshold as an infinite bar ([#174](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/174)) ([0c125f1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/0c125f1c3def0761e0a33698501db2367eec9109))
+* **task:** model pre-assignment TaskReject as a personal decline (RFC-MACP-0009 §5 rule 2a) ([#166](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/166)) ([c8e4fcf](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/c8e4fcfd64a03940d9c383b1cf4264e8fa8f617d))
+* **validation:** cap session_id at 128 bytes; re-pin parity provenance to contract 1.4.0 ([#165](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/165)) ([183f5f4](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/183f5f42637dd6c70618a69a8583b7e1936edd02))
+
 ## [0.16.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.15.0...v0.16.0) (2026-10-18)
 
 
