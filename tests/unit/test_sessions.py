@@ -409,6 +409,33 @@ class TestQuorumSession:
             s.abstain("", sender="carol", auth=_auth("carol"))
 
 
+class TestEmptyParticipantsPerMode:
+    """Only Decision mode's ``SessionStart`` accepts an empty roster -- the
+    runtime's ``allows_empty_participants`` is true for Decision alone, and
+    the other four modes reject ``[]``. The concrete session classes must
+    mirror that split client-side.
+    """
+
+    @pytest.mark.parametrize(
+        "factory", [ProposalSession, TaskSession, HandoffSession, QuorumSession]
+    )
+    def test_non_decision_session_rejects_empty_participants(self, mock_client, factory):
+        s = factory(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="participants must be non-empty"):
+            s.start(intent="test", participants=[], ttl_ms=60000)
+        mock_client.send.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "factory",
+        [DecisionSession, ProposalSession, TaskSession, HandoffSession, QuorumSession],
+    )
+    def test_duplicate_participants_rejected_in_every_mode(self, mock_client, factory):
+        s = factory(mock_client, session_id=VALID_SESSION_ID)
+        with pytest.raises(MacpSessionError, match="duplicate participant"):
+            s.start(intent="test", participants=["a", "a"], ttl_ms=60000)
+        mock_client.send.assert_not_called()
+
+
 class TestSessionLifecycleHelpers:
     """``cancel`` / ``suspend`` / ``resume`` delegate to the client RPCs.
 
