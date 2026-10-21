@@ -119,3 +119,39 @@ Nothing found during verification weakens the original call; the parity evidence
 actively strengthens it. No code or doc follow-up required.
 
 **Resulting status:** `CONFIRMED (2026-09-27)`
+
+---
+
+## 2026-10-20 — Decline mirroring `grpcStatusName` and `toProtoPayload`; P1-4 parity list closed
+
+- **Plan:** `macp-sdk-typescript/plans/cross-repo/sdk-parity-python.md` (Phase 3)
+- **Entry:** cross-SDK parity audit, item "P1-4" — four TypeScript-only public symbols,
+  each to be mirrored in Python or declined in writing.
+- **Blast radius / tier:** Reversible. Recording a decision only; no code changes. Either
+  helper can still be added later if a real caller needs it.
+
+### The two declines
+
+1. **`grpc_status_name` — declined.** TS `grpcStatusName`
+   (`macp-sdk-typescript/src/client.ts:111`) maps a numeric gRPC status to its name
+   (`8` → `'RESOURCE_EXHAUSTED'`), because `@grpc/grpc-js` surfaces statuses as plain
+   numbers. Python's `grpc.StatusCode` is an `Enum`, so every member already exposes
+   `.name`. A mirror would add public API with no new capability.
+2. **`to_proto_payload` — declined.** TS `toProtoPayload`
+   (`macp-sdk-typescript/src/envelope.ts:218`) is a compile-time type-erasure cast
+   (`input as unknown as Record<string, unknown>`). TypeScript needs it only because it
+   encodes through the reflective `ProtoRegistry`. Python builds the generated `pb2`
+   message classes directly, so there is nothing to mirror.
+
+### The two mirrors (for completeness)
+
+- `__version__` — `src/macp_sdk/__init__.py:166` (`65d59bc`, #84).
+- `validate_max_suspend_ms` — `src/macp_sdk/validation.py:173` (`17f839b`, #127).
+
+### Verdict — two mirrored, two declined; P1-4 is closed
+
+A later parity audit should not reopen `grpcStatusName` or `toProtoPayload` unless the
+reasons above stop holding: for example, Python starts surfacing raw numeric statuses, or
+encodes payloads through a reflective registry.
+
+**Resulting status:** `CONFIRMED (2026-10-20)`
