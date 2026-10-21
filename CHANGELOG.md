@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.17.0...v0.17.1) (2026-10-21)
+
+
+### Documentation
+
+* **decisions:** record grpcStatusName/toProtoPayload declines, close P1-4 ([#176](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/176)) ([0ffc915](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/0ffc91590b5bffd02e56317037dff2bc07abde31))
+
 ## [0.17.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.16.0...v0.17.0) (2026-10-18)
 
 
