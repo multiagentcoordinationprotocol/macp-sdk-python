@@ -117,12 +117,11 @@ if winner and not session.decision_projection.has_blocking_objection(winner):
 - Python 3.11+
 - A running MACP Rust runtime (see [runtime repo](https://github.com/multiagentcoordinationprotocol/macp-runtime))
 
-For local development:
+For local development, run the published image (the same one CI pins):
 
 ```bash
-# In the runtime repo:
-export MACP_ALLOW_INSECURE=1
-cargo run
+docker run -p 50051:50051 -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 \
+  ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
 ```
 
 ## Related documentation
