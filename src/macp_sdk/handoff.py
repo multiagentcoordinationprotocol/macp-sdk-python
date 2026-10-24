@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from macp.modes.handoff.v1 import handoff_pb2
 from macp.v1 import envelope_pb2
 
+from .async_session import AsyncBaseSession
 from .auth import AuthConfig
 from .base_projection import ANOMALY_SETTLED_HANDOFF, BaseProjection
-from .base_session import BaseSession
+from .base_session import BaseSession, _SessionCore
 from .constants import MODE_HANDOFF
 from .envelope import build_envelope, serialize_message
 from .validation import validate_required_field
@@ -232,13 +233,123 @@ class HandoffProjection(BaseProjection):
 # ---------------------------------------------------------------------------
 
 
-class HandoffSession(BaseSession):
-    """High-level helper for Handoff mode sessions."""
+class _HandoffActions(_SessionCore):
+    """Envelope builders shared by :class:`HandoffSession` and :class:`AsyncHandoffSession`.
+
+    Each ``_<action>_envelope`` method validates its arguments and returns the
+    envelope to send, so the sync and async helpers cannot drift apart.
+    """
 
     MODE = MODE_HANDOFF
 
     def _create_projection(self) -> BaseProjection:
         return HandoffProjection()
+
+    def _offer_envelope(
+        self,
+        handoff_id: str,
+        target_participant: str,
+        *,
+        scope: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("handoff_id", handoff_id)
+        validate_required_field("target_participant", target_participant)
+        payload = handoff_pb2.HandoffOfferPayload(
+            handoff_id=handoff_id,
+            target_participant=target_participant,
+            scope=scope,
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="HandoffOffer",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _add_context_envelope(
+        self,
+        handoff_id: str,
+        *,
+        content_type: str = "application/octet-stream",
+        context: bytes = b"",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("handoff_id", handoff_id)
+        payload = handoff_pb2.HandoffContextPayload(
+            handoff_id=handoff_id,
+            content_type=content_type,
+            context=context,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="HandoffContext",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _accept_handoff_envelope(
+        self,
+        handoff_id: str,
+        *,
+        accepted_by: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        # Deliberately no ``implicit`` parameter: RFC-MACP-0010 §5.1 reserves
+        # ``implicit=true`` for runtime-synthesized accepts and the runtime
+        # rejects a client-submitted True. Client accepts always leave the
+        # field at its proto3 default (False). See the regression test in
+        # tests/unit/test_absorb_runtime_v050.py.
+        validate_required_field("handoff_id", handoff_id)
+        payload = handoff_pb2.HandoffAcceptPayload(
+            handoff_id=handoff_id,
+            accepted_by=accepted_by or self._sender_for(sender, auth=auth),
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="HandoffAccept",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _decline_envelope(
+        self,
+        handoff_id: str,
+        *,
+        declined_by: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("handoff_id", handoff_id)
+        payload = handoff_pb2.HandoffDeclinePayload(
+            handoff_id=handoff_id,
+            declined_by=declined_by or self._sender_for(sender, auth=auth),
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="HandoffDecline",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+
+class HandoffSession(BaseSession, _HandoffActions):
+    """High-level helper for Handoff mode sessions."""
+
+    MODE = MODE_HANDOFF
 
     @property
     def handoff_projection(self) -> HandoffProjection:
@@ -255,22 +366,12 @@ class HandoffSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("handoff_id", handoff_id)
-        validate_required_field("target_participant", target_participant)
-        payload = handoff_pb2.HandoffOfferPayload(
-            handoff_id=handoff_id,
-            target_participant=target_participant,
-            scope=scope,
-            reason=reason,
+        return self._send_and_track(
+            self._offer_envelope(
+                handoff_id, target_participant, scope=scope, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="HandoffOffer",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def add_context(
         self,
@@ -281,20 +382,12 @@ class HandoffSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("handoff_id", handoff_id)
-        payload = handoff_pb2.HandoffContextPayload(
-            handoff_id=handoff_id,
-            content_type=content_type,
-            context=context,
+        return self._send_and_track(
+            self._add_context_envelope(
+                handoff_id, content_type=content_type, context=context, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="HandoffContext",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def accept_handoff(
         self,
@@ -310,20 +403,12 @@ class HandoffSession(BaseSession):
         # rejects a client-submitted True. Client accepts always leave the
         # field at its proto3 default (False). See the regression test in
         # tests/unit/test_absorb_runtime_v050.py.
-        validate_required_field("handoff_id", handoff_id)
-        payload = handoff_pb2.HandoffAcceptPayload(
-            handoff_id=handoff_id,
-            accepted_by=accepted_by or self._sender_for(sender, auth=auth),
-            reason=reason,
+        return self._send_and_track(
+            self._accept_handoff_envelope(
+                handoff_id, accepted_by=accepted_by, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="HandoffAccept",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def decline(
         self,
@@ -334,17 +419,95 @@ class HandoffSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("handoff_id", handoff_id)
-        payload = handoff_pb2.HandoffDeclinePayload(
-            handoff_id=handoff_id,
-            declined_by=declined_by or self._sender_for(sender, auth=auth),
-            reason=reason,
+        return self._send_and_track(
+            self._decline_envelope(
+                handoff_id, declined_by=declined_by, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="HandoffDecline",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
+
+
+class AsyncHandoffSession(AsyncBaseSession, _HandoffActions):
+    """Asyncio twin of :class:`HandoffSession`, driven by an
+    :class:`~macp_sdk.async_client.AsyncMacpClient`.
+
+    Same methods, arguments and validation as :class:`HandoffSession`; every
+    method that talks to the runtime is a coroutine.
+    """
+
+    MODE = MODE_HANDOFF
+
+    @property
+    def handoff_projection(self) -> HandoffProjection:
+        assert isinstance(self.projection, HandoffProjection)
+        return self.projection
+
+    async def offer(
+        self,
+        handoff_id: str,
+        target_participant: str,
+        *,
+        scope: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._offer_envelope(
+                handoff_id, target_participant, scope=scope, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        return self._send_and_track(envelope, auth=auth)
+
+    async def add_context(
+        self,
+        handoff_id: str,
+        *,
+        content_type: str = "application/octet-stream",
+        context: bytes = b"",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._add_context_envelope(
+                handoff_id, content_type=content_type, context=context, sender=sender, auth=auth
+            ),
+            auth=auth,
+        )
+
+    async def accept_handoff(
+        self,
+        handoff_id: str,
+        *,
+        accepted_by: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        # Deliberately no ``implicit`` parameter: RFC-MACP-0010 §5.1 reserves
+        # ``implicit=true`` for runtime-synthesized accepts and the runtime
+        # rejects a client-submitted True. Client accepts always leave the
+        # field at its proto3 default (False). See the regression test in
+        # tests/unit/test_absorb_runtime_v050.py.
+        return await self._send_and_track(
+            self._accept_handoff_envelope(
+                handoff_id, accepted_by=accepted_by, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
+        )
+
+    async def decline(
+        self,
+        handoff_id: str,
+        *,
+        declined_by: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._decline_envelope(
+                handoff_id, declined_by=declined_by, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
+        )

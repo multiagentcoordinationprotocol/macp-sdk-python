@@ -95,6 +95,67 @@ if winner and not session.decision_projection.has_blocking_objection(winner):
     )
 ```
 
+### 4. Async (asyncio)
+
+`AsyncMacpClient` is a `grpc.aio` client with the same methods, auth and errors as
+`MacpClient`. RPCs and session actions are coroutines, `watch_*` RPCs are async
+iterators, and every mode has an `Async*Session` helper. Here is the
+quickstart session, async (`examples/async_first_session.py`):
+
+```python
+import asyncio
+
+from macp.v1.envelope_pb2 import SessionState
+
+from macp_sdk import AsyncDecisionSession, AsyncMacpClient, AuthConfig
+
+
+async def main() -> None:
+    async with AsyncMacpClient(
+        target="127.0.0.1:50051",
+        allow_insecure=True,  # local dev only
+        auth=AuthConfig.for_dev_agent("coordinator"),
+    ) as client:
+        session = AsyncDecisionSession(client)
+        await session.start(
+            intent="pick a deployment plan",
+            participants=["coordinator", "alice", "bob"],
+            ttl_ms=60_000,
+        )
+        await session.propose("p1", "deploy v2.1", rationale="tests passed")
+        await session.evaluate(
+            "p1", "APPROVE", confidence=0.94, reason="low risk",
+            sender="alice", auth=AuthConfig.for_dev_agent("alice"),
+        )
+        await session.vote(
+            "p1", "APPROVE", reason="ship it",
+            sender="bob", auth=AuthConfig.for_dev_agent("bob"),
+        )
+
+        winner = session.decision_projection.majority_winner()
+        await session.commit(
+            action="deployment.approved",
+            authority_scope="release-management",
+            reason=f"winner={winner}",
+        )
+
+        meta = (await session.metadata()).metadata
+        print("winner:", winner)
+        print("state:", SessionState.Name(meta.state), "mode:", meta.mode)
+
+
+asyncio.run(main())
+```
+
+```
+winner: p1
+state: SESSION_STATE_RESOLVED mode: macp.mode.decision.v1
+```
+
+Create the client inside the running loop: `grpc.aio` channels bind to the loop
+that is current when they are created. See
+[docs/guides/async.md](docs/guides/async.md) for streaming, watches and concurrency.
+
 ## Supported modes
 
 | Mode | Session Helper | Projection | Example |
@@ -105,6 +166,10 @@ if winner and not session.decision_projection.has_blocking_objection(winner):
 | Handoff | `HandoffSession` | `HandoffProjection` | `examples/handoff_escalation.py` |
 | Quorum | `QuorumSession` | `QuorumProjection` | `examples/quorum_approval.py` |
 | Multi-round (`ext.multi_round.v1`, extension) | — (codec only) | — | — |
+
+Each standard-mode helper has an asyncio twin (`AsyncDecisionSession`,
+`AsyncProposalSession`, `AsyncTaskSession`, `AsyncHandoffSession`,
+`AsyncQuorumSession`) for use with `AsyncMacpClient`.
 
 Multi-round support is codec-only: the `MODE_MULTI_ROUND` constant,
 `build_contribute_payload()`, and `ProtoRegistry` encode/decode of `Contribute`

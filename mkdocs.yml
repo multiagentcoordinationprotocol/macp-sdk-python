@@ -29,6 +29,7 @@ nav:
   - Guides:
       - Error Handling & Retry: guides/error-handling.md
       - Streaming: guides/streaming.md
+      - Async (asyncio): guides/async.md
       - Session Discovery: guides/session-discovery.md
       - Agent Framework: guides/agent-framework.md
       - Building Orchestrators: guides/building-orchestrators.md

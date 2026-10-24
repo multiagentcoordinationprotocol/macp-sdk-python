@@ -7,6 +7,11 @@ Auto-generated from docstrings.
 ::: macp_sdk.client.MacpClient
 ::: macp_sdk.client.MacpStream
 
+## Async client
+
+::: macp_sdk.async_client.AsyncMacpClient
+::: macp_sdk.async_client.AsyncMacpStream
+
 ## Session Helpers
 
 ::: macp_sdk.base_session.BaseSession
@@ -15,6 +20,15 @@ Auto-generated from docstrings.
 ::: macp_sdk.task.TaskSession
 ::: macp_sdk.handoff.HandoffSession
 ::: macp_sdk.quorum.QuorumSession
+
+## Async session helpers
+
+::: macp_sdk.async_session.AsyncBaseSession
+::: macp_sdk.decision.AsyncDecisionSession
+::: macp_sdk.proposal.AsyncProposalSession
+::: macp_sdk.task.AsyncTaskSession
+::: macp_sdk.handoff.AsyncHandoffSession
+::: macp_sdk.quorum.AsyncQuorumSession
 
 ## Projections
 

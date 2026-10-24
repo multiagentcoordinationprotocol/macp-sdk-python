@@ -7,9 +7,10 @@ from typing import Any
 from macp.modes.proposal.v1 import proposal_pb2
 from macp.v1 import envelope_pb2
 
+from .async_session import AsyncBaseSession
 from .auth import AuthConfig
 from .base_projection import BaseProjection
-from .base_session import BaseSession
+from .base_session import BaseSession, _SessionCore
 from .constants import MODE_PROPOSAL
 from .envelope import build_envelope, serialize_message
 from .errors import MacpSessionError
@@ -239,13 +240,145 @@ class ProposalProjection(BaseProjection):
 # ---------------------------------------------------------------------------
 
 
-class ProposalSession(BaseSession):
-    """High-level helper for Proposal mode sessions."""
+class _ProposalActions(_SessionCore):
+    """Envelope builders shared by :class:`ProposalSession` and :class:`AsyncProposalSession`.
+
+    Each ``_<action>_envelope`` method validates its arguments and returns the
+    envelope to send, so the sync and async helpers cannot drift apart.
+    """
 
     MODE = MODE_PROPOSAL
 
     def _create_projection(self) -> BaseProjection:
         return ProposalProjection()
+
+    def _propose_envelope(
+        self,
+        proposal_id: str,
+        title: str,
+        *,
+        summary: str = "",
+        details: bytes = b"",
+        tags: list[str] | None = None,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("proposal_id", proposal_id)
+        validate_required_field("title", title)
+        payload = proposal_pb2.ProposalPayload(
+            proposal_id=proposal_id,
+            title=title,
+            summary=summary,
+            details=details,
+            tags=tags or [],
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="Proposal",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _counter_propose_envelope(
+        self,
+        proposal_id: str,
+        supersedes_proposal_id: str,
+        title: str,
+        *,
+        summary: str = "",
+        details: bytes = b"",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("proposal_id", proposal_id)
+        validate_required_field("title", title)
+        payload = proposal_pb2.CounterProposalPayload(
+            proposal_id=proposal_id,
+            supersedes_proposal_id=supersedes_proposal_id,
+            title=title,
+            summary=summary,
+            details=details,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="CounterProposal",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _accept_envelope(
+        self,
+        proposal_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("proposal_id", proposal_id)
+        payload = proposal_pb2.AcceptPayload(
+            proposal_id=proposal_id,
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="Accept",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _reject_envelope(
+        self,
+        proposal_id: str,
+        *,
+        terminal: bool = False,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("proposal_id", proposal_id)
+        payload = proposal_pb2.RejectPayload(
+            proposal_id=proposal_id,
+            terminal=terminal,
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="Reject",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _withdraw_envelope(
+        self,
+        proposal_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        if not proposal_id or not proposal_id.strip():
+            raise MacpSessionError("proposal_id must be non-empty for withdraw")
+        payload = proposal_pb2.WithdrawPayload(
+            proposal_id=proposal_id,
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="Withdraw",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+
+class ProposalSession(BaseSession, _ProposalActions):
+    """High-level helper for Proposal mode sessions."""
+
+    MODE = MODE_PROPOSAL
 
     @property
     def proposal_projection(self) -> ProposalProjection:
@@ -263,23 +396,18 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("proposal_id", proposal_id)
-        validate_required_field("title", title)
-        payload = proposal_pb2.ProposalPayload(
-            proposal_id=proposal_id,
-            title=title,
-            summary=summary,
-            details=details,
-            tags=tags or [],
+        return self._send_and_track(
+            self._propose_envelope(
+                proposal_id,
+                title,
+                summary=summary,
+                details=details,
+                tags=tags,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Proposal",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def counter_propose(
         self,
@@ -292,23 +420,18 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("proposal_id", proposal_id)
-        validate_required_field("title", title)
-        payload = proposal_pb2.CounterProposalPayload(
-            proposal_id=proposal_id,
-            supersedes_proposal_id=supersedes_proposal_id,
-            title=title,
-            summary=summary,
-            details=details,
+        return self._send_and_track(
+            self._counter_propose_envelope(
+                proposal_id,
+                supersedes_proposal_id,
+                title,
+                summary=summary,
+                details=details,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="CounterProposal",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def accept(
         self,
@@ -318,19 +441,9 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("proposal_id", proposal_id)
-        payload = proposal_pb2.AcceptPayload(
-            proposal_id=proposal_id,
-            reason=reason,
+        return self._send_and_track(
+            self._accept_envelope(proposal_id, reason=reason, sender=sender, auth=auth), auth=auth
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Accept",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def reject(
         self,
@@ -341,20 +454,12 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("proposal_id", proposal_id)
-        payload = proposal_pb2.RejectPayload(
-            proposal_id=proposal_id,
-            terminal=terminal,
-            reason=reason,
+        return self._send_and_track(
+            self._reject_envelope(
+                proposal_id, terminal=terminal, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Reject",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def withdraw(
         self,
@@ -364,20 +469,113 @@ class ProposalSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        if not proposal_id or not proposal_id.strip():
-            raise MacpSessionError("proposal_id must be non-empty for withdraw")
-        payload = proposal_pb2.WithdrawPayload(
-            proposal_id=proposal_id,
-            reason=reason,
+        return self._send_and_track(
+            self._withdraw_envelope(proposal_id, reason=reason, sender=sender, auth=auth), auth=auth
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Withdraw",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
+
+
+class AsyncProposalSession(AsyncBaseSession, _ProposalActions):
+    """Asyncio twin of :class:`ProposalSession`, driven by an
+    :class:`~macp_sdk.async_client.AsyncMacpClient`.
+
+    Same methods, arguments and validation as :class:`ProposalSession`; every
+    method that talks to the runtime is a coroutine.
+    """
+
+    MODE = MODE_PROPOSAL
+
+    @property
+    def proposal_projection(self) -> ProposalProjection:
+        assert isinstance(self.projection, ProposalProjection)
+        return self.projection
+
+    async def propose(
+        self,
+        proposal_id: str,
+        title: str,
+        *,
+        summary: str = "",
+        details: bytes = b"",
+        tags: list[str] | None = None,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._propose_envelope(
+                proposal_id,
+                title,
+                summary=summary,
+                details=details,
+                tags=tags,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        return self._send_and_track(envelope, auth=auth)
+
+    async def counter_propose(
+        self,
+        proposal_id: str,
+        supersedes_proposal_id: str,
+        title: str,
+        *,
+        summary: str = "",
+        details: bytes = b"",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._counter_propose_envelope(
+                proposal_id,
+                supersedes_proposal_id,
+                title,
+                summary=summary,
+                details=details,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
+        )
+
+    async def accept(
+        self,
+        proposal_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._accept_envelope(proposal_id, reason=reason, sender=sender, auth=auth), auth=auth
+        )
+
+    async def reject(
+        self,
+        proposal_id: str,
+        *,
+        terminal: bool = False,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._reject_envelope(
+                proposal_id, terminal=terminal, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
+        )
+
+    async def withdraw(
+        self,
+        proposal_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._withdraw_envelope(proposal_id, reason=reason, sender=sender, auth=auth), auth=auth
+        )
 
 
 # ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────

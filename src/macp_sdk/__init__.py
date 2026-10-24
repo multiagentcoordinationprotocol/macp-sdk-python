@@ -3,6 +3,8 @@ from importlib.metadata import version as _version
 from typing import Any as _Any
 
 from ._logging import configure_logging
+from .async_client import AsyncMacpClient, AsyncMacpStream
+from .async_session import AsyncBaseSession
 from .auth import AuthConfig
 from .base_projection import (
     ANOMALY_DUPLICATE_BALLOT,
@@ -33,7 +35,7 @@ from .constants import (
     MODE_TASK,
     STANDARD_MODES,
 )
-from .decision import DecisionSession
+from .decision import AsyncDecisionSession, DecisionSession
 from .envelope import (
     build_commitment_payload,
     build_commitment_ref,
@@ -84,7 +86,7 @@ from .errors import (
     PolicyDenial,
     parse_error_details,
 )
-from .handoff import HandoffProjection, HandoffRecord, HandoffSession
+from .handoff import AsyncHandoffSession, HandoffProjection, HandoffRecord, HandoffSession
 from .policy import (
     ABSTENTION_INTERPRETATIONS,
     COMMITMENT_AUTHORITIES,
@@ -117,6 +119,7 @@ from .projections import (
     DecisionVoteRecord,
 )
 from .proposal import (
+    AsyncProposalSession,
     ProposalAcceptRecord,
     ProposalProjection,
     ProposalRecord,
@@ -124,9 +127,16 @@ from .proposal import (
     ProposalSession,
 )
 from .proto_registry import ProtoRegistry
-from .quorum import ApprovalRequestRecord, BallotRecord, QuorumProjection, QuorumSession
+from .quorum import (
+    ApprovalRequestRecord,
+    AsyncQuorumSession,
+    BallotRecord,
+    QuorumProjection,
+    QuorumSession,
+)
 from .retry import RetryPolicy, retry_send
 from .task import (
+    AsyncTaskSession,
     TaskCompleteRecord,
     TaskFailRecord,
     TaskProjection,
@@ -211,6 +221,14 @@ __all__ = [
     "AbstentionRules",
     "AckFailure",
     "ApprovalRequestRecord",
+    "AsyncBaseSession",
+    "AsyncDecisionSession",
+    "AsyncHandoffSession",
+    "AsyncMacpClient",
+    "AsyncMacpStream",
+    "AsyncProposalSession",
+    "AsyncQuorumSession",
+    "AsyncTaskSession",
     "AuthConfig",
     "BallotRecord",
     "BaseProjection",
