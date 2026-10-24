@@ -7,9 +7,10 @@ from typing import Any
 from macp.modes.task.v1 import task_pb2
 from macp.v1 import envelope_pb2
 
+from .async_session import AsyncBaseSession
 from .auth import AuthConfig
 from .base_projection import ANOMALY_DUPLICATE_TASK_ACCEPT, BaseProjection
-from .base_session import BaseSession
+from .base_session import BaseSession, _SessionCore
 from .constants import MODE_TASK
 from .envelope import build_envelope, serialize_message
 from .validation import validate_required_field
@@ -385,13 +386,177 @@ class TaskProjection(BaseProjection):
 # ---------------------------------------------------------------------------
 
 
-class TaskSession(BaseSession):
-    """High-level helper for Task mode sessions."""
+class _TaskActions(_SessionCore):
+    """Envelope builders shared by :class:`TaskSession` and :class:`AsyncTaskSession`.
+
+    Each ``_<action>_envelope`` method validates its arguments and returns the
+    envelope to send, so the sync and async helpers cannot drift apart.
+    """
 
     MODE = MODE_TASK
 
     def _create_projection(self) -> BaseProjection:
         return TaskProjection()
+
+    def _request_task_envelope(
+        self,
+        task_id: str,
+        title: str,
+        *,
+        instructions: str = "",
+        requested_assignee: str = "",
+        input_data: bytes = b"",
+        deadline_unix_ms: int = 0,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("task_id", task_id)
+        payload = task_pb2.TaskRequestPayload(
+            task_id=task_id,
+            title=title,
+            instructions=instructions,
+            requested_assignee=requested_assignee,
+            input=input_data,
+            deadline_unix_ms=deadline_unix_ms,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="TaskRequest",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _accept_task_envelope(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("task_id", task_id)
+        payload = task_pb2.TaskAcceptPayload(
+            task_id=task_id,
+            assignee=assignee or self._sender_for(sender, auth=auth),
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="TaskAccept",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _reject_task_envelope(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("task_id", task_id)
+        payload = task_pb2.TaskRejectPayload(
+            task_id=task_id,
+            assignee=assignee or self._sender_for(sender, auth=auth),
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="TaskReject",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _update_task_envelope(
+        self,
+        task_id: str,
+        *,
+        status: str = "",
+        progress: float = 0.0,
+        message: str = "",
+        partial_output: bytes = b"",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("task_id", task_id)
+        payload = task_pb2.TaskUpdatePayload(
+            task_id=task_id,
+            status=status,
+            progress=progress,
+            message=message,
+            partial_output=partial_output,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="TaskUpdate",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _complete_task_envelope(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        output: bytes = b"",
+        summary: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("task_id", task_id)
+        payload = task_pb2.TaskCompletePayload(
+            task_id=task_id,
+            assignee=assignee or self._sender_for(sender, auth=auth),
+            output=output,
+            summary=summary,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="TaskComplete",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _fail_task_envelope(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        error_code: str = "",
+        reason: str = "",
+        retryable: bool = False,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("task_id", task_id)
+        payload = task_pb2.TaskFailPayload(
+            task_id=task_id,
+            assignee=assignee or self._sender_for(sender, auth=auth),
+            error_code=error_code,
+            reason=reason,
+            retryable=retryable,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="TaskFail",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+
+class TaskSession(BaseSession, _TaskActions):
+    """High-level helper for Task mode sessions."""
+
+    MODE = MODE_TASK
 
     @property
     def task_projection(self) -> TaskProjection:
@@ -413,23 +578,19 @@ class TaskSession(BaseSession):
         """Send a TaskRequest envelope. Canonical name across SDKs
         (parity with TypeScript ``requestTask``).
         """
-        validate_required_field("task_id", task_id)
-        payload = task_pb2.TaskRequestPayload(
-            task_id=task_id,
-            title=title,
-            instructions=instructions,
-            requested_assignee=requested_assignee,
-            input=input_data,
-            deadline_unix_ms=deadline_unix_ms,
+        return self._send_and_track(
+            self._request_task_envelope(
+                task_id,
+                title,
+                instructions=instructions,
+                requested_assignee=requested_assignee,
+                input_data=input_data,
+                deadline_unix_ms=deadline_unix_ms,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="TaskRequest",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def request(self, *args: object, **kwargs: object) -> envelope_pb2.Ack:
         """Deprecated alias for :meth:`request_task`."""
@@ -449,20 +610,12 @@ class TaskSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("task_id", task_id)
-        payload = task_pb2.TaskAcceptPayload(
-            task_id=task_id,
-            assignee=assignee or self._sender_for(sender, auth=auth),
-            reason=reason,
+        return self._send_and_track(
+            self._accept_task_envelope(
+                task_id, assignee=assignee, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="TaskAccept",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def reject_task(
         self,
@@ -473,20 +626,12 @@ class TaskSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("task_id", task_id)
-        payload = task_pb2.TaskRejectPayload(
-            task_id=task_id,
-            assignee=assignee or self._sender_for(sender, auth=auth),
-            reason=reason,
+        return self._send_and_track(
+            self._reject_task_envelope(
+                task_id, assignee=assignee, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="TaskReject",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def update_task(
         self,
@@ -502,22 +647,18 @@ class TaskSession(BaseSession):
         """Send a TaskUpdate envelope. Canonical name across SDKs
         (parity with TypeScript ``updateTask``).
         """
-        validate_required_field("task_id", task_id)
-        payload = task_pb2.TaskUpdatePayload(
-            task_id=task_id,
-            status=status,
-            progress=progress,
-            message=message,
-            partial_output=partial_output,
+        return self._send_and_track(
+            self._update_task_envelope(
+                task_id,
+                status=status,
+                progress=progress,
+                message=message,
+                partial_output=partial_output,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="TaskUpdate",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def update(self, *args: object, **kwargs: object) -> envelope_pb2.Ack:
         """Deprecated alias for :meth:`update_task`."""
@@ -541,21 +682,12 @@ class TaskSession(BaseSession):
         """Send a TaskComplete envelope. Canonical name across SDKs
         (parity with TypeScript ``completeTask``).
         """
-        validate_required_field("task_id", task_id)
-        payload = task_pb2.TaskCompletePayload(
-            task_id=task_id,
-            assignee=assignee or self._sender_for(sender, auth=auth),
-            output=output,
-            summary=summary,
+        return self._send_and_track(
+            self._complete_task_envelope(
+                task_id, assignee=assignee, output=output, summary=summary, sender=sender, auth=auth
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="TaskComplete",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def complete(self, *args: object, **kwargs: object) -> envelope_pb2.Ack:
         """Deprecated alias for :meth:`complete_task`."""
@@ -580,22 +712,18 @@ class TaskSession(BaseSession):
         """Send a TaskFail envelope. Canonical name across SDKs
         (parity with TypeScript ``failTask``).
         """
-        validate_required_field("task_id", task_id)
-        payload = task_pb2.TaskFailPayload(
-            task_id=task_id,
-            assignee=assignee or self._sender_for(sender, auth=auth),
-            error_code=error_code,
-            reason=reason,
-            retryable=retryable,
+        return self._send_and_track(
+            self._fail_task_envelope(
+                task_id,
+                assignee=assignee,
+                error_code=error_code,
+                reason=reason,
+                retryable=retryable,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="TaskFail",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def fail(self, *args: object, **kwargs: object) -> envelope_pb2.Ack:
         """Deprecated alias for :meth:`fail_task`."""
@@ -605,6 +733,157 @@ class TaskSession(BaseSession):
             stacklevel=2,
         )
         return self.fail_task(*args, **kwargs)  # type: ignore[arg-type]
+
+
+class AsyncTaskSession(AsyncBaseSession, _TaskActions):
+    """Asyncio twin of :class:`TaskSession`, driven by an
+    :class:`~macp_sdk.async_client.AsyncMacpClient`.
+
+    Same methods, arguments and validation as :class:`TaskSession`; every
+    method that talks to the runtime is a coroutine.
+    """
+
+    MODE = MODE_TASK
+
+    @property
+    def task_projection(self) -> TaskProjection:
+        assert isinstance(self.projection, TaskProjection)
+        return self.projection
+
+    async def request_task(
+        self,
+        task_id: str,
+        title: str,
+        *,
+        instructions: str = "",
+        requested_assignee: str = "",
+        input_data: bytes = b"",
+        deadline_unix_ms: int = 0,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        """Send a TaskRequest envelope. Canonical name across SDKs
+        (parity with TypeScript ``requestTask``).
+        """
+        return await self._send_and_track(
+            self._request_task_envelope(
+                task_id,
+                title,
+                instructions=instructions,
+                requested_assignee=requested_assignee,
+                input_data=input_data,
+                deadline_unix_ms=deadline_unix_ms,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
+        )
+
+    async def accept_task(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._accept_task_envelope(
+                task_id, assignee=assignee, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
+        )
+
+    async def reject_task(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._reject_task_envelope(
+                task_id, assignee=assignee, reason=reason, sender=sender, auth=auth
+            ),
+            auth=auth,
+        )
+
+    async def update_task(
+        self,
+        task_id: str,
+        *,
+        status: str = "",
+        progress: float = 0.0,
+        message: str = "",
+        partial_output: bytes = b"",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        """Send a TaskUpdate envelope. Canonical name across SDKs
+        (parity with TypeScript ``updateTask``).
+        """
+        return await self._send_and_track(
+            self._update_task_envelope(
+                task_id,
+                status=status,
+                progress=progress,
+                message=message,
+                partial_output=partial_output,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
+        )
+
+    async def complete_task(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        output: bytes = b"",
+        summary: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        """Send a TaskComplete envelope. Canonical name across SDKs
+        (parity with TypeScript ``completeTask``).
+        """
+        return await self._send_and_track(
+            self._complete_task_envelope(
+                task_id, assignee=assignee, output=output, summary=summary, sender=sender, auth=auth
+            ),
+            auth=auth,
+        )
+
+    async def fail_task(
+        self,
+        task_id: str,
+        *,
+        assignee: str = "",
+        error_code: str = "",
+        reason: str = "",
+        retryable: bool = False,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        """Send a TaskFail envelope. Canonical name across SDKs
+        (parity with TypeScript ``failTask``).
+        """
+        return await self._send_and_track(
+            self._fail_task_envelope(
+                task_id,
+                assignee=assignee,
+                error_code=error_code,
+                reason=reason,
+                retryable=retryable,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
+        )
 
 
 # ── Deprecated aliases (issue #108) ───────────────────────────────────────

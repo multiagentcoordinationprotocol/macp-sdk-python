@@ -8,9 +8,10 @@ from enum import Enum
 from macp.modes.quorum.v1 import quorum_pb2
 from macp.v1 import envelope_pb2
 
+from .async_session import AsyncBaseSession
 from .auth import AuthConfig
 from .base_projection import ANOMALY_DUPLICATE_BALLOT, BaseProjection
-from .base_session import BaseSession
+from .base_session import BaseSession, _SessionCore
 from .constants import MODE_QUORUM
 from .envelope import build_envelope, serialize_message
 from .validation import validate_required_field
@@ -282,13 +283,113 @@ class QuorumProjection(BaseProjection):
 # ---------------------------------------------------------------------------
 
 
-class QuorumSession(BaseSession):
-    """High-level helper for Quorum mode sessions."""
+class _QuorumActions(_SessionCore):
+    """Envelope builders shared by :class:`QuorumSession` and :class:`AsyncQuorumSession`.
+
+    Each ``_<action>_envelope`` method validates its arguments and returns the
+    envelope to send, so the sync and async helpers cannot drift apart.
+    """
 
     MODE = MODE_QUORUM
 
     def _create_projection(self) -> BaseProjection:
         return QuorumProjection()
+
+    def _request_approval_envelope(
+        self,
+        request_id: str,
+        action: str,
+        *,
+        summary: str = "",
+        details: bytes = b"",
+        required_approvals: int,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("request_id", request_id)
+        payload = quorum_pb2.ApprovalRequestPayload(
+            request_id=request_id,
+            action=action,
+            summary=summary,
+            details=details,
+            required_approvals=required_approvals,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="ApprovalRequest",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _approve_envelope(
+        self,
+        request_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("request_id", request_id)
+        payload = quorum_pb2.ApprovePayload(
+            request_id=request_id,
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="Approve",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _reject_envelope(
+        self,
+        request_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("request_id", request_id)
+        payload = quorum_pb2.RejectPayload(
+            request_id=request_id,
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="Reject",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _abstain_envelope(
+        self,
+        request_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Envelope:
+        validate_required_field("request_id", request_id)
+        payload = quorum_pb2.AbstainPayload(
+            request_id=request_id,
+            reason=reason,
+        )
+        return build_envelope(
+            mode=self.MODE,
+            message_type="Abstain",
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+
+class QuorumSession(BaseSession, _QuorumActions):
+    """High-level helper for Quorum mode sessions."""
+
+    MODE = MODE_QUORUM
 
     @property
     def quorum_projection(self) -> QuorumProjection:
@@ -306,22 +407,18 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("request_id", request_id)
-        payload = quorum_pb2.ApprovalRequestPayload(
-            request_id=request_id,
-            action=action,
-            summary=summary,
-            details=details,
-            required_approvals=required_approvals,
+        return self._send_and_track(
+            self._request_approval_envelope(
+                request_id,
+                action,
+                summary=summary,
+                details=details,
+                required_approvals=required_approvals,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="ApprovalRequest",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def approve(
         self,
@@ -331,19 +428,9 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("request_id", request_id)
-        payload = quorum_pb2.ApprovePayload(
-            request_id=request_id,
-            reason=reason,
+        return self._send_and_track(
+            self._approve_envelope(request_id, reason=reason, sender=sender, auth=auth), auth=auth
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Approve",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def reject(
         self,
@@ -353,19 +440,9 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("request_id", request_id)
-        payload = quorum_pb2.RejectPayload(
-            request_id=request_id,
-            reason=reason,
+        return self._send_and_track(
+            self._reject_envelope(request_id, reason=reason, sender=sender, auth=auth), auth=auth
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Reject",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
-        )
-        return self._send_and_track(envelope, auth=auth)
 
     def abstain(
         self,
@@ -375,16 +452,82 @@ class QuorumSession(BaseSession):
         sender: str | None = None,
         auth: AuthConfig | None = None,
     ) -> envelope_pb2.Ack:
-        validate_required_field("request_id", request_id)
-        payload = quorum_pb2.AbstainPayload(
-            request_id=request_id,
-            reason=reason,
+        return self._send_and_track(
+            self._abstain_envelope(request_id, reason=reason, sender=sender, auth=auth), auth=auth
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Abstain",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
+
+
+class AsyncQuorumSession(AsyncBaseSession, _QuorumActions):
+    """Asyncio twin of :class:`QuorumSession`, driven by an
+    :class:`~macp_sdk.async_client.AsyncMacpClient`.
+
+    Same methods, arguments and validation as :class:`QuorumSession`; every
+    method that talks to the runtime is a coroutine.
+    """
+
+    MODE = MODE_QUORUM
+
+    @property
+    def quorum_projection(self) -> QuorumProjection:
+        assert isinstance(self.projection, QuorumProjection)
+        return self.projection
+
+    async def request_approval(
+        self,
+        request_id: str,
+        action: str,
+        *,
+        summary: str = "",
+        details: bytes = b"",
+        required_approvals: int,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._request_approval_envelope(
+                request_id,
+                action,
+                summary=summary,
+                details=details,
+                required_approvals=required_approvals,
+                sender=sender,
+                auth=auth,
+            ),
+            auth=auth,
         )
-        return self._send_and_track(envelope, auth=auth)
+
+    async def approve(
+        self,
+        request_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._approve_envelope(request_id, reason=reason, sender=sender, auth=auth), auth=auth
+        )
+
+    async def reject(
+        self,
+        request_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._reject_envelope(request_id, reason=reason, sender=sender, auth=auth), auth=auth
+        )
+
+    async def abstain(
+        self,
+        request_id: str,
+        *,
+        reason: str = "",
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        return await self._send_and_track(
+            self._abstain_envelope(request_id, reason=reason, sender=sender, auth=auth), auth=auth
+        )

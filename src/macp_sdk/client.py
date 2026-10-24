@@ -52,12 +52,20 @@ def _parse_ack_reasons(ack: object) -> list[str]:
 def _trailing_metadata_value(rpc_error: grpc.RpcError, key: str) -> str | bytes | None:
     """Return the first trailing-metadata value for *key*, or None."""
     try:
-        metadata = rpc_error.trailing_metadata()
+        metadata: Any = rpc_error.trailing_metadata()
         if not metadata:
             return None
+        item: Any
         for item in metadata:
-            if item.key == key:
-                value: str | bytes = item.value
+            # Sync calls yield ``_Metadatum`` objects (``.key``/``.value``);
+            # ``grpc.aio`` yields plain ``(key, value)`` tuples.
+            item_key = getattr(item, "key", None)
+            if item_key is None:
+                item_key, item_value = item[0], item[1]
+            else:
+                item_value = item.value
+            if item_key == key:
+                value: str | bytes = item_value
                 return value
     except Exception:
         pass
@@ -179,6 +187,31 @@ def _cancel_quietly(call: Any) -> None:
         logger.debug("stream cancel failed", exc_info=True)
 
 
+def _classify_stream_response(response: Any) -> tuple[envelope_pb2.Envelope | None, Any]:
+    """Split a ``StreamSessionResponse`` into ``(envelope, inline_error)``.
+
+    At most one is non-None; both are None for an empty frame. Shared by
+    :class:`MacpStream` and the asyncio stream so both read the wire the
+    same way, including the legacy nested ``.response`` wrapper.
+    """
+    envelope = getattr(response, "envelope", None)
+    error = getattr(response, "error", None)
+    if error is not None and hasattr(error, "ByteSize") and error.ByteSize() > 0:
+        return None, error
+    if envelope is not None and envelope.ByteSize() > 0:
+        return envelope, None
+    # Fallback: a nested .response wrapper (legacy proto shape).
+    inner = getattr(response, "response", None)
+    if inner is not None and hasattr(inner, "ByteSize") and inner.ByteSize() > 0:
+        inner_env = getattr(inner, "envelope", None)
+        inner_err = getattr(inner, "error", None)
+        if inner_env is not None and inner_env.ByteSize() > 0:
+            return inner_env, None
+        if inner_err is not None:
+            return None, inner_err
+    return None, None
+
+
 class MacpStream:
     _END = object()
 
@@ -212,32 +245,13 @@ class MacpStream:
     def _pump_responses(self) -> None:
         try:
             for response in self._call:
-                # StreamSessionResponse has envelope + error at the top level.
-                envelope = getattr(response, "envelope", None)
-                error = getattr(response, "error", None)
-
-                if error is not None and hasattr(error, "ByteSize") and error.ByteSize() > 0:
+                envelope, error = _classify_stream_response(response)
+                if error is not None:
                     for cb in self._inline_error_callbacks:
                         cb(error)
                     logger.warning("inline stream error: %s", error)
-                    continue
-
-                if envelope is not None and envelope.ByteSize() > 0:
+                elif envelope is not None:
                     self._responses.put(envelope)
-                    continue
-
-                # Fallback: try a nested .response wrapper (legacy proto shape).
-                inner = getattr(response, "response", None)
-                if inner is not None and hasattr(inner, "ByteSize") and inner.ByteSize() > 0:
-                    inner_env = getattr(inner, "envelope", None)
-                    inner_err = getattr(inner, "error", None)
-                    if inner_env is not None and inner_env.ByteSize() > 0:
-                        self._responses.put(inner_env)
-                    elif inner_err is not None:
-                        for cb in self._inline_error_callbacks:
-                            cb(inner_err)
-                        logger.warning("inline stream error: %s", inner_err)
-                        continue
         except grpc.RpcError as exc:
             self._responses.put(exc)
         finally:
@@ -345,42 +359,26 @@ class MacpStream:
         self._call.cancel()
 
 
-class MacpClient:
-    """gRPC client for the MACP runtime.
+class _ClientCore:
+    """Transport-independent state and request/response logic.
 
-    Transport security follows RFC-MACP-0004 §2 "Transport Security": "All
-    MACP deployments MUST use encrypted transport" and "For gRPC over
-    HTTP/2, TLS 1.2 or higher is REQUIRED", so ``secure`` defaults to
-    ``True``. Plaintext gRPC is only available via the explicit
-    ``allow_insecure=True`` opt-in, which is intended for local development
-    against a runtime started with ``MACP_ALLOW_INSECURE=1``.
-
-    ``secure`` and ``allow_insecure`` are deliberately not fully independent:
-    when ``secure`` is left at its default (``None``), it is derived as
-    ``not allow_insecure`` -- so passing ``allow_insecure=True`` alone is
-    sufficient to select a plaintext channel, without also having to pass
-    ``secure=False``. This is intentional, not a gap (issue #93 item 3): the
-    common local-dev call is ``MacpClient(target=..., allow_insecure=True)``,
-    and requiring a second, redundant flag to actually get the insecure
-    channel that name asks for would be surprising. ``secure`` remains
-    settable independently for the cases that need it explicit -- e.g.
-    ``secure=False`` without ``allow_insecure=True`` still raises below, and
-    ``secure=True`` with ``allow_insecure=True`` still builds a TLS channel
-    (``allow_insecure`` only lifts the *requirement*, it never forces
-    plaintext).
+    Shared by :class:`MacpClient` (sync ``grpc``) and
+    :class:`macp_sdk.async_client.AsyncMacpClient` (``grpc.aio``) so both
+    apply the same transport-security rule, auth resolution, timeout
+    semantics, request construction and error mapping. Subclasses only own
+    the channel and the (sync or awaitable) stub calls.
     """
 
     def __init__(
         self,
         *,
         target: str,
-        secure: bool | None = None,
-        allow_insecure: bool = False,
-        auth: AuthConfig | None = None,
-        root_certificates: bytes | None = None,
-        default_timeout: float | None = None,
-        client_name: str = "macp-sdk-python",
-        client_version: str = "0.5.0",
+        secure: bool | None,
+        allow_insecure: bool,
+        auth: AuthConfig | None,
+        default_timeout: float | None,
+        client_name: str,
+        client_version: str,
     ) -> None:
         if secure is None:
             secure = not allow_insecure
@@ -397,22 +395,6 @@ class MacpClient:
         self.default_timeout = default_timeout
         self.client_name = client_name
         self.client_version = client_version
-        if secure:
-            creds = grpc.ssl_channel_credentials(root_certificates=root_certificates)
-            self.channel = grpc.secure_channel(target, creds)
-        else:
-            logger.warning("MacpClient insecure channel to %s — allowed only for local dev", target)
-            self.channel = grpc.insecure_channel(target)
-        self.stub = core_pb2_grpc.MACPRuntimeServiceStub(self.channel)
-
-    def close(self) -> None:
-        self.channel.close()
-
-    def __enter__(self) -> MacpClient:
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
-        self.close()
 
     def _metadata(self, auth: AuthConfig | None = None) -> Sequence[tuple[str, str]]:
         selected = auth or self.auth
@@ -517,10 +499,72 @@ class MacpClient:
             denials=details.denials,
         )
 
-    def initialize(
-        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
-    ) -> core_pb2.InitializeResponse:
-        request = core_pb2.InitializeRequest(
+    @staticmethod
+    def _ack_or_raise(ack: envelope_pb2.Ack, raise_on_nack: bool) -> envelope_pb2.Ack:
+        """Return *ack*, raising :class:`MacpAckError` on a NACK when asked."""
+        if raise_on_nack and not ack.ok:
+            raise MacpAckError(_ClientCore._failure_from_ack(ack))
+        return ack
+
+    @staticmethod
+    def _send_ack_or_raise(ack: envelope_pb2.Ack, raise_on_nack: bool) -> envelope_pb2.Ack:
+        """Like :meth:`_ack_or_raise`, but a duplicate ack is success.
+
+        Duplicate acks are idempotent success — the message was already
+        accepted. This matches TypeScript SDK behaviour and is correct for
+        retry scenarios.
+        """
+        if ack.duplicate:
+            return ack
+        return _ClientCore._ack_or_raise(ack, raise_on_nack)
+
+    @staticmethod
+    def _send_error_from_rpc(
+        rpc_err: grpc.RpcError, envelope: envelope_pb2.Envelope
+    ) -> MacpSdkError:
+        """Map a ``Send`` RPC failure to the SDK error to raise."""
+        # Runtime ≥ 0.9.0: the registry code rides `macp-error-code`, and
+        # the gRPC status no longer identifies it (S13) — trust the key.
+        # UNAUTHENTICATED included: a permanent code, so retry_send won't
+        # retry it (macp-sdk-typescript parity).
+        macp_code = macp_error_code(rpc_err)
+        if macp_code is not None:
+            details = _parse_grpc_metadata_details(rpc_err)
+            failure = AckFailure(
+                code=macp_code,
+                message=_rpc_details(rpc_err) or macp_code,
+                session_id=envelope.session_id,
+                message_id=envelope.message_id,
+                reasons=details.reasons,
+                denials=details.denials,
+            )
+            return MacpAckError(failure, macp_code=macp_code)
+        # Pre-0.9 runtimes: infer the MACP code from the gRPC status.
+        code = rpc_err.code()
+        if code == grpc.StatusCode.ALREADY_EXISTS:
+            failure = AckFailure(
+                code="SESSION_ALREADY_EXISTS",
+                message=rpc_err.details() or "session already exists",
+            )
+            return MacpAckError(failure)
+        if code == grpc.StatusCode.FAILED_PRECONDITION:
+            details = _parse_grpc_metadata_details(rpc_err)
+            failure = AckFailure(
+                code="POLICY_DENIED",
+                message=rpc_err.details() or "policy denied",
+                reasons=details.reasons,
+                denials=details.denials,
+            )
+            return MacpAckError(failure)
+        if code == grpc.StatusCode.INVALID_ARGUMENT:
+            return MacpTransportError(
+                _rpc_details(rpc_err) or "invalid argument",
+                code=_rpc_status_name(rpc_err),
+            )
+        return _ClientCore._transport_error_from_rpc(rpc_err)
+
+    def _initialize_request(self) -> core_pb2.InitializeRequest:
+        return core_pb2.InitializeRequest(
             supported_protocol_versions=["1.0"],
             client_info=core_pb2.ClientInfo(
                 name=self.client_name,
@@ -531,6 +575,153 @@ class MacpClient:
             ),
             capabilities=_default_capabilities(),
         )
+
+    @staticmethod
+    def _cancel_session_request(
+        session_id: str, reason: str, cancelled_by: str
+    ) -> core_pb2.CancelSessionRequest:
+        request_kwargs: dict[str, object] = {
+            "session_id": session_id,
+            "reason": reason,
+        }
+        # Forward-compatible: add cancelled_by if proto supports it
+        if cancelled_by:
+            has_field = any(
+                f.name == "cancelled_by" for f in core_pb2.CancelSessionRequest.DESCRIPTOR.fields
+            )
+            if has_field:
+                request_kwargs["cancelled_by"] = cancelled_by
+        return core_pb2.CancelSessionRequest(**request_kwargs)
+
+    @staticmethod
+    def _check_ext_mode_descriptor(descriptor: core_pb2.ModeDescriptor) -> None:
+        if "Commitment" not in descriptor.terminal_message_types:
+            raise MacpSessionError(
+                "ext-mode descriptor must declare 'Commitment' in "
+                "terminal_message_types (runtime v0.5.0 rejects descriptors "
+                "without a Commitment terminal type)"
+            )
+
+    def _signal_envelope(
+        self,
+        auth_cfg: AuthConfig,
+        *,
+        signal_type: str,
+        data: bytes,
+        confidence: float,
+        correlation_session_id: str,
+        sender: str,
+    ) -> envelope_pb2.Envelope:
+        payload = build_signal_payload(
+            signal_type=signal_type,
+            data=data,
+            confidence=confidence,
+            correlation_session_id=correlation_session_id,
+        )
+        return build_envelope(
+            mode="",
+            message_type="Signal",
+            session_id="",
+            payload=serialize_message(payload),
+            sender=self._resolve_sender(auth_cfg, sender),
+        )
+
+    def _progress_envelope(
+        self,
+        auth_cfg: AuthConfig,
+        *,
+        session_id: str,
+        mode: str,
+        progress_token: str,
+        progress: float,
+        total: float,
+        message: str,
+        target_message_id: str,
+        sender: str,
+    ) -> envelope_pb2.Envelope:
+        payload = build_progress_payload(
+            progress_token=progress_token,
+            progress=progress,
+            total=total,
+            message=message,
+            target_message_id=target_message_id,
+        )
+        return build_envelope(
+            mode=mode,
+            message_type="Progress",
+            session_id=session_id,
+            payload=serialize_message(payload),
+            sender=self._resolve_sender(auth_cfg, sender),
+        )
+
+
+class MacpClient(_ClientCore):
+    """gRPC client for the MACP runtime.
+
+    Transport security follows RFC-MACP-0004 §2 "Transport Security": "All
+    MACP deployments MUST use encrypted transport" and "For gRPC over
+    HTTP/2, TLS 1.2 or higher is REQUIRED", so ``secure`` defaults to
+    ``True``. Plaintext gRPC is only available via the explicit
+    ``allow_insecure=True`` opt-in, which is intended for local development
+    against a runtime started with ``MACP_ALLOW_INSECURE=1``.
+
+    ``secure`` and ``allow_insecure`` are deliberately not fully independent:
+    when ``secure`` is left at its default (``None``), it is derived as
+    ``not allow_insecure`` -- so passing ``allow_insecure=True`` alone is
+    sufficient to select a plaintext channel, without also having to pass
+    ``secure=False``. This is intentional, not a gap (issue #93 item 3): the
+    common local-dev call is ``MacpClient(target=..., allow_insecure=True)``,
+    and requiring a second, redundant flag to actually get the insecure
+    channel that name asks for would be surprising. ``secure`` remains
+    settable independently for the cases that need it explicit -- e.g.
+    ``secure=False`` without ``allow_insecure=True`` still raises below, and
+    ``secure=True`` with ``allow_insecure=True`` still builds a TLS channel
+    (``allow_insecure`` only lifts the *requirement*, it never forces
+    plaintext).
+    """
+
+    def __init__(
+        self,
+        *,
+        target: str,
+        secure: bool | None = None,
+        allow_insecure: bool = False,
+        auth: AuthConfig | None = None,
+        root_certificates: bytes | None = None,
+        default_timeout: float | None = None,
+        client_name: str = "macp-sdk-python",
+        client_version: str = "0.5.0",
+    ) -> None:
+        super().__init__(
+            target=target,
+            secure=secure,
+            allow_insecure=allow_insecure,
+            auth=auth,
+            default_timeout=default_timeout,
+            client_name=client_name,
+            client_version=client_version,
+        )
+        if self.secure:
+            creds = grpc.ssl_channel_credentials(root_certificates=root_certificates)
+            self.channel = grpc.secure_channel(target, creds)
+        else:
+            logger.warning("MacpClient insecure channel to %s — allowed only for local dev", target)
+            self.channel = grpc.insecure_channel(target)
+        self.stub = core_pb2_grpc.MACPRuntimeServiceStub(self.channel)
+
+    def close(self) -> None:
+        self.channel.close()
+
+    def __enter__(self) -> MacpClient:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
+
+    def initialize(
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
+    ) -> core_pb2.InitializeResponse:
+        request = self._initialize_request()
         return self.stub.Initialize(
             request,
             metadata=self._metadata(auth),
@@ -553,53 +744,8 @@ class MacpClient:
                 timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
-            # Runtime ≥ 0.9.0: the registry code rides `macp-error-code`, and
-            # the gRPC status no longer identifies it (S13) — trust the key.
-            # UNAUTHENTICATED included: a permanent code, so retry_send won't
-            # retry it (macp-sdk-typescript parity).
-            macp_code = macp_error_code(rpc_err)
-            if macp_code is not None:
-                details = _parse_grpc_metadata_details(rpc_err)
-                failure = AckFailure(
-                    code=macp_code,
-                    message=_rpc_details(rpc_err) or macp_code,
-                    session_id=envelope.session_id,
-                    message_id=envelope.message_id,
-                    reasons=details.reasons,
-                    denials=details.denials,
-                )
-                raise MacpAckError(failure, macp_code=macp_code) from rpc_err
-            # Pre-0.9 runtimes: infer the MACP code from the gRPC status.
-            code = rpc_err.code()
-            if code == grpc.StatusCode.ALREADY_EXISTS:
-                failure = AckFailure(
-                    code="SESSION_ALREADY_EXISTS",
-                    message=rpc_err.details() or "session already exists",
-                )
-                raise MacpAckError(failure) from rpc_err
-            if code == grpc.StatusCode.FAILED_PRECONDITION:
-                details = _parse_grpc_metadata_details(rpc_err)
-                failure = AckFailure(
-                    code="POLICY_DENIED",
-                    message=rpc_err.details() or "policy denied",
-                    reasons=details.reasons,
-                    denials=details.denials,
-                )
-                raise MacpAckError(failure) from rpc_err
-            if code == grpc.StatusCode.INVALID_ARGUMENT:
-                raise MacpTransportError(
-                    _rpc_details(rpc_err) or "invalid argument",
-                    code=_rpc_status_name(rpc_err),
-                ) from rpc_err
-            raise self._transport_error_from_rpc(rpc_err) from rpc_err
-        ack = response.ack
-        # Duplicate acks are idempotent success — the message was already accepted.
-        # This matches TypeScript SDK behaviour and is correct for retry scenarios.
-        if ack.duplicate:
-            return ack
-        if raise_on_nack and not ack.ok:
-            raise MacpAckError(self._failure_from_ack(ack))
-        return ack
+            raise self._send_error_from_rpc(rpc_err, envelope) from rpc_err
+        return self._send_ack_or_raise(response.ack, raise_on_nack)
 
     def get_session(
         self,
@@ -633,29 +779,15 @@ class MacpClient:
         event. The returned ``Ack.session_state`` reflects ``CANCELLED``.
         """
         auth_cfg = self._require_auth(auth)
-        request_kwargs: dict[str, object] = {
-            "session_id": session_id,
-            "reason": reason,
-        }
-        # Forward-compatible: add cancelled_by if proto supports it
-        if cancelled_by:
-            has_field = any(
-                f.name == "cancelled_by" for f in core_pb2.CancelSessionRequest.DESCRIPTOR.fields
-            )
-            if has_field:
-                request_kwargs["cancelled_by"] = cancelled_by
         try:
             response = self.stub.CancelSession(
-                core_pb2.CancelSessionRequest(**request_kwargs),
+                self._cancel_session_request(session_id, reason, cancelled_by),
                 metadata=self._metadata(auth_cfg),
                 timeout=self._resolve_timeout(timeout),
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
-        ack = response.ack
-        if raise_on_nack and not ack.ok:
-            raise MacpAckError(self._failure_from_ack(ack))
-        return ack
+        return self._ack_or_raise(response.ack, raise_on_nack)
 
     def suspend_session(
         self,
@@ -689,10 +821,7 @@ class MacpClient:
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
-        ack = response.ack
-        if raise_on_nack and not ack.ok:
-            raise MacpAckError(self._failure_from_ack(ack))
-        return ack
+        return self._ack_or_raise(response.ack, raise_on_nack)
 
     def resume_session(
         self,
@@ -718,10 +847,7 @@ class MacpClient:
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
-        ack = response.ack
-        if raise_on_nack and not ack.ok:
-            raise MacpAckError(self._failure_from_ack(ack))
-        return ack
+        return self._ack_or_raise(response.ack, raise_on_nack)
 
     def get_manifest(
         self,
@@ -874,12 +1000,7 @@ class MacpClient:
         ``Commitment`` from ``terminal_message_types`` (runtime v0.5.0 requires
         it), giving a clearer error than the runtime's rejection.
         """
-        if "Commitment" not in descriptor.terminal_message_types:
-            raise MacpSessionError(
-                "ext-mode descriptor must declare 'Commitment' in "
-                "terminal_message_types (runtime v0.5.0 rejects descriptors "
-                "without a Commitment terminal type)"
-            )
+        self._check_ext_mode_descriptor(descriptor)
         auth_cfg = self._require_auth(auth)
         try:
             return self.stub.RegisterExtMode(
@@ -1143,18 +1264,13 @@ class MacpClient:
         """Send an ambient (non-session) signal to the runtime."""
         validate_signal_type(signal_type, data)
         auth_cfg = self._require_auth(auth)
-        payload = build_signal_payload(
+        envelope = self._signal_envelope(
+            auth_cfg,
             signal_type=signal_type,
             data=data,
             confidence=confidence,
             correlation_session_id=correlation_session_id,
-        )
-        envelope = build_envelope(
-            mode="",
-            message_type="Signal",
-            session_id="",
-            payload=serialize_message(payload),
-            sender=self._resolve_sender(auth_cfg, sender),
+            sender=sender,
         )
         return self.send(envelope, auth=auth_cfg, timeout=timeout)
 
@@ -1187,18 +1303,15 @@ class MacpClient:
         """
         validate_progress_scope(session_id, mode)
         auth_cfg = self._require_auth(auth)
-        payload = build_progress_payload(
+        envelope = self._progress_envelope(
+            auth_cfg,
+            session_id=session_id,
+            mode=mode,
             progress_token=progress_token,
             progress=progress,
             total=total,
             message=message,
             target_message_id=target_message_id,
-        )
-        envelope = build_envelope(
-            mode=mode,
-            message_type="Progress",
-            session_id=session_id,
-            payload=serialize_message(payload),
-            sender=self._resolve_sender(auth_cfg, sender),
+            sender=sender,
         )
         return self.send(envelope, auth=auth_cfg, timeout=timeout)

@@ -9,7 +9,7 @@ from macp.v1 import core_pb2, envelope_pb2
 from ._logging import logger
 from .auth import AuthConfig
 from .base_projection import BaseProjection
-from .client import MacpClient, MacpStream
+from .client import MacpClient, MacpStream, _ClientCore
 from .constants import (
     DEFAULT_CONFIGURATION_VERSION,
     DEFAULT_MODE_VERSION,
@@ -27,19 +27,23 @@ from .errors import MacpIdentityMismatchError
 from .validation import validate_session_id, validate_session_start
 
 
-class BaseSession(ABC):
-    """Abstract base for mode session helpers.
+class _SessionCore(ABC):
+    """Transport-independent session state and envelope construction.
 
-    Provides shared logic for session lifecycle (start, commit, cancel,
-    metadata, streaming) so that mode-specific subclasses only need to
-    implement their own action methods.
+    Shared by :class:`BaseSession` (sync) and
+    :class:`macp_sdk.async_session.AsyncBaseSession` (asyncio): session id,
+    version binding, the projection, sender resolution, and the validated
+    ``SessionStart`` / ``Commitment`` envelopes. Mode helpers build their own
+    envelopes on top of this in a per-mode actions mixin, so the sync and
+    async session classes send byte-identical envelopes.
     """
 
     MODE: ClassVar[str]
+    client: _ClientCore
 
     def __init__(
         self,
-        client: MacpClient,
+        client: _ClientCore,
         *,
         session_id: str | None = None,
         mode_version: str = DEFAULT_MODE_VERSION,
@@ -76,19 +80,33 @@ class BaseSession(ABC):
             raise MacpIdentityMismatchError(expected=expected, actual=resolved)
         return resolved
 
-    def _send_and_track(
+    def _envelope(
         self,
-        envelope: envelope_pb2.Envelope,
+        message_type: str,
+        payload: Any,
         *,
-        auth: AuthConfig | None = None,
-    ) -> envelope_pb2.Ack:
+        sender: str | None,
+        auth: AuthConfig | None,
+    ) -> envelope_pb2.Envelope:
+        """Wrap a mode payload in an envelope addressed to this session."""
+        return build_envelope(
+            mode=self.MODE,
+            message_type=message_type,
+            session_id=self.session_id,
+            sender=self._sender_for(sender, auth=auth),
+            payload=serialize_message(payload),
+        )
+
+    def _log_send(self, envelope: envelope_pb2.Envelope) -> None:
         logger.debug(
             "send session=%s type=%s sender=%s",
             envelope.session_id,
             envelope.message_type,
             envelope.sender,
         )
-        ack = self.client.send(envelope, auth=auth or self.auth)
+
+    def _track_ack(self, envelope: envelope_pb2.Envelope, ack: envelope_pb2.Ack) -> None:
+        """Feed an accepted envelope into the projection (no-op on a NACK)."""
         if ack.ok:
             self.projection.apply_envelope(envelope)
         else:
@@ -98,28 +116,20 @@ class BaseSession(ABC):
                 envelope.message_type,
                 getattr(ack, "error", None),
             )
-        return ack
 
-    def start(
+    def _start_envelope(
         self,
         *,
         intent: str,
         participants: list[str],
         ttl_ms: int,
-        context_id: str = "",
-        extensions: Mapping[str, bytes] | None = None,
-        roots: Iterable[Any] | None = None,
-        max_suspend_ms: int = 0,
-        sender: str | None = None,
-        auth: AuthConfig | None = None,
-    ) -> envelope_pb2.Ack:
-        """Send SessionStart and begin tracking via the projection.
-
-        ``max_suspend_ms`` (runtime v0.5.0) binds a per-session maximum
-        suspension cap; ``0`` selects the runtime default (currently 7 days).
-        A suspension outlasting this cap expires the session
-        (``SUSPENDED`` → ``EXPIRED``). Negative values are rejected.
-        """
+        context_id: str,
+        extensions: Mapping[str, bytes] | None,
+        roots: Iterable[Any] | None,
+        max_suspend_ms: int,
+        sender: str | None,
+        auth: AuthConfig | None,
+    ) -> envelope_pb2.Envelope:
         validate_session_start(
             intent=intent,
             participants=participants,
@@ -146,12 +156,102 @@ class BaseSession(ABC):
             roots=roots,
             max_suspend_ms=max_suspend_ms,
         )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="SessionStart",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
+        return self._envelope("SessionStart", payload, sender=sender, auth=auth)
+
+    def _commit_envelope(
+        self,
+        *,
+        action: str,
+        authority_scope: str,
+        reason: str,
+        commitment_id: str | None,
+        outcome_positive: bool | None,
+        sender: str | None,
+        auth: AuthConfig | None,
+    ) -> envelope_pb2.Envelope:
+        payload = build_commitment_payload(
+            action=action,
+            authority_scope=authority_scope,
+            reason=reason,
+            commitment_id=commitment_id,
+            mode_version=self.mode_version,
+            configuration_version=self.configuration_version,
+            policy_version=self.policy_version,
+            outcome_positive=outcome_positive,
+        )
+        return self._envelope("Commitment", payload, sender=sender, auth=auth)
+
+
+class BaseSession(_SessionCore):
+    """Abstract base for mode session helpers.
+
+    Provides shared logic for session lifecycle (start, commit, cancel,
+    metadata, streaming) so that mode-specific subclasses only need to
+    implement their own action methods.
+    """
+
+    client: MacpClient
+
+    def __init__(
+        self,
+        client: MacpClient,
+        *,
+        session_id: str | None = None,
+        mode_version: str = DEFAULT_MODE_VERSION,
+        configuration_version: str = DEFAULT_CONFIGURATION_VERSION,
+        policy_version: str = DEFAULT_POLICY_VERSION,
+        auth: AuthConfig | None = None,
+    ) -> None:
+        super().__init__(
+            client,
+            session_id=session_id,
+            mode_version=mode_version,
+            configuration_version=configuration_version,
+            policy_version=policy_version,
+            auth=auth,
+        )
+
+    def _send_and_track(
+        self,
+        envelope: envelope_pb2.Envelope,
+        *,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        self._log_send(envelope)
+        ack = self.client.send(envelope, auth=auth or self.auth)
+        self._track_ack(envelope, ack)
+        return ack
+
+    def start(
+        self,
+        *,
+        intent: str,
+        participants: list[str],
+        ttl_ms: int,
+        context_id: str = "",
+        extensions: Mapping[str, bytes] | None = None,
+        roots: Iterable[Any] | None = None,
+        max_suspend_ms: int = 0,
+        sender: str | None = None,
+        auth: AuthConfig | None = None,
+    ) -> envelope_pb2.Ack:
+        """Send SessionStart and begin tracking via the projection.
+
+        ``max_suspend_ms`` (runtime v0.5.0) binds a per-session maximum
+        suspension cap; ``0`` selects the runtime default (currently 7 days).
+        A suspension outlasting this cap expires the session
+        (``SUSPENDED`` → ``EXPIRED``). Negative values are rejected.
+        """
+        envelope = self._start_envelope(
+            intent=intent,
+            participants=participants,
+            ttl_ms=ttl_ms,
+            context_id=context_id,
+            extensions=extensions,
+            roots=roots,
+            max_suspend_ms=max_suspend_ms,
+            sender=sender,
+            auth=auth,
         )
         return self._send_and_track(envelope, auth=auth or self.auth)
 
@@ -176,22 +276,14 @@ class BaseSession(ABC):
         resolved policy id (e.g. ``policy.default``) or the commitment is
         rejected with ``UNKNOWN_POLICY_VERSION``.
         """
-        payload = build_commitment_payload(
+        envelope = self._commit_envelope(
             action=action,
             authority_scope=authority_scope,
             reason=reason,
             commitment_id=commitment_id,
-            mode_version=self.mode_version,
-            configuration_version=self.configuration_version,
-            policy_version=self.policy_version,
             outcome_positive=outcome_positive,
-        )
-        envelope = build_envelope(
-            mode=self.MODE,
-            message_type="Commitment",
-            session_id=self.session_id,
-            sender=self._sender_for(sender, auth=auth),
-            payload=serialize_message(payload),
+            sender=sender,
+            auth=auth,
         )
         return self._send_and_track(envelope, auth=auth)
 

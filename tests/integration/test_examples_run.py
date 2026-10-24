@@ -58,6 +58,7 @@ EXCLUDED: dict[str, str] = {
 # makes an unclassified addition a hard failure.
 RUN = [
     "agent_policy_aware.py",
+    "async_first_session.py",
     "decision_smoke.py",
     "direct_agent_auth_initiator.py",
     "handoff_escalation.py",

@@ -40,6 +40,8 @@ macp_sdk/
 ├── client.py          MacpClient (sync gRPC) + MacpStream (bidirectional streaming, send_subscribe replay)
 ├── auth.py            AuthConfig — bearer-token auth (for_bearer / for_dev_agent), expected_sender guardrail
 ├── base_session.py    BaseSession ABC — shared start/commit/cancel/metadata/open_stream
+├── async_client.py    AsyncMacpClient (grpc.aio) + AsyncMacpStream — same surface, coroutines/async iterators
+├── async_session.py   AsyncBaseSession — async twin of BaseSession (mode helpers: Async<Mode>Session)
 ├── base_projection.py BaseProjection ABC — shared transcript/commitment tracking
 ├── decision.py        DecisionSession — propose, evaluate, object, vote
 ├── proposal.py        ProposalSession + ProposalProjection
