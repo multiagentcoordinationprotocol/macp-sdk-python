@@ -20,9 +20,42 @@ If you need runtime-driven business logic, run a Python agent/orchestrator as a 
 pip install macp-sdk-python
 ```
 
+Requires Python **>= 3.11** (`requires-python` in `pyproject.toml`); CI runs the unit
+suite on Python 3.11, 3.12 and 3.13.
+
 ## Quick start
 
-### Production (Bearer + TLS)
+### 1. Start a local runtime
+
+```bash
+docker run -p 50051:50051 -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+```
+
+This is the runtime image CI pins. `MACP_ALLOW_INSECURE=1` permits plaintext and
+dev-agent auth (local development only); `MACP_MEMORY_ONLY=1` skips on-disk
+persistence. Since runtime **v0.5.0**, a runtime with no authentication configured
+(`MACP_AUTH_TOKENS_*` / `MACP_AUTH_ISSUER` unset) **refuses to start** unless
+`MACP_ALLOW_INSECURE=1` is set, and the image does not bake it in.
+
+### 2. Connect
+
+#### Local dev (the runtime above)
+
+```python
+from macp_sdk import AuthConfig, DecisionSession, MacpClient
+
+client = MacpClient(
+    target="127.0.0.1:50051",
+    allow_insecure=True,                                # dev only
+    auth=AuthConfig.for_dev_agent("coordinator"),
+)
+```
+
+Dev-agent auth rides the standard `Authorization: Bearer` header — the
+runtime's `dev_authenticate` fallback binds the token value verbatim
+as the sender.
+
+#### Production (Bearer + TLS)
 
 ```python
 from macp_sdk import AuthConfig, DecisionSession, MacpClient
@@ -34,17 +67,7 @@ client = MacpClient(
 )
 ```
 
-### Local dev (runtime started with `MACP_ALLOW_INSECURE=1`)
-
-```python
-client = MacpClient(
-    target="127.0.0.1:50051",
-    allow_insecure=True,                                # dev only
-    auth=AuthConfig.for_dev_agent("coordinator"),
-)
-```
-
-### Driving a decision
+### 3. Drive a decision
 
 ```python
 session = DecisionSession(client)
@@ -81,6 +104,12 @@ if winner and not session.decision_projection.has_blocking_objection(winner):
 | Task | `TaskSession` | `TaskProjection` | `examples/task_delegation.py` |
 | Handoff | `HandoffSession` | `HandoffProjection` | `examples/handoff_escalation.py` |
 | Quorum | `QuorumSession` | `QuorumProjection` | `examples/quorum_approval.py` |
+| Multi-round (`ext.multi_round.v1`, extension) | — (codec only) | — | — |
+
+Multi-round support is codec-only: the `MODE_MULTI_ROUND` constant,
+`build_contribute_payload()`, and `ProtoRegistry` encode/decode of `Contribute`
+(canonical protobuf, with legacy JSON still decoded). There is no session helper or
+projection — build and send its envelopes with the low-level `MacpClient` API.
 
 ## Development
 
@@ -104,22 +133,8 @@ make build              # build sdist + wheel, then twine check
 make dev-link-protos    # link local proto package for development
 ```
 
-For local development against the runtime:
-
-```bash
-export MACP_ALLOW_INSECURE=1
-cargo run   # in the runtime repo
-```
-
-Since runtime **v0.5.0**, a runtime with no authentication configured
-(`MACP_AUTH_TOKENS_*` / `MACP_AUTH_ISSUER` unset) **refuses to start** unless
-`MACP_ALLOW_INSECURE=1` is set, and the published Docker image **no longer
-bakes that env in** — pass it explicitly for local dev (as above and in the
-`docker run` command in `CLAUDE.md`).
-
-Dev-agent auth rides the standard `Authorization: Bearer` header — the
-runtime's `dev_authenticate` fallback binds the token value verbatim
-as the sender.
+`make test-integration-docker` starts the same pinned runtime image as the quick start,
+runs `tests/integration/`, and cleans up.
 
 ## Documentation
 
