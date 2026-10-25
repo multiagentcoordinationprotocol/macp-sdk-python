@@ -134,6 +134,15 @@ from .quorum import (
     QuorumProjection,
     QuorumSession,
 )
+from .receipt import (
+    RECEIPT_FORMAT,
+    DecisionReceipt,
+    ReceiptSigner,
+    ReceiptVerification,
+    build_receipt,
+    commitment_from_projection,
+    verify_receipt,
+)
 from .retry import RetryPolicy, retry_send
 from .task import (
     AsyncTaskSession,
@@ -207,6 +216,7 @@ __all__ = [
     "POLICY_DENIED",
     "PROPOSAL_ACCEPTANCE_CRITERIA",
     "RATE_LIMITED",
+    "RECEIPT_FORMAT",
     "REGISTRY_READ_ONLY",
     "SESSION_ALREADY_EXISTS",
     "SESSION_NOT_FOUND",
@@ -239,6 +249,7 @@ __all__ = [
     "DecisionObjectionRecord",
     "DecisionProjection",
     "DecisionProposalRecord",
+    "DecisionReceipt",
     "DecisionSession",
     "DecisionVoteRecord",
     "ErrorDetails",
@@ -273,6 +284,8 @@ __all__ = [
     "QuorumProjection",
     "QuorumSession",
     "QuorumThreshold",
+    "ReceiptSigner",
+    "ReceiptVerification",
     "RejectionRules",
     "RetryPolicy",
     "RootsWatcher",
@@ -300,10 +313,12 @@ __all__ = [
     "build_progress_payload",
     "build_proposal_policy",
     "build_quorum_policy",
+    "build_receipt",
     "build_root",
     "build_session_start_payload",
     "build_signal_payload",
     "build_task_policy",
+    "commitment_from_projection",
     "commitment_hash",
     "configure_logging",
     "effective_quorum_threshold",
@@ -332,6 +347,7 @@ __all__ = [
     "validate_ttl_ms",
     "validate_vote",
     "verify_commitment_hash",
+    "verify_receipt",
 ]
 
 # ── Deprecated aliases (issue #103 / multiagentcoordinationprotocol#135) ─────
