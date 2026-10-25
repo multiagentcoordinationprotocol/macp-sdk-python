@@ -84,6 +84,8 @@ def _make_canon(
     _write_files(canon, flat)
     if include_cmt_hash_dir:
         _write_files(canon / "cmt-hash", cmt_hash)
+    # The receipt pair (tests/vectors/receipt) is left empty on both sides.
+    _write_files(canon / "receipt", None)
     return canon
 
 
@@ -101,6 +103,7 @@ def _make_repo(
     _write_files(repo / "tests" / "conformance", conformance)
     if create_cmt_hash_dir:
         _write_files(repo / "tests" / "vectors" / "cmt-hash", cmt_hash)
+    _write_files(repo / "tests" / "vectors" / "receipt", None)
     return repo
 
 

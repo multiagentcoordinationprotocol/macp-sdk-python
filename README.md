@@ -156,6 +156,43 @@ Create the client inside the running loop: `grpc.aio` channels bind to the loop
 that is current when they are created. See
 [docs/guides/async.md](docs/guides/async.md) for streaming, watches and concurrency.
 
+## Decision receipts
+
+A decision receipt (`macp-receipt/1`, RFC-MACP-0013 Appendix A) is a portable
+JSON record of one Commitment that anyone can check offline: *integrity* (the
+recorded commitment has the recorded `commitment_hash`) needs no keys, and
+*authenticity* comes from an Ed25519 JWS attestation by a key the verifier
+trusts. Signing and signature checks need the `receipts` extra:
+
+```bash
+pip install 'macp-sdk-python[receipts]'
+```
+
+```python
+from macp_sdk import ReceiptSigner, build_receipt, verify_receipt
+
+receipt = build_receipt(
+    commitment,                      # the session's CommitmentPayload
+    session_id=session.session_id,
+    mode="macp.mode.decision.v1",
+    issuer="runtime:example",
+    issued_at="2026-10-24T12:00:00Z",
+    semantics_rev={"implementation": "macp-runtime", "rev": 4},
+    signer=ReceiptSigner("example-1", private_key=seed),  # 32-byte seed, or sign=callback
+)
+
+result = verify_receipt(receipt, {"example-1": public_key_x})  # kid -> JWK x (base64url)
+# {"integrity": "match", "attestations": ["valid"], "verdict": "attested"}
+```
+
+`verify_receipt` never raises on a malformed receipt; it returns one of the
+verdicts `attested`, `integrity_only`, `unverified` or `refused` (unknown
+`receipt_format`), in the same shape as the spec's vectors, which the unit tests
+replay from `tests/vectors/receipt/`. Pass `commitment_wire=` (the payload's
+Protobuf bytes) to record `commitment_wire_b64`; `build_receipt` raises if it is
+not the wire encoding of `commitment`. `commitment_from_projection()` turns a
+receipt's snake_case `commitment` back into a `CommitmentPayload`.
+
 ## Supported modes
 
 | Mode | Session Helper | Projection | Example |
