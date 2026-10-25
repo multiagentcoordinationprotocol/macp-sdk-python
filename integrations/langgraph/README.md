@@ -197,9 +197,8 @@ It pins `macp-sdk-python[receipts]>=0.19,<0.20`.
 
 ## Other frameworks
 
-- **Claude Agent SDK**: subagents voting through Decision mode. Next in this repo.
-- **OpenAI Agents SDK**: handoffs mapped to MACP Handoff mode. Deferred, planned after the Claude
-  Agent SDK adapter.
+- **Claude Agent SDK**: subagents voting through Decision mode, in [`claude-agent-sdk-macp`](../claude-agent-sdk/).
+- **OpenAI Agents SDK**: handoffs mapped to MACP Handoff mode. Deferred, and next.
 
 ## License
 
