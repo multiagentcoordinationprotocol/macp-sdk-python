@@ -193,6 +193,17 @@ Protobuf bytes) to record `commitment_wire_b64`; `build_receipt` raises if it is
 not the wire encoding of `commitment`. `commitment_from_projection()` turns a
 receipt's snake_case `commitment` back into a `CommitmentPayload`.
 
+## Framework integrations
+
+Separate packages, each with its own version and release tag, living under `integrations/`:
+
+| Package | Install | What it adds |
+|---|---|---|
+| [`langgraph-macp`](integrations/langgraph/) | `pip install langgraph-macp` | `MacpConsensusNode`: a LangGraph node that settles a Decision or Quorum session and writes the Commitment to graph state |
+
+A Claude Agent SDK adapter (subagents voting through Decision mode) is next. An OpenAI Agents SDK
+adapter (handoffs mapped to Handoff mode) is planned after it.
+
 ## Supported modes
 
 | Mode | Session Helper | Projection | Example |
