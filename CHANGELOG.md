@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.18.0...v0.19.0) (2026-10-25)
+
+
+### Features
+
+* **receipt:** RFC-MACP-0013 Appendix A decision receipts (W3.10) ([#184](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/184)) ([5f63876](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/5f63876ed70f71138a4143876d6d163b957673b9))
+
 ## [0.18.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.17.0...v0.18.0) (2026-10-24)
 
 
