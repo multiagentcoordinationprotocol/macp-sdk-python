@@ -7,12 +7,16 @@ schemas/parity/contract.json
 ```
 
 from the spec repo (`multiagentcoordinationprotocol/multiagentcoordinationprotocol`),
-commit [`60262b8`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/60262b8)
-(spec-repo PR [#196](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/196),
-bumping `contract_version` to `1.4.0` -- the four control-plane error codes
-`REGISTRY_READ_ONLY`, `INVALID_REQUEST`, `STREAM_LAGGED` and `AGENT_NOT_FOUND`
-promoted to permanent).
+commit [`22976d8`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/22976d877c290b6c893896ff6140753838ed93b4)
+(spec-repo PR [#218](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/218),
+`contract_version` `1.4.1` -- PATCH: three `source` texts repointed at their new normative
+homes; no value, section or vector changed).
 Previously re-vendored at commit
+[`60262b8`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/60262b8)
+(spec-repo PR [#196](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/196),
+`contract_version` `1.4.0` -- the four control-plane error codes
+`REGISTRY_READ_ONLY`, `INVALID_REQUEST`, `STREAM_LAGGED` and `AGENT_NOT_FOUND`
+promoted to permanent), at commit
 [`2989f64`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/2989f644576e73a46d2efe6b682b74e0e4eadd54)
 (spec-repo PR [#179](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/179),
 `contract_version` `1.3.0`, the `proposal_disposition` section, issue #146), and at commit

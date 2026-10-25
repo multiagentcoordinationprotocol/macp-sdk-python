@@ -79,7 +79,7 @@ def test_pins_contract_version_1_4_0_a_version_bump_means_re_reading_this_whole_
     # Not a manifest-content assertion: a tripwire so a future contract_version
     # bump (MINOR or MAJOR, per the manifest's own versioning rule) forces a
     # human to re-review every section below, not just whichever one changed.
-    assert contract["contract_version"] == "1.4.0"
+    assert contract["contract_version"] == "1.4.1"
 
 
 class TestProtocol:
