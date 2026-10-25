@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.17.0...v0.18.0) (2026-10-24)
+
+
+### Features
+
+* add asyncio client (AsyncMacpClient) and async session helpers ([#181](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/181)) ([2c3ea97](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/2c3ea97e210abb3c1512376be9e7bfb47ac80b9e))
+
+
+### Documentation
+
+* **decisions:** record grpcStatusName/toProtoPayload declines, close P1-4 ([#176](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/176)) ([0ffc915](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/0ffc91590b5bffd02e56317037dff2bc07abde31))
+* README front door (GHCR runtime first), SECURITY.md, CODEOWNERS ([#179](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/179)) ([8a740bc](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/8a740bc5e867ceb773607c56287216c108eb68ea))
+* start the runtime from the GHCR image, not cargo run (W1.5) ([#180](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/180)) ([01a9e09](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/01a9e093403753fb05368792b1ea8016071415e7))
+
 ## [0.17.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.16.0...v0.17.0) (2026-10-18)
 
 
