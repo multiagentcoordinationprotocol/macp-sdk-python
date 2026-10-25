@@ -200,9 +200,9 @@ Separate packages, each with its own version and release tag, living under `inte
 | Package | Install | What it adds |
 |---|---|---|
 | [`langgraph-macp`](integrations/langgraph/) | `pip install langgraph-macp` | `MacpConsensusNode`: a LangGraph node that settles a Decision or Quorum session and writes the Commitment to graph state |
+| [`claude-agent-sdk-macp`](integrations/claude-agent-sdk/) | `pip install claude-agent-sdk-macp` | `macp_consensus` and the `mcp__macp__consensus` tool: Claude Agent SDK subagents evaluate and vote in a Decision or Quorum session, and you get the Commitment back |
 
-A Claude Agent SDK adapter (subagents voting through Decision mode) is next. An OpenAI Agents SDK
-adapter (handoffs mapped to Handoff mode) is planned after it.
+An OpenAI Agents SDK adapter (handoffs mapped to Handoff mode) is next.
 
 ## Supported modes
 
