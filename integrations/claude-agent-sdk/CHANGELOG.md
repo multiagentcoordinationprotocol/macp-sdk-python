@@ -3,8 +3,6 @@
 ## 0.1.0 (2026-10-25)
 
 
-### Miscellaneous Chores
+### Features
 
-* release 0.6.0 ([dad0d7f](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/dad0d7f0103bb90c28b2162b729ed0c80899a1c6))
-
-## Changelog
+* **claude-agent-sdk:** claude-agent-sdk-macp — Claude Agent SDK subagents vote in a binding MACP Decision or Quorum session. `macp_consensus` turns `AgentDefinition`s into participants and returns the Commitment; `macp_consensus_server` / `consensus_tool` expose it to a lead agent as `mcp__macp__consensus`; `claude_evaluator` is the Claude-backed `EvaluationStrategy`; `consensus_receipt` builds an RFC-MACP-0013 decision receipt ([#190](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/pull/190))
