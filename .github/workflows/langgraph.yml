@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -e "../..[receipts]" -e ".[dev]"
+      - run: pip install -e "../..[receipts]" -e ".[dev,examples]"
       - run: ruff check src tests examples
       - run: ruff format --check src tests examples
       - run: mypy

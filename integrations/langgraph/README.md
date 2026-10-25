@@ -180,7 +180,8 @@ Appendix A `macp-receipt/1` receipt. `issued_at` defaults to now, in `YYYY-MM-DD
     test runs it.
 - [`examples/real_llm_review.py`](examples/real_llm_review.py)
   - The same graph with `claude-opus-5-5` specialists.
-  - Needs `pip install langchain-anthropic` and `ANTHROPIC_API_KEY`.
+  - Needs `pip install "langgraph-macp[examples]"` (adds `langchain-anthropic`) and
+    `ANTHROPIC_API_KEY`.
 
 ## Development
 
