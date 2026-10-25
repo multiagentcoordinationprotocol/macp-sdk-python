@@ -3,6 +3,16 @@
   "packages": {
     ".": {
       "release-type": "python",
+      "bump-minor-pre-major": true,
+      "exclude-paths": [
+        "integrations"
+      ]
+    },
+    "integrations/langgraph": {
+      "release-type": "python",
+      "package-name": "langgraph-macp",
+      "component": "langgraph-macp",
+      "include-component-in-tag": true,
       "bump-minor-pre-major": true
     }
   },

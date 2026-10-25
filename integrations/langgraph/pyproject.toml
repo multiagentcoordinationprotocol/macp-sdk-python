@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "langgraph-macp"
+version = "0.1.0"
+description = "LangGraph node that settles a binding MACP Decision or Quorum session"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+  {name = "Multi-Agent Coordination Protocol", email = "macp@multiagentcoordinationprotocol.org"}
+]
+keywords = ["langgraph", "langchain", "macp", "multi-agent", "consensus", "coordination"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+  # The published MACP Python SDK: sessions, commitment hash, and the
+  # RFC-MACP-0013 Appendix A receipt builder (0.19.0, needs the extra).
+  "macp-sdk-python[receipts]>=0.19.0,<0.20",
+  "langgraph>=1.0,<2",
+  "langchain-core>=1.0,<2",
+]
+
+[project.urls]
+Homepage = "https://multiagentcoordinationprotocol.io"
+Repository = "https://github.com/multiagentcoordinationprotocol/macp-sdk-python"
+Source = "https://github.com/multiagentcoordinationprotocol/macp-sdk-python/tree/main/integrations/langgraph"
+Changelog = "https://github.com/multiagentcoordinationprotocol/macp-sdk-python/blob/main/integrations/langgraph/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "mypy>=1.10",
+  "ruff>=0.5",
+  "build>=1.0",
+  "twine>=5.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["langgraph_macp*"]
+
+[tool.setuptools.package-data]
+langgraph_macp = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "ARG", "RET", "N", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ARG001", "ARG002", "ARG005", "N802", "N806"]
+
+[tool.mypy]
+packages = ["langgraph_macp"]
+mypy_path = "src"
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["macp.*", "grpc.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+  "integration: requires a running MACP runtime (MACP_RUNTIME_TARGET)",
+]
+filterwarnings = [
+  "error",
+  "ignore::ResourceWarning",
+]
+
+[tool.coverage.run]
+source = ["langgraph_macp"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
