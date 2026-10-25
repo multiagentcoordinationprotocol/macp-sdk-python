@@ -13,7 +13,8 @@
       "package-name": "langgraph-macp",
       "component": "langgraph-macp",
       "include-component-in-tag": true,
-      "bump-minor-pre-major": true
+      "bump-minor-pre-major": true,
+      "release-as": "0.1.0"
     }
   },
   "include-component-in-tag": false
