@@ -66,6 +66,24 @@ retry_send(client, envelope, policy=policy, auth=auth)
 
 Limit defaults and environment variables: [Runtime API § Rate Limiting](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#rate-limiting).
 
+## Trusting runtime receipt keys
+
+`get_receipt_keys()` returns the runtime's own receipt-signing keys. If you pass
+them through `trusted_keys_from_jwks()` into `verify_receipt()`, an `attested`
+verdict proves only that **this runtime** signed the receipt (RFC-MACP-0013
+§13 item 9). It does not prove that anyone independent of the runtime agrees.
+Some cases need more than that: a third party checking receipts offline, an
+audit, or a dispute. For those, get the trusted keys out of band: pin them in
+configuration, or take them from a key directory you already trust. Then use
+the fetched set only to check for rotation.
+
+`trusted_keys_from_jwks` is deliberately conservative. It keeps only OKP
+Ed25519 keys whose `alg` (if present) is `EdDSA` and whose `use` (if present)
+is `sig`. It skips any key carrying private-key members. If any two entries
+share a `kid`, it drops that `kid`, even when one of them is not a key it would
+otherwise trust, because the set is then ambiguous about which key that kid
+names.
+
 ## SDK-side production checklist
 
 Runtime-side hardening (TLS keys, audit logging, token storage, rate-limit tuning) is covered in [Runtime Deployment § Production checklist](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#production-checklist). The items below are SDK-specific:
@@ -75,4 +93,5 @@ Runtime-side hardening (TLS keys, audit logging, token storage, rate-limit tunin
 - [ ] Use real bearer tokens — never `for_dev_agent` in prod
 - [ ] When sending as multiple participants, scope auth per call (see [Authentication § Per-operation auth overrides](auth.md#per-operation-auth-overrides))
 - [ ] Wrap network calls in `retry_send()` with a `RetryPolicy` that excludes permanent codes (`FORBIDDEN`, `INVALID_ENVELOPE`)
+- [ ] Verify runtime-issued receipts against keys you pinned out of band, not only the runtime's own `get_receipt_keys()` (see [Trusting runtime receipt keys](#trusting-runtime-receipt-keys))
 - [ ] Use `SessionLifecycleWatcher` for supervisor visibility rather than polling `GetSession` (see [Session Discovery](guides/session-discovery.md))

@@ -112,6 +112,17 @@ permanent, so retrying won't help. `what_if_replay` raises `MacpSdkError` withou
 sending the RPC when the runtime doesn't advertise
 `policy_registry.what_if_replay` (RFC-MACP-0012 §8.1).
 
+`RECEIPT_UNAVAILABLE` (`FAILED_PRECONDITION`, RFC-MACP-0013 §13) comes from
+`get_decision_receipt` when the session has no binding Commitment yet, or the
+runtime can't issue a receipt for it. The code is provisional in the spec's
+registry. A receipt exists only for a session that resolved with a
+`CommitmentPayload`. So on an open session the error may clear once the session
+resolves that way, while a session that resolves without a Commitment stays
+unavailable. Any other refusal is the runtime's own (§13 item 7: it can issue
+the receipt on a later call), so retry it sparingly, not in a tight loop. Both `get_decision_receipt` and `get_receipt_keys` raise
+`MacpSdkError` without sending the RPC when the runtime doesn't advertise
+`decision_receipt.get_decision_receipt`.
+
 A few read-only RPCs (`initialize`, `get_session`, `get_manifest`,
 `list_sessions`/`list_sessions_page`, `get_policy`, `list_policies`) raise
 the raw `grpc.RpcError` rather than an SDK error. Read its registry code with

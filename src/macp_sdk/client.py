@@ -27,6 +27,12 @@ from .errors import (
     MacpTransportError,
     parse_error_details,
 )
+from .receipt import (
+    DecisionReceiptResult,
+    ReceiptKeySet,
+    _parse_receipt_json,
+    _parse_receipt_keys_json,
+)
 from .validation import validate_progress_scope, validate_signal_type
 
 # Public typing alias for inline stream-error callbacks. Parity with
@@ -613,6 +619,26 @@ class _ClientCore:
             ref="RFC-MACP-0012 §8.1",
             min_proto="0.1.12",
         )
+
+    def _require_decision_receipt(self, rpc: str) -> None:
+        """RFC-MACP-0013 §13: both receipt RPCs need ``decision_receipt.get_decision_receipt``."""
+        self._require_capability(
+            "decision_receipt",
+            "get_decision_receipt",
+            rpc=rpc,
+            ref="RFC-MACP-0013 §13",
+            min_proto="0.1.13",
+        )
+
+    # Built only after the gate passes: bindings older than macp-proto 0.1.13
+    # have no such messages.
+    @staticmethod
+    def _get_decision_receipt_request(session_id: str) -> core_pb2.GetDecisionReceiptRequest:
+        return core_pb2.GetDecisionReceiptRequest(session_id=session_id)
+
+    @staticmethod
+    def _get_receipt_keys_request() -> core_pb2.GetReceiptKeysRequest:
+        return core_pb2.GetReceiptKeysRequest()
 
     @staticmethod
     def _cancel_session_request(
@@ -1227,6 +1253,73 @@ class MacpClient(_ClientCore):
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
+
+    def get_decision_receipt(
+        self,
+        session_id: str,
+        *,
+        auth: AuthConfig | None = None,
+        timeout: TimeoutValue = None,
+    ) -> DecisionReceiptResult:
+        """Fetch the runtime-issued decision receipt for a session (RFC-MACP-0013 §13).
+
+        Returns the receipt parsed (``receipt``, ready for
+        :func:`macp_sdk.receipt.verify_receipt`) and verbatim (``raw``). An
+        attested receipt is served byte-identical on every call, so ``raw`` is
+        what to store or forward. Authorized like :meth:`get_session`, so auth
+        is required. This does not verify the receipt: pair it with
+        :meth:`get_receipt_keys` and :func:`macp_sdk.receipt.trusted_keys_from_jwks`.
+
+        Gated on ``decision_receipt.get_decision_receipt``: if :meth:`initialize`
+        has not run, it runs once first, and if the flag is false this raises
+        :class:`MacpSdkError` without sending the RPC. RPC failures raise
+        :class:`MacpTransportError` with ``macp_code`` set, e.g.
+        ``RECEIPT_UNAVAILABLE`` (no binding Commitment yet, or the receipt
+        cannot be issued), ``SESSION_NOT_FOUND`` or ``FORBIDDEN``. A response
+        that is not a JSON object raises :class:`MacpSdkError`.
+        """
+        auth_cfg = self._require_auth(auth)
+        try:
+            if self.server_capabilities is None:
+                self.initialize(auth=auth_cfg, timeout=timeout)
+            self._require_decision_receipt("GetDecisionReceipt")
+            response = self.stub.GetDecisionReceipt(
+                self._get_decision_receipt_request(session_id),
+                metadata=self._metadata(auth_cfg),
+                timeout=self._resolve_timeout(timeout),
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
+        return _parse_receipt_json(response.receipt_json)
+
+    def get_receipt_keys(
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
+    ) -> ReceiptKeySet:
+        """Fetch the runtime's receipt verification keys, a JWK Set (RFC-MACP-0013 §13).
+
+        Needs only transport auth, like :meth:`get_manifest`. A runtime without
+        a signing key returns ``{"keys": []}``. Turn the set into the map
+        :func:`macp_sdk.receipt.verify_receipt` takes with
+        :func:`macp_sdk.receipt.trusted_keys_from_jwks`. Trusting these keys
+        means trusting this runtime's word for its own receipts (§13 item 9).
+
+        Gated like :meth:`get_decision_receipt`, on the same flag. RPC failures
+        raise :class:`MacpTransportError` with ``macp_code`` set; a response
+        that is not a JSON object with a ``keys`` list raises
+        :class:`MacpSdkError`.
+        """
+        try:
+            if self.server_capabilities is None:
+                self.initialize(auth=auth, timeout=timeout)
+            self._require_decision_receipt("GetReceiptKeys")
+            response = self.stub.GetReceiptKeys(
+                self._get_receipt_keys_request(),
+                metadata=self._metadata(auth),
+                timeout=self._resolve_timeout(timeout),
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
+        return _parse_receipt_keys_json(response.jwks_json)
 
     def watch_policies(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None

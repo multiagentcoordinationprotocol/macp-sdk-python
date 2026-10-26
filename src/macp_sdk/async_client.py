@@ -40,6 +40,12 @@ from .client import (
     macp_error_code,
 )
 from .errors import MacpSdkError, MacpTimeoutError, MacpTransportError
+from .receipt import (
+    DecisionReceiptResult,
+    ReceiptKeySet,
+    _parse_receipt_json,
+    _parse_receipt_keys_json,
+)
 from .validation import validate_progress_scope, validate_signal_type
 
 __all__ = ["AsyncMacpClient", "AsyncMacpStream"]
@@ -645,6 +651,45 @@ class AsyncMacpClient(_ClientCore):
             )
         except grpc.RpcError as rpc_err:
             raise self._transport_error_from_rpc(rpc_err) from rpc_err
+
+    async def get_decision_receipt(
+        self,
+        session_id: str,
+        *,
+        auth: AuthConfig | None = None,
+        timeout: TimeoutValue = None,
+    ) -> DecisionReceiptResult:
+        """Async :meth:`MacpClient.get_decision_receipt` (RFC-MACP-0013 §13)."""
+        auth_cfg = self._require_auth(auth)
+        try:
+            if self.server_capabilities is None:
+                await self.initialize(auth=auth_cfg, timeout=timeout)
+            self._require_decision_receipt("GetDecisionReceipt")
+            response = await self.stub.GetDecisionReceipt(
+                self._get_decision_receipt_request(session_id),
+                metadata=self._metadata(auth_cfg),
+                timeout=self._resolve_timeout(timeout),
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
+        return _parse_receipt_json(response.receipt_json)
+
+    async def get_receipt_keys(
+        self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
+    ) -> ReceiptKeySet:
+        """Async :meth:`MacpClient.get_receipt_keys` (RFC-MACP-0013 §13)."""
+        try:
+            if self.server_capabilities is None:
+                await self.initialize(auth=auth, timeout=timeout)
+            self._require_decision_receipt("GetReceiptKeys")
+            response = await self.stub.GetReceiptKeys(
+                self._get_receipt_keys_request(),
+                metadata=self._metadata(auth),
+                timeout=self._resolve_timeout(timeout),
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
+        return _parse_receipt_keys_json(response.jwks_json)
 
     async def watch_policies(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
