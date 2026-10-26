@@ -46,3 +46,39 @@ PR strategy: P1+P2 in one PR now (a coherent public feature, unblocked; release 
   - Next: Phase 1b (vendor tests/otel/macp-semconv.json for check-sdk-sync, at the spec session's request), then Phase 2.
 - 2026-10-26 Phase 1b PASS (Opus verifier, 1 round; tagged simple and gated alone because Phase 2 is complex). Two optional items were applied: a semconv assertion in test 21, and the workflow header comment. Files: Makefile, tests/otel/macp-semconv.json, tests/unit/test_fixture_drift_gate.py, docs/contributing.md, .github/workflows/conformance-fixtures.yml. Next: Phase 2.
 - 2026-10-26 Phase 2 PASS (Opus verifier, 2 rounds; complex because it adds a public client API and touches the gRPC boundary). Round 1 found no code defects; its gaps were RECEIPT_UNAVAILABLE docs overstating when the error clears, async coverage for get_receipt_keys init and errors plus auth, and the shared-name list in the plan. Files: src/macp_sdk/{client,async_client,receipt,__init__}.py, tests/unit/test_receipt_client.py, README.md, docs/{protocol,security}.md, docs/guides/error-handling.md, docs/api/index.md, plus local CLAUDE.md. The gate refactor is a separate commit (9137afe). Next: finalization, then /ship. Phase 3 is BLOCKED-ON runtime R1.
+- 2026-10-26 PR #198 opened (P1+P1b+P2; final whole-feature verify PASS).
+- 2026-10-26 merged #198. It was rebased on the bot's macp-proto 0.1.13 bump (#197), and only the pin comment conflicted. It was rebase-merged so that each conventional commit drives its own package bump. Release #199 then published macp-sdk-python 0.21.0, langgraph-macp 0.1.2 and claude-agent-sdk-macp 0.1.2 to PyPI. Phase 3 is still BLOCKED-ON runtime R1 and will be a follow-up PR.
+
+---
+
+# S2 — OpenTelemetry send span (Wave 5)
+
+Plan: `plans/otel-send-span.md`. Branch: `feat/otel-send-span`.
+
+## Repo map (S2)
+- `src/macp_sdk/client.py`:
+  - `_ClientCore._metadata` (~:402) is the single metadata choke point.
+  - `MacpClient.send` is at :797.
+  - `_send_ack_or_raise` (:519) treats a duplicate as success.
+  - `_send_error_from_rpc` (:531) maps a coded status, or the pre-0.9 fallback, to `MacpAckError`.
+- `src/macp_sdk/async_client.py`: `AsyncMacpClient.send` is at :283.
+- `src/macp_sdk/retry.py`: `retry_send` calls `client.send` once per attempt.
+- `tests/otel/macp-semconv.json` (vendored in S1): the `span.macp.send` group is the assertion source.
+- `pyproject.toml`: the extras are at :60. Add `otel`, and add the OTel packages to `dev`.
+- `integrations/*/pyproject.toml`: the adapter pins are `<0.22`. Widen them to `<0.23` in this PR.
+
+PR strategy: P1+P2 in one PR (one coherent opt-in feature), released as a minor (0.22.0).
+
+## Phase status (S2)
+- Phase 1: DONE (2026-10-26)
+- Phase 2: TODO
+
+## Log (S2)
+- 2026-10-26 Contract agreed with macp-sdk-typescript-62 (span name, attributes, outcome and status mapping, propagation, the 9 shared test names).
+- 2026-10-26 Phase 1 PASS, verifier Opus (complex: packaging extra plus the metadata path every RPC uses), 2 rounds.
+  - Round 1 GAPS, all closed in round 2:
+    - untested `inject` and version-fallback branches;
+    - `_cache: Any` with a `type: ignore`;
+    - no assertion that the test provider is the global provider.
+  - Files: `_otel.py` (new), `client.py` `_metadata`, `pyproject.toml` (the `otel` extra and dev), `tests/unit/test_otel.py`. `_otel.py` coverage is 100%.
+  - Next: Phase 2.

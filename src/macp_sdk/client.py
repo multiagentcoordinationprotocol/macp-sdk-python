@@ -8,6 +8,7 @@ from typing import Any
 import grpc
 from macp.v1 import core_pb2, core_pb2_grpc, envelope_pb2, policy_pb2
 
+from . import _otel
 from ._logging import logger
 from .auth import AuthConfig
 from .envelope import (
@@ -406,8 +407,10 @@ class _ClientCore:
         self.server_capabilities: core_pb2.Capabilities | None = None
 
     def _metadata(self, auth: AuthConfig | None = None) -> Sequence[tuple[str, str]]:
+        """Request metadata for every RPC: auth, plus W3C trace context when
+        OpenTelemetry is installed and a span is active (RFC-MACP-0006 §2.1)."""
         selected = auth or self.auth
-        return selected.metadata() if selected else []
+        return _otel.inject(selected.metadata() if selected else [])
 
     def _require_auth(self, auth: AuthConfig | None = None) -> AuthConfig:
         selected = auth or self.auth
