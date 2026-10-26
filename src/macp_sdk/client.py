@@ -585,21 +585,34 @@ class _ClientCore:
     ) -> policy_pb2.WhatIfReplayRequest:
         return policy_pb2.WhatIfReplayRequest(session_id=session_id, candidate=candidate)
 
-    def _require_what_if_replay(self) -> None:
-        """Refuse locally unless the runtime advertised ``what_if_replay``.
+    def _require_capability(
+        self, group: str, flag: str, *, rpc: str, ref: str, min_proto: str
+    ) -> None:
+        """Refuse locally unless the runtime advertised ``<group>.<flag>``.
 
-        RFC-MACP-0012 §8.1: a client MUST NOT call ``WhatIfReplay`` unless
-        ``policy_registry.what_if_replay`` is true. Bindings older than
-        macp-proto 0.1.12 lack the field, which reads as false.
+        For RPCs a client MUST NOT call unless advertised. Uses the cached
+        :attr:`server_capabilities`; callers initialize first if none are
+        cached. Bindings older than ``min_proto`` lack the field, which reads
+        as false, so the gate refuses there too.
         """
         caps = self.server_capabilities
-        registry = caps.policy_registry if caps is not None else None
-        if not getattr(registry, "what_if_replay", False):
+        advertised = caps is not None and getattr(getattr(caps, group, None), flag, False)
+        if not advertised:
             raise MacpSdkError(
-                "WhatIfReplay refused: the runtime does not advertise "
-                "policy_registry.what_if_replay (RFC-MACP-0012 §8.1); "
-                "it needs macp-proto >= 0.1.12 and a runtime that implements it"
+                f"{rpc} refused: the runtime does not advertise "
+                f"{group}.{flag} ({ref}); "
+                f"it needs macp-proto >= {min_proto} and a runtime that implements it"
             )
+
+    def _require_what_if_replay(self) -> None:
+        """RFC-MACP-0012 §8.1: ``WhatIfReplay`` needs ``policy_registry.what_if_replay``."""
+        self._require_capability(
+            "policy_registry",
+            "what_if_replay",
+            rpc="WhatIfReplay",
+            ref="RFC-MACP-0012 §8.1",
+            min_proto="0.1.12",
+        )
 
     @staticmethod
     def _cancel_session_request(
