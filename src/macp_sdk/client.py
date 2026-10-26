@@ -806,14 +806,16 @@ class MacpClient(_ClientCore):
         raise_on_nack: bool = True,
     ) -> envelope_pb2.Ack:
         auth_cfg = self._require_auth(auth)
-        try:
-            response = self.stub.Send(
-                core_pb2.SendRequest(envelope=envelope),
-                metadata=self._metadata(auth_cfg),
-                timeout=self._resolve_timeout(timeout),
-            )
-        except grpc.RpcError as rpc_err:
-            raise self._send_error_from_rpc(rpc_err, envelope) from rpc_err
+        with _otel.send_span(envelope) as span:
+            try:
+                response = self.stub.Send(
+                    core_pb2.SendRequest(envelope=envelope),
+                    metadata=self._metadata(auth_cfg),
+                    timeout=self._resolve_timeout(timeout),
+                )
+            except grpc.RpcError as rpc_err:
+                raise self._send_error_from_rpc(rpc_err, envelope) from rpc_err
+            span.ack(response.ack)
         return self._send_ack_or_raise(response.ack, raise_on_nack)
 
     def get_session(

@@ -198,6 +198,15 @@ itself (RFC-MACP-0013 §13). `client.get_decision_receipt(session_id)` returns t
 receipt parsed and verbatim, and `trusted_keys_from_jwks(client.get_receipt_keys())`
 gives the keys to verify it with. See [Core Protocol](docs/protocol.md#runtime-issued-decision-receipts-rfc-macp-0013-13).
 
+## Tracing (OpenTelemetry)
+
+`pip install "macp-sdk-python[otel]"` enables OpenTelemetry instrumentation.
+With a configured TracerProvider, each `send()` emits a CLIENT span named
+`send {mode}`, and RPCs made inside an active span carry W3C trace context
+(`traceparent`/`tracestate`) to the runtime. Spans record identifiers
+only, never payloads or reasons. Without the extra, nothing changes. See
+[Observability](docs/guides/observability.md).
+
 ## Framework integrations
 
 Separate packages, each with its own version and release tag, living under `integrations/`:
