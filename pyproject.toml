@@ -72,10 +72,17 @@ dev = [
   "twine>=5.0",  # validates the built artifacts (`make build`), mirroring ci.yml's build job
   "jsonschema>=4.0",  # validate vendored conformance fixtures against schema.json
   "cryptography>=42",  # the receipts extra, so the receipt tests run in CI
+  "opentelemetry-api>=1.27,<2",  # the otel extra, so the tracing tests run in CI
+  "opentelemetry-sdk>=1.27,<2",  # in-memory span exporter for those tests
 ]
 # Ed25519 for decision receipts (macp_sdk.receipt); imported lazily.
 receipts = [
   "cryptography>=42",
+]
+# OpenTelemetry send spans and W3C trace-context propagation (macp_sdk._otel);
+# imported lazily, so without it nothing changes.
+otel = [
+  "opentelemetry-api>=1.27,<2",
 ]
 docs = [
   "mkdocs-material>=9.5",
