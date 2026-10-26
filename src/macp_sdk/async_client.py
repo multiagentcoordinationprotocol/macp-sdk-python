@@ -266,11 +266,13 @@ class AsyncMacpClient(_ClientCore):
     async def initialize(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> core_pb2.InitializeResponse:
-        return await self.stub.Initialize(
+        response = await self.stub.Initialize(
             self._initialize_request(),
             metadata=self._metadata(auth),
             timeout=self._resolve_timeout(timeout),
         )
+        self.server_capabilities = response.capabilities
+        return response
 
     async def send(
         self,
@@ -621,6 +623,28 @@ class AsyncMacpClient(_ClientCore):
             metadata=self._metadata(auth_cfg),
             timeout=self._resolve_timeout(timeout),
         )
+
+    async def what_if_replay(
+        self,
+        session_id: str,
+        candidate: policy_pb2.PolicyDescriptor,
+        *,
+        auth: AuthConfig | None = None,
+        timeout: TimeoutValue = None,
+    ) -> policy_pb2.WhatIfReplayResponse:
+        """Async :meth:`MacpClient.what_if_replay` (RFC-MACP-0012 §8.1)."""
+        auth_cfg = self._require_auth(auth)
+        try:
+            if self.server_capabilities is None:
+                await self.initialize(auth=auth_cfg, timeout=timeout)
+            self._require_what_if_replay()
+            return await self.stub.WhatIfReplay(
+                self._what_if_replay_request(session_id, candidate),
+                metadata=self._metadata(auth_cfg),
+                timeout=self._resolve_timeout(timeout),
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
 
     async def watch_policies(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None

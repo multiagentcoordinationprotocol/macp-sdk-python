@@ -45,6 +45,7 @@ from macp_sdk.errors import (
     AGENT_NOT_FOUND,
     DUPLICATE_MESSAGE,
     FORBIDDEN,
+    HISTORY_UNAVAILABLE,
     INTERNAL_ERROR,
     INVALID_ENVELOPE,
     INVALID_POLICY_DEFINITION,
@@ -130,9 +131,11 @@ class TestErrorCodes:
         "INVALID_REQUEST": INVALID_REQUEST,
         "STREAM_LAGGED": STREAM_LAGGED,
         "AGENT_NOT_FOUND": AGENT_NOT_FOUND,
+        # Added in spec #227 (RFC-MACP-0012 §8.1, WhatIfReplay).
+        "HISTORY_UNAVAILABLE": HISTORY_UNAVAILABLE,
     }
 
-    def test_exports_exactly_the_20_permanent_codes_order_independent(self):
+    def test_exports_exactly_the_21_permanent_codes_order_independent(self):
         assert sorted(self._EXPORTED) == sorted(sections["error_codes"]["permanent"])
         for name, value in self._EXPORTED.items():
             assert value == name, name

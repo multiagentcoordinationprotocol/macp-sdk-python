@@ -395,6 +395,9 @@ class _ClientCore:
         self.default_timeout = default_timeout
         self.client_name = client_name
         self.client_version = client_version
+        #: Capabilities from the most recent :meth:`initialize`; ``None``
+        #: until the client has initialized.
+        self.server_capabilities: core_pb2.Capabilities | None = None
 
     def _metadata(self, auth: AuthConfig | None = None) -> Sequence[tuple[str, str]]:
         selected = auth or self.auth
@@ -577,6 +580,28 @@ class _ClientCore:
         )
 
     @staticmethod
+    def _what_if_replay_request(
+        session_id: str, candidate: policy_pb2.PolicyDescriptor
+    ) -> policy_pb2.WhatIfReplayRequest:
+        return policy_pb2.WhatIfReplayRequest(session_id=session_id, candidate=candidate)
+
+    def _require_what_if_replay(self) -> None:
+        """Refuse locally unless the runtime advertised ``what_if_replay``.
+
+        RFC-MACP-0012 §8.1: a client MUST NOT call ``WhatIfReplay`` unless
+        ``policy_registry.what_if_replay`` is true. Bindings older than
+        macp-proto 0.1.12 lack the field, which reads as false.
+        """
+        caps = self.server_capabilities
+        registry = caps.policy_registry if caps is not None else None
+        if not getattr(registry, "what_if_replay", False):
+            raise MacpSdkError(
+                "WhatIfReplay refused: the runtime does not advertise "
+                "policy_registry.what_if_replay (RFC-MACP-0012 §8.1); "
+                "it needs macp-proto >= 0.1.12 and a runtime that implements it"
+            )
+
+    @staticmethod
     def _cancel_session_request(
         session_id: str, reason: str, cancelled_by: str
     ) -> core_pb2.CancelSessionRequest:
@@ -722,11 +747,13 @@ class MacpClient(_ClientCore):
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> core_pb2.InitializeResponse:
         request = self._initialize_request()
-        return self.stub.Initialize(
+        response = self.stub.Initialize(
             request,
             metadata=self._metadata(auth),
             timeout=self._resolve_timeout(timeout),
         )
+        self.server_capabilities = response.capabilities
+        return response
 
     def send(
         self,
@@ -1149,6 +1176,44 @@ class MacpClient(_ClientCore):
             metadata=self._metadata(auth_cfg),
             timeout=self._resolve_timeout(timeout),
         )
+
+    def what_if_replay(
+        self,
+        session_id: str,
+        candidate: policy_pb2.PolicyDescriptor,
+        *,
+        auth: AuthConfig | None = None,
+        timeout: TimeoutValue = None,
+    ) -> policy_pb2.WhatIfReplayResponse:
+        """Replay a session's history under a candidate policy (RFC-MACP-0012 §8.1).
+
+        Read-only and advisory: the runtime replays the session's accepted
+        history under its bound policy and under ``candidate``, and reports
+        both outcomes, ``first_divergence`` (check ``HasField``: index 0 is
+        the ``SessionStart``), every candidate ``POLICY_DENIED`` and one entry
+        per history entry. The candidate is admission-validated but never
+        registered. Byte fields stay raw: decode a denial's ``details`` with
+        :func:`macp_sdk.errors.parse_error_details`.
+
+        Gated on ``policy_registry.what_if_replay``: if :meth:`initialize`
+        has not run, it runs once first, and if the flag is false this raises
+        :class:`MacpSdkError` without sending the RPC. RPC failures raise
+        :class:`MacpTransportError` with ``macp_code`` set, e.g.
+        ``HISTORY_UNAVAILABLE`` (compacted history), ``SESSION_NOT_FOUND``,
+        ``FORBIDDEN`` or ``INVALID_POLICY_DEFINITION``.
+        """
+        auth_cfg = self._require_auth(auth)
+        try:
+            if self.server_capabilities is None:
+                self.initialize(auth=auth_cfg, timeout=timeout)
+            self._require_what_if_replay()
+            return self.stub.WhatIfReplay(
+                self._what_if_replay_request(session_id, candidate),
+                metadata=self._metadata(auth_cfg),
+                timeout=self._resolve_timeout(timeout),
+            )
+        except grpc.RpcError as rpc_err:
+            raise self._transport_error_from_rpc(rpc_err) from rpc_err
 
     def watch_policies(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None

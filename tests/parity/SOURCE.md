@@ -7,11 +7,15 @@ schemas/parity/contract.json
 ```
 
 from the spec repo (`multiagentcoordinationprotocol/multiagentcoordinationprotocol`),
-commit [`22976d8`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/22976d877c290b6c893896ff6140753838ed93b4)
+commit [`8d20dc5`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/8d20dc5705117efb5d890327fdfdea429a0374f9)
+(spec-repo PR [#227](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/227),
+`contract_version` still `1.4.1` -- the permanent error code `HISTORY_UNAVAILABLE`
+(`WhatIfReplay` on compacted history, RFC-MACP-0012 §8.1) added to `error_codes.permanent`).
+Previously re-vendored at commit
+[`22976d8`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/22976d877c290b6c893896ff6140753838ed93b4)
 (spec-repo PR [#218](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/218),
 `contract_version` `1.4.1` -- PATCH: three `source` texts repointed at their new normative
-homes; no value, section or vector changed).
-Previously re-vendored at commit
+homes; no value, section or vector changed), at commit
 [`60262b8`](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/commit/60262b8)
 (spec-repo PR [#196](https://github.com/multiagentcoordinationprotocol/multiagentcoordinationprotocol/pull/196),
 `contract_version` `1.4.0` -- the four control-plane error codes
