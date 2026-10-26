@@ -60,10 +60,16 @@ The fixture drift gate (`make verify-fixtures`) diffs this repo's vendored
 conformance fixtures against the canonical copies in the spec repo, in both
 directions — a canonical file missing or differing locally fails as `DRIFT`,
 a local-only file fails as `EXTRA`. It checks every pair listed in the
-`Makefile`'s `FIXTURE_DIR_PAIRS`, which covers both `tests/conformance/` and
-`tests/vectors/cmt-hash/`. `make sync-fixtures` refreshes all of them from
-the spec repo checkout pointed at by `SPEC_CONFORMANCE_DIR`; sync copies but
-never deletes, so a file flagged `EXTRA` must be removed by hand. This gate
+`Makefile`'s `FIXTURE_DIR_PAIRS`, which covers `tests/conformance/`,
+`tests/vectors/cmt-hash/` and `tests/vectors/receipt/`. It also compares, byte
+for byte, each single file in `FIXTURE_FILE_PAIRS`. Today that is only
+`tests/fixtures/receipt_keys.json`, the spec's
+`examples/discovery/receipt_keys.json`. `make sync-fixtures` refreshes all of
+them from the spec repo checkout pointed at by `SPEC_CONFORMANCE_DIR`; sync copies but
+never deletes, so a file flagged `EXTRA` must be removed by hand. Example files
+are read from `SPEC_EXAMPLES_DIR`, which defaults to
+`$(SPEC_CONFORMANCE_DIR)/../../examples/discovery`, so overriding
+`SPEC_CONFORMANCE_DIR` alone moves both. This gate
 runs in its own workflow, `conformance-fixtures.yml`, on every push and PR
 targeting `main` — it is not part of the `checks.yml` gate above.
 
@@ -75,11 +81,11 @@ variable: `make verify-fixtures SPEC_CONFORMANCE_DIR=/path/to/schemas/conformanc
 
 ## Bumping `macp-proto`
 
-The SDK pins `macp-proto` with a **tight upper bound** (currently `>=0.1.6,<0.1.9`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
+The SDK pins `macp-proto` with a **tight upper bound** (currently `>=0.1.6,<0.1.14`). This is intentional: proto changes can silently break envelope serialization, projection parsing, or RPC signatures, and we want every new minor to pass the conformance suite before users see it.
 
 > **0.1.6 note (SDK 0.5.0):** the floor is `0.1.6` because the SDK uses the runtime v0.5.0 wire surface — `SessionStartPayload.max_suspend_ms` (0.1.5), `HandoffAcceptPayload.implicit` and `ListSessionsRequest.page_size`/`page_token` (0.1.6), and the canonical `macp.modes.multi_round.v1.ContributePayload` encoding (0.1.4). **Critically, macp-proto 0.1.6's gencode was produced by protobuf 7.35.0 / grpc 1.82.0** and protobuf enforces this at *import time* (`runtime_version.VersionError` under an older protobuf), so the floors moved together: **`protobuf>=7.35.0`** and **`grpcio>=1.82.0`**. macp-proto's own METADATA floors are looser than the gencode requires, so do not trust them — derive the floors from the gencode. There is no way to straddle protobuf majors; consumers pinned to protobuf 6.x cannot upgrade to SDK 0.5.0.
 >
-> **grpcio 1.82.0 yank workaround:** grpcio 1.82.0 stable was yanked from PyPI (metadata-only error — bad protobuf range, [grpc/grpc#42906](https://github.com/grpc/grpc/issues/42906)) with no newer stable published, which made a `grpcio>=1.82.0` floor unsatisfiable in fresh installs. The SDK's floor is therefore temporarily **`grpcio>=1.82.0rc2`** (the rc passes the gencode's `GRPC_GENERATED_VERSION` check), and `macp-proto` is capped **`<0.1.8`** because 0.1.8's METADATA re-declares the unsatisfiable stable floor. Re-widen both once a stable grpcio ≥ 1.82.1 ships. `grpcio-tools` was dropped from the dev extras entirely — this repo generates no protos, and every installable grpcio-tools caps `protobuf<7`.
+> **grpcio floor:** grpcio 1.82.0 stable was yanked from PyPI (a metadata-only error: a bad protobuf range, [grpc/grpc#42906](https://github.com/grpc/grpc/issues/42906)). For a while the floor was `grpcio>=1.82.0rc2`, and `macp-proto` was capped below 0.1.8. Since SDK 0.21 the floor is **`grpcio>=1.82.1`**, the first stable release that passes the gencode's `GRPC_GENERATED_VERSION` check; it is also macp-proto 0.1.13's own floor. `grpcio-tools` is not in the dev extras: this repo generates no protos, and every installable grpcio-tools caps `protobuf<7`.
 >
 > **0.1.3 note (historical):** 0.1.3 introduced the suspend/cancel/supersede surface and required `grpcio>=1.81.1`.
 
