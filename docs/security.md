@@ -84,6 +84,20 @@ share a `kid`, it drops that `kid`, even when one of them is not a key it would
 otherwise trust, because the set is then ambiguous about which key that kid
 names.
 
+## Telemetry
+
+With the `otel` extra installed, spans carry identifiers only: session, message,
+mode, sender, version, the outcome, and the error code. They never carry
+payloads, reasons, rationale, extension values or error messages. Trace
+context is sent as W3C `traceparent`/`tracestate` in gRPC metadata only. The
+SDK uses the W3C propagator directly, so it never injects OpenTelemetry
+`baggage`, which can carry arbitrary application data. gRPC
+auto-instrumentation injects through the global propagator, which includes
+baggage by default. Set `OTEL_PROPAGATORS=tracecontext` if baggage must not
+reach the runtime.
+`macp.sender.id` is the raw sender id; drop or hash it in your collector if
+that is sensitive. See [Observability](guides/observability.md#privacy).
+
 ## SDK-side production checklist
 
 Runtime-side hardening (TLS keys, audit logging, token storage, rate-limit tuning) is covered in [Runtime Deployment § Production checklist](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/deployment.md#production-checklist). The items below are SDK-specific:

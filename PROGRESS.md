@@ -71,7 +71,7 @@ PR strategy: P1+P2 in one PR (one coherent opt-in feature), released as a minor 
 
 ## Phase status (S2)
 - Phase 1: DONE (2026-10-26)
-- Phase 2: TODO
+- Phase 2: DONE (2026-10-26)
 
 ## Log (S2)
 - 2026-10-26 Contract agreed with macp-sdk-typescript-62 (span name, attributes, outcome and status mapping, propagation, the 9 shared test names).
@@ -82,3 +82,12 @@ PR strategy: P1+P2 in one PR (one coherent opt-in feature), released as a minor 
     - no assertion that the test provider is the global provider.
   - Files: `_otel.py` (new), `client.py` `_metadata`, `pyproject.toml` (the `otel` extra and dev), `tests/unit/test_otel.py`. `_otel.py` coverage is 100%.
   - Next: Phase 2.
+- 2026-10-26 Phase 2 PASS, verifier Opus (complex: cross-SDK span contract), 2 rounds.
+  - Round 1 GAPS, all closed:
+    - the baggage claim overstated, given gRPC auto-instrumentation;
+    - the README overstated;
+    - the cancellation test had no identity check and no real `task.cancel()`;
+    - the privacy scan was too narrow;
+    - no test for attach failing.
+  - Mutation check: 4 deliberate breaks, all caught.
+  - Files: `_otel.py`, `client.py`/`async_client.py` `send`, `test_otel.py`, `docs/guides/observability.md` (new), `mkdocs.yml`, `README.md`, `docs/security.md`, local `CLAUDE.md`.
