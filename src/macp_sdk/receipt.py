@@ -104,6 +104,16 @@ class DecisionReceipt(TypedDict):
     attestations: list[ReceiptAttestation]
 
 
+class ReceiptKeySet(TypedDict):
+    """A JWK Set [RFC 7517] of receipt verification keys (RFC-MACP-0013 §13).
+
+    What ``GetReceiptKeys`` returns. Each key is a plain JWK dict; pass the set
+    to `trusted_keys_from_jwks` to get the map `verify_receipt` takes.
+    """
+
+    keys: list[dict[str, Any]]
+
+
 #: A.4 step 2. ``None`` only when the receipt is refused at step 1.
 ReceiptIntegrity = Literal["match", "mismatch", "cannot_verify"] | None
 #: A.4 step 3, one per attestation.
@@ -490,6 +500,67 @@ def verify_receipt(receipt: object, trusted_keys: Mapping[str, str]) -> ReceiptV
     )
 
 
+#: JWK private members (RFC 7518 §6). §13 item 8 forbids them in a published key set.
+_JWK_PRIVATE_MEMBERS = ("d", "p", "q", "dp", "dq", "qi", "oth", "k")
+
+
+def _usable_ed25519_key(key: object) -> tuple[str, str] | None:
+    if not isinstance(key, Mapping):
+        return None
+    kid, x = key.get("kid"), key.get("x")
+    if (
+        key.get("kty") != "OKP"
+        or key.get("crv") != "Ed25519"
+        or not isinstance(kid, str)
+        or kid == ""
+        or not isinstance(x, str)
+        or x == ""
+        or key.get("alg", "EdDSA") != "EdDSA"
+        or key.get("use", "sig") != "sig"
+        or any(member in key for member in _JWK_PRIVATE_MEMBERS)
+    ):
+        return None
+    return kid, x
+
+
+def trusted_keys_from_jwks(jwks: object) -> dict[str, str]:
+    """Return the ``kid`` → ``x`` map `verify_receipt` takes, from a JWK Set.
+
+    Pass the key set from ``client.get_receipt_keys()``. A key is kept only if
+    it is an Ed25519 public key that can verify a receipt's ``jws`` attestation:
+    ``kty`` ``OKP``, ``crv`` ``Ed25519``, a non-empty ``kid`` and ``x``,
+    ``alg`` absent or ``EdDSA``, ``use`` absent or ``sig``, and no private
+    member (``d``, ``p``, ``q``, ``dp``, ``dq``, ``qi``, ``oth``, ``k``; RFC-MACP-0013
+    §13 item 8). Other keys are skipped. A ``kid`` that occurs more than once
+    is dropped entirely, because §13 item 8 makes ``kid`` unique and an
+    ambiguous one names no single key.
+
+    Like `verify_receipt`, it never raises: input that is not a key set gives
+    ``{}``, so every receipt verifies at most ``integrity_only``.
+
+    Trusting keys fetched from a runtime establishes that the runtime vouches
+    for its receipts (§13 item 9), not that any third party does.
+    """
+    raw = jwks.get("keys") if isinstance(jwks, Mapping) else None
+    if not isinstance(raw, list):
+        return {}
+    trusted: dict[str, str] = {}
+    seen: set[str] = set()
+    ambiguous: set[str] = set()
+    for key in raw:
+        kid = key.get("kid") if isinstance(key, Mapping) else None
+        if isinstance(kid, str):
+            if kid in seen:
+                ambiguous.add(kid)
+            seen.add(kid)
+        usable = _usable_ed25519_key(key)
+        if usable is not None:
+            trusted[usable[0]] = usable[1]
+    for kid in ambiguous:
+        trusted.pop(kid, None)
+    return trusted
+
+
 __all__ = [
     "RECEIPT_FORMAT",
     "AttestationOutcome",
@@ -498,11 +569,13 @@ __all__ = [
     "ReceiptAttestation",
     "ReceiptCommitment",
     "ReceiptIntegrity",
+    "ReceiptKeySet",
     "ReceiptSigner",
     "ReceiptVerdict",
     "ReceiptVerification",
     "VendorAttestation",
     "build_receipt",
     "commitment_from_projection",
+    "trusted_keys_from_jwks",
     "verify_receipt",
 ]

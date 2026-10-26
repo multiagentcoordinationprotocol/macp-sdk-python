@@ -190,3 +190,11 @@ existing convention. Reconciled via `/reconcile`.
   as-is: cross-SDK parity found (`../macp-sdk-typescript/src/agent/runner.ts:81-82` does
   the identical fail-fast, independently implemented), no documented example relies on the
   removed default, and the package is pre-1.0/alpha. No further changes needed.
+
+## Duplicate-kid semantics in `trusted_keys_from_jwks`
+- **Plan:** plans/runtime-receipts.md
+- **Assumed:** RFC-MACP-0013 §13 item 8 makes `kid` unique across the whole key set, so any repeat makes that kid ambiguous.
+- **Chose:** drop a kid when any Mapping entry in `keys` repeats it as a string `kid`, even if one copy is a key we would not otherwise trust (`src/macp_sdk/receipt.py` `trusted_keys_from_jwks`, test `..._duplicate_of_an_unusable_key_still_drops_the_kid`).
+- **Alternatives:** count only usable (OKP/Ed25519) keys, which is what macp-sdk-typescript's first cut does. Rejected because it trusts a kid the set itself names twice.
+- **Blast radius if wrong:** an SDK parity divergence on a malformed key set. Reverting it is a one-line change plus one test, in either SDK.
+- **Status:** CONFIRMED (2026-10-26). macp-sdk-typescript-62 adopted the same rule and test name (an EC duplicate, a duplicate carrying `d`, and a non-string kid that claims nothing), so both SDKs now match.

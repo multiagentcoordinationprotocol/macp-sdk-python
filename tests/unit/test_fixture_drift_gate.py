@@ -56,6 +56,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).parents[2]
 MAKEFILE = REPO_ROOT / "Makefile"
+#: Content of the FIXTURE_FILE_PAIRS example (receipt_keys.json) on both sides.
+KEYS = '{"keys": []}'
 
 # Doesn't distinguish GNU make from BSD make -- the recipes rely on GNU-only
 # shell-in-recipe semantics (e.g. `$$` escaping applied consistently across
@@ -76,6 +78,7 @@ def _make_canon(
     flat: dict[str, str] | None = None,
     cmt_hash: dict[str, str] | None = None,
     include_cmt_hash_dir: bool = True,
+    example: str | None = KEYS,
 ) -> Path:
     """Build a throwaway canonical tree mirroring
     ``$(SPEC_CONFORMANCE_DIR)``: a flat top level plus an optional
@@ -86,6 +89,9 @@ def _make_canon(
         _write_files(canon / "cmt-hash", cmt_hash)
     # The receipt pair (tests/vectors/receipt) is left empty on both sides.
     _write_files(canon / "receipt", None)
+    # The FIXTURE_FILE_PAIRS file, at the SPEC_EXAMPLES_DIR _run_make passes.
+    if example is not None:
+        _write_files(tmp_path / "examples", {"receipt_keys.json": example})
     return canon
 
 
@@ -95,6 +101,7 @@ def _make_repo(
     conformance: dict[str, str] | None = None,
     cmt_hash: dict[str, str] | None = None,
     create_cmt_hash_dir: bool = True,
+    example: str | None = KEYS,
 ) -> Path:
     """Build a throwaway repo tree holding just the two directories the
     Makefile's ``FIXTURE_DIR_PAIRS`` names: ``tests/conformance`` and
@@ -104,13 +111,28 @@ def _make_repo(
     if create_cmt_hash_dir:
         _write_files(repo / "tests" / "vectors" / "cmt-hash", cmt_hash)
     _write_files(repo / "tests" / "vectors" / "receipt", None)
+    if example is not None:
+        _write_files(repo / "tests" / "fixtures", {"receipt_keys.json": example})
     return repo
 
 
-def _run_make(repo: Path, target: str, spec_dir: Path) -> subprocess.CompletedProcess[str]:
+def _run_make(
+    repo: Path, target: str, spec_dir: Path, *, examples_dir: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Pass ``SPEC_EXAMPLES_DIR`` explicitly: ``<spec_dir>/../examples`` by default,
+    where `_make_canon` puts the example file. The Makefile's own default for it
+    is covered by `test_examples_dir_defaults_relative_to_conformance_dir`."""
     env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MAKELEVEL", "MFLAGS"}}
+    examples = examples_dir if examples_dir is not None else spec_dir.parent / "examples"
     return subprocess.run(
-        ["make", "-f", str(MAKEFILE), target, f"SPEC_CONFORMANCE_DIR={spec_dir}"],
+        [
+            "make",
+            "-f",
+            str(MAKEFILE),
+            target,
+            f"SPEC_CONFORMANCE_DIR={spec_dir}",
+            f"SPEC_EXAMPLES_DIR={examples}",
+        ],
         cwd=repo,
         env=env,
         capture_output=True,
@@ -340,6 +362,84 @@ def test_verify_drift_in_one_pair_does_not_suppress_other_pairs_ok(tmp_path: Pat
     assert "OK: tests/vectors/cmt-hash matches" in result.stdout
     assert "DRIFT: tests/vectors/cmt-hash" not in result.stdout
     assert "EXTRA:" not in result.stdout
+
+
+# 18. The single-file pair (FIXTURE_FILE_PAIRS) is checked byte for byte.
+def test_verify_flags_drift_in_example_file(tmp_path: Path) -> None:
+    canon = _make_canon(tmp_path, flat={"a.json": "A"}, cmt_hash={}, example='{"keys": []}')
+    repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={}, example='{"keys":[]}')
+
+    result = _run_make(repo, "verify-fixtures", canon)
+
+    assert result.returncode != 0
+    assert "DRIFT: tests/fixtures/receipt_keys.json differs" in result.stdout
+    assert "OK: tests/conformance matches" in result.stdout
+
+
+# 19. A missing local copy of the example file is drift.
+def test_verify_flags_missing_local_example_file(tmp_path: Path) -> None:
+    canon = _make_canon(tmp_path, flat={"a.json": "A"}, cmt_hash={})
+    repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={}, example=None)
+
+    result = _run_make(repo, "verify-fixtures", canon)
+
+    assert result.returncode != 0
+    assert "DRIFT: tests/fixtures/receipt_keys.json differs" in result.stdout
+
+
+# 20. A missing canonical example file is MISSING, for verify and sync alike.
+def test_missing_canonical_example_file_fails_verify_and_sync(tmp_path: Path) -> None:
+    canon = _make_canon(tmp_path, flat={"a.json": "A"}, cmt_hash={}, example=None)
+    repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={})
+
+    verify_result = _run_make(repo, "verify-fixtures", canon)
+    sync_result = _run_make(repo, "sync-fixtures", canon)
+
+    assert verify_result.returncode != 0
+    assert "MISSING: canonical file" in verify_result.stdout
+    assert "Note: sync-fixtures can't fix MISSING" in verify_result.stdout
+    assert sync_result.returncode != 0
+    assert "MISSING: canonical file" in sync_result.stdout
+
+
+# 21. sync-fixtures copies the example file, creating tests/fixtures/.
+def test_sync_copies_example_file(tmp_path: Path) -> None:
+    canon = _make_canon(tmp_path, flat={"a.json": "A"}, cmt_hash={}, example='{"keys": [1]}')
+    repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={}, example=None)
+
+    sync_result = _run_make(repo, "sync-fixtures", canon)
+    verify_result = _run_make(repo, "verify-fixtures", canon)
+
+    assert sync_result.returncode == 0
+    target = repo / "tests" / "fixtures" / "receipt_keys.json"
+    assert target.read_text(encoding="utf-8") == '{"keys": [1]}'
+    assert verify_result.returncode == 0
+    assert "OK: tests/fixtures/receipt_keys.json matches" in verify_result.stdout
+
+
+# 22. Without an override, SPEC_EXAMPLES_DIR follows SPEC_CONFORMANCE_DIR to
+#     <spec>/examples/discovery, so CI's single override covers both.
+def test_examples_dir_defaults_relative_to_conformance_dir(tmp_path: Path) -> None:
+    spec = tmp_path / "spec"
+    canon = spec / "schemas" / "conformance"
+    _write_files(canon, {"a.json": "A"})
+    _write_files(canon / "cmt-hash", None)
+    _write_files(canon / "receipt", None)
+    _write_files(spec / "examples" / "discovery", {"receipt_keys.json": KEYS})
+    repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={})
+    env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MAKELEVEL", "MFLAGS"}}
+
+    result = subprocess.run(
+        ["make", "-f", str(MAKEFILE), "verify-fixtures", f"SPEC_CONFORMANCE_DIR={canon}"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "OK: tests/fixtures/receipt_keys.json matches" in result.stdout
 
 
 # 17. make help still lists both targets, with no row for FIXTURE_DIR_PAIRS.
