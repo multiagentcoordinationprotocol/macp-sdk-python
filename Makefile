@@ -6,11 +6,11 @@ SPEC_PARITY_DIR := ../multiagentcoordinationprotocol/schemas/parity
 # <canonical-subpath>:<local-dir> pairs checked by sync-fixtures/verify-fixtures.
 # "." = the flat top level of SPEC_CONFORMANCE_DIR.
 FIXTURE_DIR_PAIRS := .:tests/conformance cmt-hash:tests/vectors/cmt-hash receipt:tests/vectors/receipt
-# Single spec example files vendored as test fixtures: <file>:<local-path> pairs,
-# <file> relative to SPEC_EXAMPLES_DIR. Derived from SPEC_CONFORMANCE_DIR so that
-# overriding it (as CI does) also moves this.
-SPEC_EXAMPLES_DIR ?= $(SPEC_CONFORMANCE_DIR)/../../examples/discovery
-FIXTURE_FILE_PAIRS := receipt_keys.json:tests/fixtures/receipt_keys.json
+# Single spec files vendored byte-identical: <spec-path>:<local-path> pairs, with
+# <spec-path> relative to SPEC_ROOT. SPEC_ROOT derives from SPEC_CONFORMANCE_DIR,
+# so overriding that (as CI does) moves both.
+SPEC_ROOT ?= $(SPEC_CONFORMANCE_DIR)/../..
+FIXTURE_FILE_PAIRS := examples/discovery/receipt_keys.json:tests/fixtures/receipt_keys.json schemas/otel/macp-semconv.json:tests/otel/macp-semconv.json
 
 help:  ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target>\n\nTargets:\n"} /^[a-zA-Z_-]+:.*##/ {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -73,7 +73,7 @@ build:  ## Build sdist + wheel into dist/, then validate with twine check (mirro
 	twine check dist/*
 
 ## Sync conformance fixtures from canonical source
-sync-fixtures:  ## Copy conformance fixtures from the spec repo into tests/conformance/, tests/vectors/{cmt-hash,receipt}/ and tests/fixtures/.
+sync-fixtures:  ## Copy conformance fixtures from the spec repo into tests/conformance/, tests/vectors/{cmt-hash,receipt}/, tests/fixtures/ and tests/otel/.
 	@if [ ! -d "$(SPEC_CONFORMANCE_DIR)" ]; then \
 		echo ""; \
 		echo "  sync-fixtures: spec repo not found at $(SPEC_CONFORMANCE_DIR)"; \
@@ -106,7 +106,7 @@ sync-fixtures:  ## Copy conformance fixtures from the spec repo into tests/confo
 		done; \
 	done
 	@for pair in $(FIXTURE_FILE_PAIRS); do \
-		src="$(SPEC_EXAMPLES_DIR)/$${pair%%:*}"; dest="$${pair#*:}"; \
+		src="$(SPEC_ROOT)/$${pair%%:*}"; dest="$${pair#*:}"; \
 		if [ ! -f "$$src" ]; then \
 			echo "  MISSING: canonical file $$src does not exist (FIXTURE_FILE_PAIRS entry '$$pair')"; \
 			exit 1; \
@@ -115,7 +115,7 @@ sync-fixtures:  ## Copy conformance fixtures from the spec repo into tests/confo
 		cp "$$src" "$$dest" || exit 1; \
 		echo "  Copied $$dest"; \
 	done
-	@echo "Done. Run 'git diff tests/conformance/ tests/vectors/ tests/fixtures/' to review changes."
+	@echo "Done. Run 'git diff tests/conformance/ tests/vectors/ tests/fixtures/ tests/otel/' to review changes."
 	@echo "Note: sync-fixtures copies but never deletes -- a local file flagged EXTRA by 'make verify-fixtures' must be removed by hand."
 
 verify-fixtures:  ## Fail if local fixtures drifted from canonical (CI drift gate).
@@ -155,7 +155,7 @@ verify-fixtures:  ## Fail if local fixtures drifted from canonical (CI drift gat
 		fi; \
 	done; \
 	for pair in $(FIXTURE_FILE_PAIRS); do \
-		src="$(SPEC_EXAMPLES_DIR)/$${pair%%:*}"; dest="$${pair#*:}"; \
+		src="$(SPEC_ROOT)/$${pair%%:*}"; dest="$${pair#*:}"; \
 		if [ ! -f "$$src" ]; then \
 			echo "  MISSING: canonical file $$src does not exist (FIXTURE_FILE_PAIRS entry '$$pair')"; \
 			drift=1; missing=1; \

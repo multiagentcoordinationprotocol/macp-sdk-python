@@ -3,7 +3,8 @@ name: Conformance fixtures
 # Enforces zero drift between this SDK's vendored conformance fixtures and the
 # canonical set in the spec repo (multiagentcoordinationprotocol). Runs on every
 # PR/push so a hand-edited fixture can never merge. See
-# tests/conformance/ and tests/vectors/cmt-hash/, and
+# tests/conformance/, tests/vectors/{cmt-hash,receipt}/, tests/fixtures/ and
+# tests/otel/, and
 # `make sync-fixtures` / `make verify-fixtures`.
 #
 # Also enforces zero drift for the vendored parity contract (tests/parity/,

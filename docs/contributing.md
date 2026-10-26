@@ -62,14 +62,15 @@ directions — a canonical file missing or differing locally fails as `DRIFT`,
 a local-only file fails as `EXTRA`. It checks every pair listed in the
 `Makefile`'s `FIXTURE_DIR_PAIRS`, which covers `tests/conformance/`,
 `tests/vectors/cmt-hash/` and `tests/vectors/receipt/`. It also compares, byte
-for byte, each single file in `FIXTURE_FILE_PAIRS`. Today that is only
-`tests/fixtures/receipt_keys.json`, the spec's
-`examples/discovery/receipt_keys.json`. `make sync-fixtures` refreshes all of
+for byte, each single file in `FIXTURE_FILE_PAIRS`:
+`tests/fixtures/receipt_keys.json` (the spec's
+`examples/discovery/receipt_keys.json`) and `tests/otel/macp-semconv.json` (the
+spec's `schemas/otel/macp-semconv.json`, which the spec's weekly
+`check-sdk-sync` also compares). `make sync-fixtures` refreshes all of
 them from the spec repo checkout pointed at by `SPEC_CONFORMANCE_DIR`; sync copies but
-never deletes, so a file flagged `EXTRA` must be removed by hand. Example files
-are read from `SPEC_EXAMPLES_DIR`, which defaults to
-`$(SPEC_CONFORMANCE_DIR)/../../examples/discovery`, so overriding
-`SPEC_CONFORMANCE_DIR` alone moves both. This gate
+never deletes, so a file flagged `EXTRA` must be removed by hand. Single files are
+read relative to `SPEC_ROOT`, which defaults to `$(SPEC_CONFORMANCE_DIR)/../..`,
+so overriding `SPEC_CONFORMANCE_DIR` alone moves both. This gate
 runs in its own workflow, `conformance-fixtures.yml`, on every push and PR
 targeting `main` — it is not part of the `checks.yml` gate above.
 

@@ -30,6 +30,7 @@ PR strategy: P1+P2 in one PR now (a coherent public feature, unblocked; release 
 ## Phase status
 
 - Phase 1: DONE
+- Phase 1b: DONE
 - Phase 2: TODO
 - Phase 3: TODO (BLOCKED-ON runtime R1)
 
@@ -43,3 +44,4 @@ PR strategy: P1+P2 in one PR now (a coherent public feature, unblocked; release 
     - The Makefile used `=` instead of `?=`.
   - Files: Makefile, pyproject.toml, docs/contributing.md, src/macp_sdk/{receipt,errors,__init__}.py, tests/fixtures/receipt_keys.json, tests/unit/{test_receipt_keys,test_fixture_drift_gate}.py, plus local CLAUDE.md.
   - Next: Phase 1b (vendor tests/otel/macp-semconv.json for check-sdk-sync, at the spec session's request), then Phase 2.
+- 2026-10-26 Phase 1b PASS (Opus verifier, 1 round; tagged simple and gated alone because Phase 2 is complex). Two optional items were applied: a semconv assertion in test 21, and the workflow header comment. Files: Makefile, tests/otel/macp-semconv.json, tests/unit/test_fixture_drift_gate.py, docs/contributing.md, .github/workflows/conformance-fixtures.yml. Next: Phase 2.
