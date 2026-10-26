@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/langgraph-macp-v0.1.1...langgraph-macp-v0.1.2) (2026-10-26)
+
+
+### Bug Fixes
+
+* **deps:** allow macp-sdk-python 0.21 in the LangGraph and Claude Agent SDK adapters ([a6bbab5](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/a6bbab50d9dfc5969df594ad8d993d6a5cc2d1f6))
+
 ## [0.1.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/langgraph-macp-v0.1.0...langgraph-macp-v0.1.1) (2026-10-26)
 
 
