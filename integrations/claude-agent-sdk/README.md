@@ -244,7 +244,7 @@ MACP_RUNTIME_TARGET=127.0.0.1:50051 .venv/bin/pytest tests/integration
 ```
 
 The package lives in the SDK repo but has its own version and release tag,
-`claude-agent-sdk-macp-vX.Y.Z`. It pins `macp-sdk-python[receipts]>=0.19,<0.22` and
+`claude-agent-sdk-macp-vX.Y.Z`. It pins `macp-sdk-python[receipts]>=0.19,<0.23` and
 `claude-agent-sdk>=0.2,<0.3`.
 
 ## Other frameworks
