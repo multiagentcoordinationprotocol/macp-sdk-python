@@ -193,6 +193,11 @@ Protobuf bytes) to record `commitment_wire_b64`; `build_receipt` raises if it is
 not the wire encoding of `commitment`. `commitment_from_projection()` turns a
 receipt's snake_case `commitment` back into a `CommitmentPayload`.
 
+A runtime that advertises `capabilities.decision_receipt` issues receipts
+itself (RFC-MACP-0013 §13). `client.get_decision_receipt(session_id)` returns the
+receipt parsed and verbatim, and `trusted_keys_from_jwks(client.get_receipt_keys())`
+gives the keys to verify it with. See [Core Protocol](docs/protocol.md#runtime-issued-decision-receipts-rfc-macp-0013-13).
+
 ## Framework integrations
 
 Separate packages, each with its own version and release tag, living under `integrations/`:

@@ -31,7 +31,7 @@ import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 from macp.v1 import core_pb2
 
@@ -561,10 +561,65 @@ def trusted_keys_from_jwks(jwks: object) -> dict[str, str]:
     return trusted
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionReceiptResult:
+    """What ``GetDecisionReceipt`` returned (RFC-MACP-0013 §13).
+
+    ``raw`` is the runtime's ``receipt_json`` verbatim: §13 serves an attested
+    receipt byte-identical on every call, so keep ``raw`` to store or forward
+    it. ``receipt`` is ``raw`` parsed, ready for `verify_receipt`. The
+    dataclass is frozen, but ``receipt`` is a plain dict: it is not deep-frozen.
+    """
+
+    receipt: dict[str, Any]
+    raw: str
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not valid JSON")
+
+
+def _loads_strict(raw: str, what: str) -> Any:
+    """Parse runtime JSON, raising `MacpSdkError` on anything that is not JSON.
+
+    Rejects ``NaN``/``Infinity`` (Python's json accepts them; JSON does not)
+    and nesting deep enough to exhaust the recursion limit.
+    """
+    try:
+        return json.loads(raw, parse_constant=_reject_constant)
+    except (ValueError, RecursionError) as exc:
+        raise MacpSdkError(f"{what} is not valid JSON: {exc}") from exc
+
+
+def _parse_receipt_json(raw: str) -> DecisionReceiptResult:
+    """``GetDecisionReceiptResponse.receipt_json`` to a `DecisionReceiptResult`.
+
+    Only the JSON shape is checked (an object). ``receipt_format`` and the
+    rest are left to `verify_receipt`, which reports instead of raising.
+    """
+    receipt = _loads_strict(raw, "GetDecisionReceipt receipt_json")
+    if not isinstance(receipt, dict):
+        raise MacpSdkError("GetDecisionReceipt receipt_json is not a JSON object")
+    return DecisionReceiptResult(receipt=receipt, raw=raw)
+
+
+def _parse_receipt_keys_json(raw: str) -> ReceiptKeySet:
+    """``GetReceiptKeysResponse.jwks_json`` to a `ReceiptKeySet`.
+
+    Checks only that it is an object with a ``keys`` list; individual keys
+    are judged by `trusted_keys_from_jwks`.
+    """
+    jwks = _loads_strict(raw, "GetReceiptKeys jwks_json")
+    if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
+        raise MacpSdkError("GetReceiptKeys jwks_json is not a JWK Set (no keys list)")
+    return cast(ReceiptKeySet, jwks)
+
+
 __all__ = [
     "RECEIPT_FORMAT",
     "AttestationOutcome",
     "DecisionReceipt",
+    "DecisionReceiptResult",
     "JwsAttestation",
     "ReceiptAttestation",
     "ReceiptCommitment",

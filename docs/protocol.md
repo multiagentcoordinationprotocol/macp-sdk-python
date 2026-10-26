@@ -154,6 +154,64 @@ for denial in report.denials:            # details decode like POLICY_DENIED
 
 `AsyncMacpClient.what_if_replay` is the awaitable twin.
 
+### Runtime-issued decision receipts (RFC-MACP-0013 §13)
+
+A runtime can optionally issue the decision receipt for a resolved session
+itself. It advertises this with `capabilities.decision_receipt`. The flag
+`get_decision_receipt` means both RPCs are served, and `signed` means its
+receipts carry an attestation.
+
+```python
+from macp_sdk import (
+    RECEIPT_UNAVAILABLE, MacpTransportError, trusted_keys_from_jwks, verify_receipt,
+)
+
+try:
+    fetched = client.get_decision_receipt(session_id)
+except MacpTransportError as e:
+    if e.macp_code == RECEIPT_UNAVAILABLE:
+        ...  # no binding Commitment yet, or no receipt can be issued
+    raise
+trusted = trusted_keys_from_jwks(client.get_receipt_keys())
+result = verify_receipt(fetched.receipt, trusted)  # attested / integrity_only / ...
+archive(fetched.raw)  # the runtime's bytes, verbatim
+```
+
+- `get_decision_receipt` returns a `DecisionReceiptResult`:
+  - `receipt` is the parsed dict.
+  - `raw` is the runtime's `receipt_json`, verbatim. An attested receipt is
+    served byte-identical on every call, so store `raw`.
+  - Auth is required, and the caller must be able to observe the session.
+- `get_receipt_keys` returns the runtime's JWK Set (`ReceiptKeySet`).
+  - It needs only transport auth.
+  - An unsigned runtime returns `{"keys": []}`, so its receipts verify as
+    `integrity_only` at best.
+- `trusted_keys_from_jwks` turns the set into the `kid -> x` map that
+  `verify_receipt` takes.
+  - It keeps only Ed25519 public keys usable for signatures, and drops any
+    `kid` the set names twice.
+  - Like `verify_receipt`, it never raises.
+  - See [Security](security.md#trusting-runtime-receipt-keys) for what trusting
+    these keys does and does not establish.
+- Both methods are gated on `decision_receipt.get_decision_receipt`, the same
+  way as `what_if_replay`.
+  - They call `initialize()` once if needed.
+  - If the flag is false, they raise `MacpSdkError` without sending the RPC.
+  - The gate always refuses under bindings older than macp-proto 0.1.13.
+- RPC failures raise `MacpTransportError` with `macp_code` set:
+  `RECEIPT_UNAVAILABLE` (provisional in the registry), `SESSION_NOT_FOUND` or
+  `FORBIDDEN`.
+- A response that isn't valid JSON raises `MacpSdkError`. That covers a receipt
+  that isn't an object and a key set without a `keys` list. The non-JSON
+  literals `NaN` and `Infinity` are rejected too.
+- These calls are not retried. A receipt exists only for a session that
+  resolved with a `CommitmentPayload`, so `RECEIPT_UNAVAILABLE` on an open
+  session may clear once it resolves that way. Poll the session state rather
+  than the receipt. A session that resolves without a Commitment stays
+  unavailable.
+
+`AsyncMacpClient` has awaitable twins of both methods.
+
 ### Server-streaming (watchers)
 
 The SDK wraps each server-streaming RPC in a `*Watcher` that normalises responses into typed records. See [Streaming](guides/streaming.md) and [Session Discovery](guides/session-discovery.md) for usage.

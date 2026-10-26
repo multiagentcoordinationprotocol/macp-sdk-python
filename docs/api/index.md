@@ -70,6 +70,10 @@ Auto-generated from docstrings.
 ::: macp_sdk.agent.cancel_callback.start_cancel_callback_server
 ::: macp_sdk.agent.strategies
 
+## Decision receipts
+
+::: macp_sdk.receipt
+
 ## Errors
 
 ::: macp_sdk.errors

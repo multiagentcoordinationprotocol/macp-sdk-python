@@ -139,6 +139,7 @@ from .quorum import (
 from .receipt import (
     RECEIPT_FORMAT,
     DecisionReceipt,
+    DecisionReceiptResult,
     ReceiptKeySet,
     ReceiptSigner,
     ReceiptVerification,
@@ -256,6 +257,7 @@ __all__ = [
     "DecisionProjection",
     "DecisionProposalRecord",
     "DecisionReceipt",
+    "DecisionReceiptResult",
     "DecisionSession",
     "DecisionVoteRecord",
     "ErrorDetails",
