@@ -26,7 +26,7 @@ classifiers = [
 dependencies = [
   # The published MACP Python SDK: sessions, commitment hash, and the
   # RFC-MACP-0013 Appendix A receipt builder (0.19.0, needs the extra).
-  "macp-sdk-python[receipts]>=0.19.0,<0.21",
+  "macp-sdk-python[receipts]>=0.19.0,<0.22",
   "langgraph>=1.0,<2",
   "langchain-core>=1.0,<2",
 ]

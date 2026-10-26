@@ -193,7 +193,7 @@ MACP_RUNTIME_TARGET=127.0.0.1:50051 .venv/bin/pytest tests/integration
 ```
 
 The package lives in the SDK repo but has its own version and release tag, `langgraph-macp-vX.Y.Z`.
-It pins `macp-sdk-python[receipts]>=0.19,<0.21`.
+It pins `macp-sdk-python[receipts]>=0.19,<0.22`.
 
 ## Other frameworks
 
