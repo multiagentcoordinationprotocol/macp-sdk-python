@@ -106,6 +106,12 @@ Runtime 0.9.0 also adds four control-plane codes, all exported from
 `AGENT_NOT_FOUND` (`NOT_FOUND`; `get_manifest` for an agent the runtime
 doesn't host). Treat an unrecognised `macp_code` by its gRPC status.
 
+`HISTORY_UNAVAILABLE` (`FAILED_PRECONDITION`, spec #227) comes from
+`what_if_replay` when the session's history has been compacted. It is
+permanent, so retrying won't help. `what_if_replay` raises `MacpSdkError` without
+sending the RPC when the runtime doesn't advertise
+`policy_registry.what_if_replay` (RFC-MACP-0012 §8.1).
+
 A few read-only RPCs (`initialize`, `get_session`, `get_manifest`,
 `list_sessions`/`list_sessions_page`, `get_policy`, `list_policies`) raise
 the raw `grpc.RpcError` rather than an SDK error. Read its registry code with

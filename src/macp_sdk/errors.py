@@ -26,6 +26,10 @@ REGISTRY_READ_ONLY = "REGISTRY_READ_ONLY"  # FAILED_PRECONDITION: file-loaded re
 INVALID_REQUEST = "INVALID_REQUEST"  # INVALID_ARGUMENT: malformed non-envelope request
 STREAM_LAGGED = "STREAM_LAGGED"  # RESOURCE_EXHAUSTED: subscriber fell behind; resubscribe
 AGENT_NOT_FOUND = "AGENT_NOT_FOUND"  # NOT_FOUND: GetManifest for an agent not hosted here
+# RFC-MACP-0012 §8.1 (spec #227).
+HISTORY_UNAVAILABLE = (
+    "HISTORY_UNAVAILABLE"  # FAILED_PRECONDITION: WhatIfReplay on compacted history
+)
 
 # ── POLICY_DENIED denial codes (RFC-MACP-0012 §6.2, runtime ≥ 0.9.0) ──
 #

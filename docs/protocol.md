@@ -79,6 +79,8 @@ response = client.initialize()
 # response.supported_modes            → available mode URIs
 ```
 
+`initialize()` caches `response.capabilities` on `client.server_capabilities`.
+
 Field-level details: [Runtime API § Protocol Handshake](https://github.com/multiagentcoordinationprotocol/macp-runtime/blob/main/docs/API.md#protocol-handshake).
 
 ## Errors
@@ -115,6 +117,42 @@ roots      = client.list_roots()
 sessions   = client.list_sessions()    # SDK ≥ 0.3.0
 policies   = client.list_policies()
 ```
+
+### What-if replay (RFC-MACP-0012 §8.1)
+
+`what_if_replay` replays a session's accepted history under a candidate
+policy and reports how the outcome would have differed. It is read-only: the
+candidate is validated but never registered.
+
+```python
+from macp_sdk import (
+    HISTORY_UNAVAILABLE, MacpTransportError, build_decision_policy, parse_error_details,
+)
+
+candidate = build_decision_policy("policy.stricter", "require 2 approvals")
+try:
+    report = client.what_if_replay(session_id, candidate)
+except MacpTransportError as e:
+    if e.macp_code == HISTORY_UNAVAILABLE:
+        ...  # history compacted below the session start
+    raise
+if report.HasField("first_divergence"):  # index 0 is the SessionStart
+    print("diverges at entry", report.first_divergence)
+for denial in report.denials:            # details decode like POLICY_DENIED
+    print(denial.message_id, parse_error_details(denial.details).denials)
+```
+
+- The method is gated on `policy_registry.what_if_replay`.
+  - It calls `initialize()` once if the client hasn't initialized yet.
+  - If the flag is false, it raises `MacpSdkError` without sending the RPC.
+  - Bindings older than macp-proto 0.1.12 lack the flag, so the gate always
+    refuses under them.
+- RPC failures raise `MacpTransportError` with `macp_code` set:
+  - `SESSION_NOT_FOUND` or `FORBIDDEN`: the caller can't observe the session.
+  - `INVALID_POLICY_DEFINITION`: the candidate failed validation.
+  - `HISTORY_UNAVAILABLE`: the history has been compacted.
+
+`AsyncMacpClient.what_if_replay` is the awaitable twin.
 
 ### Server-streaming (watchers)
 
