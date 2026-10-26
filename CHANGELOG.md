@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.21.0...v0.22.0) (2026-10-26)
+
+
+### Features
+
+* **otel:** emit a CLIENT span per send() per macp-semconv span.macp.send ([566d065](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/566d065bbd0e63ec8b7c9b028067446a7b15866f))
+* **otel:** inject W3C trace context into every RPC's metadata ([1aef1a6](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1aef1a6d4c53737c31be0356ce63bd24ac46f5d9))
+
 ## [0.21.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.20.0...v0.21.0) (2026-10-26)
 
 
