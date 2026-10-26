@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.21.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.20.0...v0.21.0) (2026-10-26)
+
+
+### Features
+
+* get_decision_receipt and get_receipt_keys client methods (RFC-MACP-0013 §13) ([2b157c2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/2b157c217b146d6e474a6a2fad784ae04bd5e4ab))
+* trusted_keys_from_jwks and RECEIPT_UNAVAILABLE (RFC-MACP-0013 §13) ([1423c73](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1423c7310941a570ebc56cb83fd205f2ea3e561a))
+
+
+### Documentation
+
+* protocol and error-handling sections, a README note, and docs/security.md on what trusting runtime-published keys does and does not establish. ([2b157c2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/2b157c217b146d6e474a6a2fad784ae04bd5e4ab))
+
 ## [0.20.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.19.0...v0.20.0) (2026-10-26)
 
 
