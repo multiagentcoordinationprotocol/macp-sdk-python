@@ -58,6 +58,8 @@ REPO_ROOT = Path(__file__).parents[2]
 MAKEFILE = REPO_ROOT / "Makefile"
 #: Content of the FIXTURE_FILE_PAIRS example (receipt_keys.json) on both sides.
 KEYS = '{"keys": []}'
+#: Content of the other FIXTURE_FILE_PAIRS file (macp-semconv.json) on both sides.
+SEMCONV = '{"groups": []}'
 
 # Doesn't distinguish GNU make from BSD make -- the recipes rely on GNU-only
 # shell-in-recipe semantics (e.g. `$$` escaping applied consistently across
@@ -89,9 +91,10 @@ def _make_canon(
         _write_files(canon / "cmt-hash", cmt_hash)
     # The receipt pair (tests/vectors/receipt) is left empty on both sides.
     _write_files(canon / "receipt", None)
-    # The FIXTURE_FILE_PAIRS file, at the SPEC_EXAMPLES_DIR _run_make passes.
+    # The FIXTURE_FILE_PAIRS files, under the SPEC_ROOT _run_make passes.
     if example is not None:
-        _write_files(tmp_path / "examples", {"receipt_keys.json": example})
+        _write_files(tmp_path / "examples" / "discovery", {"receipt_keys.json": example})
+    _write_files(tmp_path / "schemas" / "otel", {"macp-semconv.json": SEMCONV})
     return canon
 
 
@@ -113,17 +116,15 @@ def _make_repo(
     _write_files(repo / "tests" / "vectors" / "receipt", None)
     if example is not None:
         _write_files(repo / "tests" / "fixtures", {"receipt_keys.json": example})
+    _write_files(repo / "tests" / "otel", {"macp-semconv.json": SEMCONV})
     return repo
 
 
-def _run_make(
-    repo: Path, target: str, spec_dir: Path, *, examples_dir: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    """Pass ``SPEC_EXAMPLES_DIR`` explicitly: ``<spec_dir>/../examples`` by default,
-    where `_make_canon` puts the example file. The Makefile's own default for it
-    is covered by `test_examples_dir_defaults_relative_to_conformance_dir`."""
+def _run_make(repo: Path, target: str, spec_dir: Path) -> subprocess.CompletedProcess[str]:
+    """Pass ``SPEC_ROOT`` explicitly as ``<spec_dir>/..``, where `_make_canon` puts
+    the single files. The Makefile's own default for it is covered by
+    `test_spec_root_defaults_relative_to_conformance_dir`."""
     env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MAKELEVEL", "MFLAGS"}}
-    examples = examples_dir if examples_dir is not None else spec_dir.parent / "examples"
     return subprocess.run(
         [
             "make",
@@ -131,7 +132,7 @@ def _run_make(
             str(MAKEFILE),
             target,
             f"SPEC_CONFORMANCE_DIR={spec_dir}",
-            f"SPEC_EXAMPLES_DIR={examples}",
+            f"SPEC_ROOT={spec_dir.parent}",
         ],
         cwd=repo,
         env=env,
@@ -406,6 +407,7 @@ def test_missing_canonical_example_file_fails_verify_and_sync(tmp_path: Path) ->
 def test_sync_copies_example_file(tmp_path: Path) -> None:
     canon = _make_canon(tmp_path, flat={"a.json": "A"}, cmt_hash={}, example='{"keys": [1]}')
     repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={}, example=None)
+    (repo / "tests" / "otel" / "macp-semconv.json").unlink()
 
     sync_result = _run_make(repo, "sync-fixtures", canon)
     verify_result = _run_make(repo, "verify-fixtures", canon)
@@ -415,17 +417,19 @@ def test_sync_copies_example_file(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == '{"keys": [1]}'
     assert verify_result.returncode == 0
     assert "OK: tests/fixtures/receipt_keys.json matches" in verify_result.stdout
+    assert "OK: tests/otel/macp-semconv.json matches" in verify_result.stdout
 
 
-# 22. Without an override, SPEC_EXAMPLES_DIR follows SPEC_CONFORMANCE_DIR to
-#     <spec>/examples/discovery, so CI's single override covers both.
-def test_examples_dir_defaults_relative_to_conformance_dir(tmp_path: Path) -> None:
+# 22. Without an override, SPEC_ROOT follows SPEC_CONFORMANCE_DIR up to <spec>,
+#     so CI's single override covers the single-file pairs too.
+def test_spec_root_defaults_relative_to_conformance_dir(tmp_path: Path) -> None:
     spec = tmp_path / "spec"
     canon = spec / "schemas" / "conformance"
     _write_files(canon, {"a.json": "A"})
     _write_files(canon / "cmt-hash", None)
     _write_files(canon / "receipt", None)
     _write_files(spec / "examples" / "discovery", {"receipt_keys.json": KEYS})
+    _write_files(spec / "schemas" / "otel", {"macp-semconv.json": SEMCONV})
     repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={})
     env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MAKELEVEL", "MFLAGS"}}
 
@@ -439,6 +443,21 @@ def test_examples_dir_defaults_relative_to_conformance_dir(tmp_path: Path) -> No
     )
 
     assert result.returncode == 0, result.stdout
+    assert "OK: tests/fixtures/receipt_keys.json matches" in result.stdout
+    assert "OK: tests/otel/macp-semconv.json matches" in result.stdout
+
+
+# 23. Each single-file pair is checked independently: drift in one does not
+#     hide or fail the other.
+def test_verify_flags_drift_in_semconv_only(tmp_path: Path) -> None:
+    canon = _make_canon(tmp_path, flat={"a.json": "A"}, cmt_hash={})
+    repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={})
+    (repo / "tests" / "otel" / "macp-semconv.json").write_text("{}", encoding="utf-8")
+
+    result = _run_make(repo, "verify-fixtures", canon)
+
+    assert result.returncode != 0
+    assert "DRIFT: tests/otel/macp-semconv.json differs" in result.stdout
     assert "OK: tests/fixtures/receipt_keys.json matches" in result.stdout
 
 
