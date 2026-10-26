@@ -91,3 +91,4 @@ PR strategy: P1+P2 in one PR (one coherent opt-in feature), released as a minor 
     - no test for attach failing.
   - Mutation check: 4 deliberate breaks, all caught.
   - Files: `_otel.py`, `client.py`/`async_client.py` `send`, `test_otel.py`, `docs/guides/observability.md` (new), `mkdocs.yml`, `README.md`, `docs/security.md`, local `CLAUDE.md`.
+- 2026-10-26 Finalization: integration test `tests/integration/test_otel.py` passes against the CI-pinned runtime (`make test-integration-docker`: 67 passed, 3 skipped). It covers the runtime accepting `traceparent` on unary, Send and session RPCs, and the spans recording real accepted / duplicate / rejected outcomes.
