@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.19.0...v0.20.0) (2026-10-26)
+
+
+### Features
+
+* WhatIfReplay client + HISTORY_UNAVAILABLE error code ([#194](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/194)) ([7158aa1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/7158aa1a9ca9e4433add2df93283d3ca4bf5d62c))
+
 ## [0.19.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.18.0...v0.19.0) (2026-10-25)
 
 
