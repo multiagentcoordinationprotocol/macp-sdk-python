@@ -88,14 +88,17 @@ jobs:
 
       # The suite must actually have run: a non-zero pass count, and no more
       # skips than the documented ones (2 bearer-token tests in
-      # test_direct_agent_auth.py + 1 paired example in test_examples_run.py).
+      # test_direct_agent_auth.py + 1 paired example in test_examples_run.py
+      # + the 3 test_decision_receipts.py tests, which skip until this job
+      # pins a receipt-issuing runtime, >= 0.11.0; that bump restores the
+      # max to 3 and sets MACP_EXPECT_RECEIPTS so they can't skip).
       - name: Assert the suite ran
         run: |
           summary=$(tail -n 1 integration.log)
           echo "$summary"
           echo "$summary" | grep -qE '[1-9][0-9]* passed' || { echo "::error::no tests passed"; exit 1; }
           skipped=$(echo "$summary" | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' || echo 0)
-          [ "$skipped" -le 3 ] || { echo "::error::$skipped skipped (max 3)"; exit 1; }
+          [ "$skipped" -le 6 ] || { echo "::error::$skipped skipped (max 6)"; exit 1; }
 
   # This job's build + twine check steps are mirrored by the `build` Makefile
   # target — keep the two in sync (see issue #39).
