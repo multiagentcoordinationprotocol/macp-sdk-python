@@ -1,4 +1,4 @@
-.PHONY: help setup lint fmt typecheck test test-integration test-integration-docker test-conformance test-parity test-all coverage build sync-fixtures verify-fixtures sync-parity verify-parity lint-fixtures dev-link-protos
+.PHONY: help setup lint fmt typecheck test test-integration test-integration-docker test-integration-receipts test-conformance test-parity test-all coverage build sync-fixtures verify-fixtures sync-parity verify-parity lint-fixtures dev-link-protos
 
 SPEC_CONFORMANCE_DIR := ../multiagentcoordinationprotocol/schemas/conformance
 SPEC_PARITY_DIR := ../multiagentcoordinationprotocol/schemas/parity
@@ -50,6 +50,33 @@ test-integration-docker:  ## Run integration tests against the CI-pinned runtime
 	MACP_RUNTIME_TARGET=127.0.0.1:50061 MACP_TEST_READ_ONLY_REGISTRY=127.0.0.1:50062 \
 		pytest tests/integration/ -m integration -p no:randomly --strict-markers --no-cov -v -rs; \
 		status=$$?; docker rm -f macp-sdk-it macp-sdk-it-ro >/dev/null; exit $$status
+
+# Decision receipts (RFC-MACP-0013 §13) need a runtime >= 0.11.0. Runs the
+# receipt tests against an unsigned and a signing runtime from RECEIPT_IMAGE
+# (override it, e.g. with a local build of macp-runtime main). The signing key
+# is generated fresh per run and never leaves the temp dir.
+RECEIPT_IMAGE ?= ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
+test-integration-receipts:  ## Run the decision-receipt tests against RECEIPT_IMAGE (needs docker, openssl).
+	docker rm -f macp-sdk-rcpt macp-sdk-rcpt-signed >/dev/null 2>&1 || true
+	keydir=$$(mktemp -d) || exit 1; \
+	trap 'docker rm -f macp-sdk-rcpt macp-sdk-rcpt-signed >/dev/null 2>&1; rm -rf "$$keydir"' EXIT; \
+	chmod 755 "$$keydir" && \
+	openssl genpkey -algorithm ed25519 -out "$$keydir/receipt.pem" 2>/dev/null && \
+	chmod 644 "$$keydir/receipt.pem" && \
+	docker run -d --name macp-sdk-rcpt -p 50071:50051 -e MACP_ALLOW_INSECURE=1 \
+		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 $(RECEIPT_IMAGE) >/dev/null && \
+	docker run -d --name macp-sdk-rcpt-signed -p 50072:50051 -e MACP_ALLOW_INSECURE=1 \
+		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 \
+		-e MACP_RECEIPT_SIGNING_KEY_PATH=/keys/receipt.pem -e MACP_RECEIPT_SIGNING_KID=sdk-it-1 \
+		-e MACP_RUNTIME_ID=sdk-it -v "$$keydir:/keys:ro" $(RECEIPT_IMAGE) >/dev/null || exit 1; \
+	for target in 50071:macp-sdk-rcpt 50072:macp-sdk-rcpt-signed; do \
+		port=$${target%%:*}; name=$${target#*:}; \
+		for i in $$(seq 1 30); do nc -z localhost $$port && break; sleep 1; done; \
+		nc -z localhost $$port || { echo "runtime on :$$port never became ready"; docker logs $$name; exit 1; }; \
+	done; \
+	MACP_RUNTIME_TARGET=127.0.0.1:50071 MACP_TEST_RECEIPT_SIGNED_TARGET=127.0.0.1:50072 \
+		MACP_EXPECT_RECEIPTS=signed,unsigned \
+		pytest tests/integration/test_decision_receipts.py -m integration -p no:randomly --no-cov -v -rs
 
 test-conformance:  ## Replay the canonical conformance fixtures.
 	pytest tests/conformance/ -v -m conformance
