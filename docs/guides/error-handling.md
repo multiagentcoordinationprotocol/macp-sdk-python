@@ -114,8 +114,7 @@ sending the RPC when the runtime doesn't advertise
 
 `RECEIPT_UNAVAILABLE` (`FAILED_PRECONDITION`, RFC-MACP-0013 §13) comes from
 `get_decision_receipt` when the session has no binding Commitment yet, or the
-runtime can't issue a receipt for it. The code is provisional in the spec's
-registry. A receipt exists only for a session that resolved with a
+runtime can't issue a receipt for it. A receipt exists only for a session that resolved with a
 `CommitmentPayload`. So on an open session the error may clear once the session
 resolves that way, while a session that resolves without a Commitment stays
 unavailable. Any other refusal is the runtime's own (§13 item 7: it can issue

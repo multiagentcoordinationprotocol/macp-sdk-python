@@ -30,10 +30,10 @@ jobs:
       contents: read
       packages: read
     env:
-      RUNTIME_IMAGE: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+      RUNTIME_IMAGE: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
     services:
       runtime:
-        image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+        image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
         env:
           # The image deliberately omits MACP_ALLOW_INSECURE; without it the
           # runtime refuses to start and the readiness poll below fails.
@@ -60,12 +60,28 @@ jobs:
             -v "$GITHUB_WORKSPACE/tests/integration/fixtures/policies:/policies:ro" \
             "$RUNTIME_IMAGE"
 
+      # A third runtime that signs decision receipts (RFC-MACP-0013 §13). The
+      # Ed25519 key is generated per run and never leaves the runner;
+      # MACP_RUNTIME_ID is required whenever a signing key is set.
+      - name: Start receipt-signing runtime
+        run: |
+          keydir=$(mktemp -d)
+          chmod 755 "$keydir"
+          openssl genpkey -algorithm ed25519 -out "$keydir/receipt.pem"
+          chmod 644 "$keydir/receipt.pem"
+          docker run -d --name runtime_signed -p 50053:50051 \
+            -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 \
+            -e MACP_BIND_ADDR=0.0.0.0:50051 \
+            -e MACP_RECEIPT_SIGNING_KEY_PATH=/keys/receipt.pem \
+            -e MACP_RECEIPT_SIGNING_KID=sdk-ci-1 -e MACP_RUNTIME_ID=sdk-ci \
+            -v "$keydir:/keys:ro" "$RUNTIME_IMAGE"
+
       # Fail loudly if a runtime never binds: conftest.py skips the whole
       # directory on a connection failure, so without this a misconfigured
       # runtime turns into a green run that tested nothing.
       - name: Wait for runtimes
         run: |
-          for port in 50051 50052; do
+          for port in 50051 50052 50053; do
             for i in $(seq 1 30); do
               nc -z localhost "$port" && break
               sleep 1
@@ -73,6 +89,7 @@ jobs:
             nc -z localhost "$port" || {
               echo "::error::runtime on :$port never became ready"
               docker logs runtime_ro || true
+              docker logs runtime_signed || true
               exit 1
             }
           done
@@ -81,24 +98,29 @@ jobs:
         env:
           MACP_RUNTIME_TARGET: 127.0.0.1:50051
           MACP_TEST_READ_ONLY_REGISTRY: 127.0.0.1:50052
+          MACP_TEST_RECEIPT_SIGNED_TARGET: 127.0.0.1:50053
+          # The receipt tests must run, not skip: the shared runtime is the
+          # unsigned leg and runtime_signed the signed one.
+          MACP_EXPECT_RECEIPTS: signed,unsigned
         run: |
           set -o pipefail
           pytest tests/integration/ -m integration -p no:randomly --strict-markers \
             --no-cov -v -rs | tee integration.log
 
+      - name: Runtime logs on failure
+        if: failure()
+        run: docker logs runtime_ro; docker logs runtime_signed
+
       # The suite must actually have run: a non-zero pass count, and no more
       # skips than the documented ones (2 bearer-token tests in
-      # test_direct_agent_auth.py + 1 paired example in test_examples_run.py
-      # + the 3 test_decision_receipts.py tests, which skip until this job
-      # pins a receipt-issuing runtime, >= 0.11.0; that bump restores the
-      # max to 3 and sets MACP_EXPECT_RECEIPTS so they can't skip).
+      # test_direct_agent_auth.py + 1 paired example in test_examples_run.py).
       - name: Assert the suite ran
         run: |
           summary=$(tail -n 1 integration.log)
           echo "$summary"
           echo "$summary" | grep -qE '[1-9][0-9]* passed' || { echo "::error::no tests passed"; exit 1; }
           skipped=$(echo "$summary" | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' || echo 0)
-          [ "$skipped" -le 6 ] || { echo "::error::$skipped skipped (max 6)"; exit 1; }
+          [ "$skipped" -le 3 ] || { echo "::error::$skipped skipped (max 3)"; exit 1; }
 
   # This job's build + twine check steps are mirrored by the `build` Makefile
   # target — keep the two in sync (see issue #39).

@@ -28,7 +28,7 @@ suite on Python 3.11, 3.12 and 3.13.
 ### 1. Start a local runtime
 
 ```bash
-docker run -p 50051:50051 -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+docker run -p 50051:50051 -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
 ```
 
 This is the runtime image CI pins. `MACP_ALLOW_INSECURE=1` permits plaintext and
