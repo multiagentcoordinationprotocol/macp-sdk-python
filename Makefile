@@ -34,28 +34,38 @@ test:  ## Run unit tests with the coverage gate (fail_under from pyproject).
 test-integration:  ## Run integration tests (requires a running MACP runtime).
 	pytest tests/integration/ -v -m integration
 
-RUNTIME_IMAGE := ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+RUNTIME_IMAGE := ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
 
-test-integration-docker:  ## Run integration tests against the CI-pinned runtime image (needs docker).
-	docker rm -f macp-sdk-it macp-sdk-it-ro >/dev/null 2>&1 || true
+test-integration-docker:  ## Run integration tests against the CI-pinned runtime image (needs docker, openssl).
+	docker rm -f macp-sdk-it macp-sdk-it-ro macp-sdk-it-signed >/dev/null 2>&1 || true
+	keydir=$$(mktemp -d) || exit 1; \
+	trap 'docker rm -f macp-sdk-it macp-sdk-it-ro macp-sdk-it-signed >/dev/null 2>&1; rm -rf "$$keydir"' EXIT; \
+	chmod 755 "$$keydir" && \
+	openssl genpkey -algorithm ed25519 -out "$$keydir/receipt.pem" 2>/dev/null && \
+	chmod 644 "$$keydir/receipt.pem" && \
 	docker run -d --name macp-sdk-it -p 50061:50051 -e MACP_ALLOW_INSECURE=1 \
-		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 $(RUNTIME_IMAGE)
+		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 $(RUNTIME_IMAGE) >/dev/null && \
 	docker run -d --name macp-sdk-it-ro -p 50062:50051 -e MACP_ALLOW_INSECURE=1 \
 		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 -e MACP_POLICIES_DIR=/policies \
-		-v "$(CURDIR)/tests/integration/fixtures/policies:/policies:ro" $(RUNTIME_IMAGE)
-	for port in 50061 50062; do \
+		-v "$(CURDIR)/tests/integration/fixtures/policies:/policies:ro" $(RUNTIME_IMAGE) >/dev/null && \
+	docker run -d --name macp-sdk-it-signed -p 50063:50051 -e MACP_ALLOW_INSECURE=1 \
+		-e MACP_MEMORY_ONLY=1 -e MACP_BIND_ADDR=0.0.0.0:50051 \
+		-e MACP_RECEIPT_SIGNING_KEY_PATH=/keys/receipt.pem -e MACP_RECEIPT_SIGNING_KID=sdk-it-1 \
+		-e MACP_RUNTIME_ID=sdk-it -v "$$keydir:/keys:ro" $(RUNTIME_IMAGE) >/dev/null || exit 1; \
+	for target in 50061:macp-sdk-it 50062:macp-sdk-it-ro 50063:macp-sdk-it-signed; do \
+		port=$${target%%:*}; name=$${target#*:}; \
 		for i in $$(seq 1 30); do nc -z localhost $$port && break; sleep 1; done; \
-		nc -z localhost $$port || { echo "runtime on :$$port never became ready"; exit 1; }; \
-	done
+		nc -z localhost $$port || { echo "runtime on :$$port never became ready"; docker logs $$name; exit 1; }; \
+	done; \
 	MACP_RUNTIME_TARGET=127.0.0.1:50061 MACP_TEST_READ_ONLY_REGISTRY=127.0.0.1:50062 \
-		pytest tests/integration/ -m integration -p no:randomly --strict-markers --no-cov -v -rs; \
-		status=$$?; docker rm -f macp-sdk-it macp-sdk-it-ro >/dev/null; exit $$status
+		MACP_TEST_RECEIPT_SIGNED_TARGET=127.0.0.1:50063 MACP_EXPECT_RECEIPTS=signed,unsigned \
+		pytest tests/integration/ -m integration -p no:randomly --strict-markers --no-cov -v -rs
 
 # Decision receipts (RFC-MACP-0013 §13) need a runtime >= 0.11.0. Runs the
 # receipt tests against an unsigned and a signing runtime from RECEIPT_IMAGE
-# (override it, e.g. with a local build of macp-runtime main). The signing key
-# is generated fresh per run and never leaves the temp dir.
-RECEIPT_IMAGE ?= ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.11.0
+# (the CI pin by default; override it, e.g. with a local runtime build).
+# The signing key is generated fresh per run and never leaves the temp dir.
+RECEIPT_IMAGE ?= $(RUNTIME_IMAGE)
 test-integration-receipts:  ## Run the decision-receipt tests against RECEIPT_IMAGE (needs docker, openssl).
 	docker rm -f macp-sdk-rcpt macp-sdk-rcpt-signed >/dev/null 2>&1 || true
 	keydir=$$(mktemp -d) || exit 1; \

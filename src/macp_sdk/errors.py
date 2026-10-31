@@ -30,8 +30,7 @@ AGENT_NOT_FOUND = "AGENT_NOT_FOUND"  # NOT_FOUND: GetManifest for an agent not h
 HISTORY_UNAVAILABLE = (
     "HISTORY_UNAVAILABLE"  # FAILED_PRECONDITION: WhatIfReplay on compacted history
 )
-# RFC-MACP-0013 §13 (spec #230). Provisional in the registry, so it is not
-# in the parity contract's permanent set yet.
+# RFC-MACP-0013 §13 (spec #230); permanent since spec #236.
 RECEIPT_UNAVAILABLE = (
     "RECEIPT_UNAVAILABLE"  # FAILED_PRECONDITION: GetDecisionReceipt, no receipt to issue
 )

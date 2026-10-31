@@ -55,6 +55,7 @@ from macp_sdk.errors import (
     PAYLOAD_TOO_LARGE,
     POLICY_DENIED,
     RATE_LIMITED,
+    RECEIPT_UNAVAILABLE,
     REGISTRY_READ_ONLY,
     SESSION_ALREADY_EXISTS,
     SESSION_NOT_FOUND,
@@ -133,9 +134,11 @@ class TestErrorCodes:
         "AGENT_NOT_FOUND": AGENT_NOT_FOUND,
         # Added in spec #227 (RFC-MACP-0012 §8.1, WhatIfReplay).
         "HISTORY_UNAVAILABLE": HISTORY_UNAVAILABLE,
+        # Promoted to permanent in spec #236 (RFC-MACP-0013 §13, runtime 0.11.0).
+        "RECEIPT_UNAVAILABLE": RECEIPT_UNAVAILABLE,
     }
 
-    def test_exports_exactly_the_21_permanent_codes_order_independent(self):
+    def test_exports_exactly_the_22_permanent_codes_order_independent(self):
         assert sorted(self._EXPORTED) == sorted(sections["error_codes"]["permanent"])
         for name, value in self._EXPORTED.items():
             assert value == name, name

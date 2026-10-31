@@ -199,7 +199,7 @@ archive(fetched.raw)  # the runtime's bytes, verbatim
   - If the flag is false, they raise `MacpSdkError` without sending the RPC.
   - The gate always refuses under bindings older than macp-proto 0.1.13.
 - RPC failures raise `MacpTransportError` with `macp_code` set:
-  `RECEIPT_UNAVAILABLE` (provisional in the registry), `SESSION_NOT_FOUND` or
+  `RECEIPT_UNAVAILABLE`, `SESSION_NOT_FOUND` or
   `FORBIDDEN`.
 - A response that isn't valid JSON raises `MacpSdkError`. That covers a receipt
   that isn't an object and a key set without a `keys` list. The non-JSON
