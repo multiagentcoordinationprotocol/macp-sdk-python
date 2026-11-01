@@ -6,6 +6,10 @@ Before this fix, every RPC call site merged a per-call ``timeout`` against
 both ``None`` and ``0`` are falsy, once ``default_timeout`` was set to a
 non-None value, no per-call argument could express "no deadline for this
 one call". ``UNBOUNDED`` is the explicit value that now does.
+
+Streams (``open_stream``, ``watch_*``) are different: they never inherit
+``default_timeout``, so ``None`` and ``UNBOUNDED`` both mean no deadline and
+only an explicit number bounds them (TestStreamTimeoutIsExplicitOnly).
 """
 
 from __future__ import annotations
@@ -137,3 +141,12 @@ class TestStreamTimeoutIsExplicitOnly:
         stub.ListModes.return_value = core_pb2.ListModesResponse()
         client.list_modes()
         assert stub.ListModes.call_args.kwargs["timeout"] == 5.0
+
+    def test_watcher_stream_is_unbounded_with_default_set(self):
+        from macp_sdk.watchers import ModeRegistryWatcher
+
+        client, stub = client_with_stub()
+        client.default_timeout = 5.0
+        stub.WatchModeRegistry.return_value = iter([])
+        assert list(ModeRegistryWatcher(client).changes()) == []
+        assert stub.WatchModeRegistry.call_args.kwargs["timeout"] is None

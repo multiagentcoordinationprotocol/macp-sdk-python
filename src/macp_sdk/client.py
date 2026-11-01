@@ -170,10 +170,12 @@ class _UnboundedTimeout:
 
 UNBOUNDED = _UnboundedTimeout()
 
-# ``timeout=None`` (the default) means "use ``self.default_timeout``"; both
-# ``None`` and ``0`` are falsy, so once ``default_timeout`` is set to a
-# non-None value, neither could express "no deadline for this one call" (#93
-# item 6). Pass ``UNBOUNDED`` for that. Not a plain ``float | None`` because
+# On a unary call, ``timeout=None`` (the default) means "use
+# ``self.default_timeout``"; both ``None`` and ``0`` are falsy, so once
+# ``default_timeout`` is set to a non-None value, neither could express "no
+# deadline for this one call" (#93 item 6). Pass ``UNBOUNDED`` for that.
+# Streams never inherit ``default_timeout``: ``None`` and ``UNBOUNDED`` both
+# mean no deadline there (``_resolve_stream_timeout``). Not a plain ``float | None`` because
 # an ``Any``-typed default would defeat mypy strict's whole point of catching
 # a mistyped timeout argument at every one of this client's ~20 call sites.
 TimeoutValue = float | None | _UnboundedTimeout
