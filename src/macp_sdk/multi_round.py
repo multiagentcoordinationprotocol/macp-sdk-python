@@ -11,12 +11,9 @@ convergence is advisory, and nothing here evaluates governance policy.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from google.protobuf.message import DecodeError  # type: ignore[import-untyped]
-from macp.modes.multi_round.v1 import multi_round_pb2
 from macp.v1 import core_pb2, envelope_pb2
 
 from .async_session import AsyncBaseSession
@@ -48,79 +45,293 @@ _NEGATIVE_SUFFIXES = ("rejected", "failed", "declined")
 _POSITIVE_SUFFIXES = ("selected", "accepted", "completed", "approved")
 
 
-class _NotContributeJsonError(Exception):
-    """The bytes are not JSON that serde reads as ``ContributeJson``."""
+class _Malformed(Exception):  # noqa: N818 - internal control flow, never raised out
+    """The bytes are not what the runtime's decoder accepts."""
 
 
-def _reject_constant(name: str) -> Any:
-    raise _NotContributeJsonError(name)  # NaN / Infinity are not JSON to serde
+# ── prost 0.14 (``ContributePayload::decode``) ───────────────────────────
+# google.protobuf is more lenient than prost: it skips a field-1 varint, an
+# unmatched end group or nesting past prost's limit as unknown data. Each of
+# those makes the runtime refuse the Contribute, so the wire format is read
+# by hand, following prost's ``decode_key``/``skip_field``.
+
+_PROST_RECURSION_LIMIT = 100
 
 
-def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    keys = [k for k, _ in pairs]
-    if len(set(keys)) != len(keys):
-        raise _NotContributeJsonError("duplicate key")  # serde refuses a duplicate field
-    return dict(pairs)
+def _varint(buf: bytes, pos: int) -> tuple[int, int]:
+    value = 0
+    for count in range(10):
+        if pos >= len(buf):
+            raise _Malformed("truncated varint")
+        byte = buf[pos]
+        pos += 1
+        value |= (byte & 0x7F) << (7 * count)
+        if byte < 0x80:
+            if count == 9 and byte >= 0x02:
+                raise _Malformed("varint overflows u64")
+            return value, pos
+    raise _Malformed("varint longer than 10 bytes")
 
 
-def _check_strings(obj: Any) -> None:
-    # serde_json refuses a lone-surrogate escape anywhere in the document.
-    if isinstance(obj, str):
-        obj.encode("utf-8")
-    elif isinstance(obj, dict):
-        for key, value in obj.items():
-            key.encode("utf-8")
-            _check_strings(value)
-    elif isinstance(obj, list):
-        for item in obj:
-            _check_strings(item)
+def _key(buf: bytes, pos: int) -> tuple[int, int, int]:
+    key, pos = _varint(buf, pos)
+    if key > 0xFFFFFFFF or key & 7 > 5 or key >> 3 < 1:
+        raise _Malformed("invalid key")
+    return key >> 3, key & 7, pos
+
+
+def _skip(buf: bytes, pos: int, tag: int, wire_type: int, depth: int) -> int:
+    if depth == 0:
+        raise _Malformed("recursion limit")
+    if wire_type == 0:
+        return _varint(buf, pos)[1]
+    if wire_type == 2:
+        length, pos = _varint(buf, pos)
+    elif wire_type == 1:
+        length = 8
+    elif wire_type == 5:
+        length = 4
+    elif wire_type == 3:
+        while True:
+            inner_tag, inner_type, pos = _key(buf, pos)
+            if inner_type == 4:
+                if inner_tag != tag:
+                    raise _Malformed("unexpected end group")
+                return pos
+            pos = _skip(buf, pos, inner_tag, inner_type, depth - 1)
+    else:
+        raise _Malformed("unexpected end group")
+    if length > len(buf) - pos:
+        raise _Malformed("buffer underflow")
+    return pos + length
+
+
+def _proto_value(buf: bytes) -> str | None:
+    value = ""
+    pos = 0
+    try:
+        while pos < len(buf):
+            tag, wire_type, pos = _key(buf, pos)
+            if tag != 1:
+                pos = _skip(buf, pos, tag, wire_type, _PROST_RECURSION_LIMIT)
+                continue
+            if wire_type != 2:
+                raise _Malformed("value has the wrong wire type")
+            length, pos = _varint(buf, pos)
+            if length > len(buf) - pos:
+                raise _Malformed("buffer underflow")
+            value = buf[pos : pos + length].decode("utf-8")  # the last occurrence wins
+            pos += length
+    except (_Malformed, UnicodeDecodeError):
+        return None
+    return value
+
+
+def _canonical_proto(value: str) -> bytes:
+    raw = value.encode("utf-8")
+    if not raw:
+        return b""
+    length, out = len(raw), bytearray(b"\x0a")
+    while length >= 0x80:
+        out.append(length & 0x7F | 0x80)
+        length >>= 7
+    out.append(length)
+    return bytes(out) + raw
+
+
+# ── serde_json 1 (``from_str::<ContributeJson>``) ────────────────────────
+# Python's json module differs from serde for this struct, so the text is
+# scanned by hand. serde reads the struct from an object or from a
+# one-element array. It decodes, and so surrogate-checks, only the top-level
+# keys and the ``value`` string. Every other member is skipped with
+# ``ignore_value``: syntax-checked, never decoded, no depth limit. Only a
+# second ``value`` key is a duplicate.
+
+_WS = " \t\n\r"
+_SIMPLE_ESCAPES = '"\\/bfnrt'
+_HEX = "0123456789abcdefABCDEF"
+_LITERALS = ("true", "false", "null")
+
+
+def _ws(text: str, pos: int) -> int:
+    while pos < len(text) and text[pos] in _WS:
+        pos += 1
+    return pos
+
+
+def _expect(text: str, pos: int, char: str) -> int:
+    if pos >= len(text) or text[pos] != char:
+        raise _Malformed(f"expected {char!r}")
+    return pos + 1
+
+
+def _hex4(text: str, pos: int) -> tuple[int, int]:
+    digits = text[pos : pos + 4]
+    if len(digits) != 4 or any(c not in _HEX for c in digits):
+        raise _Malformed("invalid \\u escape")
+    return int(digits, 16), pos + 4
+
+
+def _string(text: str, pos: int, *, decode: bool) -> tuple[str, int]:
+    """Scan a string whose opening quote is at *pos*; decoded only if asked."""
+    pos = _expect(text, pos, '"')
+    out: list[str] = []
+    while True:
+        if pos >= len(text):
+            raise _Malformed("unterminated string")
+        char = text[pos]
+        pos += 1
+        if char == '"':
+            return "".join(out), pos
+        if char < " ":
+            raise _Malformed("control character in string")
+        if char != "\\":
+            out.append(char)
+            continue
+        if pos >= len(text):
+            raise _Malformed("unterminated escape")
+        esc = text[pos]
+        pos += 1
+        if esc in _SIMPLE_ESCAPES:
+            out.append('"\\/\b\f\n\r\t'[_SIMPLE_ESCAPES.index(esc)])
+        elif esc != "u":
+            raise _Malformed("invalid escape")
+        else:
+            code, pos = _hex4(text, pos)
+            if decode and 0xDC00 <= code <= 0xDFFF:
+                raise _Malformed("lone trailing surrogate")
+            if decode and 0xD800 <= code <= 0xDBFF:
+                if text[pos : pos + 2] != "\\u":
+                    raise _Malformed("lone leading surrogate")
+                low, pos = _hex4(text, pos + 2)
+                if not 0xDC00 <= low <= 0xDFFF:
+                    raise _Malformed("lone leading surrogate")
+                code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
+            out.append(chr(code))
+
+
+def _number(text: str, pos: int) -> int:
+    def digits(at: int) -> int:
+        start = at
+        while at < len(text) and text[at].isascii() and text[at].isdigit():
+            at += 1
+        if at == start:
+            raise _Malformed("expected a digit")
+        return at
+
+    if text.startswith("-", pos):
+        pos += 1
+    if text.startswith("0", pos):
+        pos += 1
+        if pos < len(text) and text[pos].isascii() and text[pos].isdigit():
+            raise _Malformed("leading zero")
+    else:
+        pos = digits(pos)
+    if text.startswith(".", pos):
+        pos = digits(pos + 1)
+    if pos < len(text) and text[pos] in "eE":
+        pos += 1
+        if pos < len(text) and text[pos] in "+-":
+            pos += 1
+        pos = digits(pos)
+    return pos
+
+
+def _ignore_value(text: str, pos: int) -> int:
+    """Skip one JSON value iteratively, as serde's ``ignore_value`` does."""
+    closers: list[str] = []
+    while True:
+        pos = _ws(text, pos)
+        char = text[pos] if pos < len(text) else ""
+        if char and char in "[{":
+            closers.append("]" if char == "[" else "}")
+            pos = _ws(text, pos + 1)
+            if text.startswith(closers[-1], pos):
+                pos += 1
+                closers.pop()
+            elif char == "{":
+                pos = _expect(text, _ws(text, _string(text, pos, decode=False)[1]), ":")
+                continue
+            else:
+                continue
+        elif char == '"':
+            pos = _string(text, pos, decode=False)[1]
+        elif char == "-" or (char.isascii() and char.isdigit()):
+            pos = _number(text, pos)
+        else:
+            literal = next((w for w in _LITERALS if text.startswith(w, pos)), None)
+            if literal is None:
+                raise _Malformed("expected a value")
+            pos += len(literal)
+        # After a value: close containers or move to the next member.
+        while closers:
+            pos = _ws(text, pos)
+            if text.startswith(closers[-1], pos):
+                pos += 1
+                closers.pop()
+                continue
+            pos = _ws(text, _expect(text, pos, ","))
+            if text.startswith(closers[-1], pos):
+                raise _Malformed("trailing comma")
+            if closers[-1] == "}":
+                pos = _expect(text, _ws(text, _string(text, pos, decode=False)[1]), ":")
+            break
+        if not closers:
+            return pos
 
 
 def _json_value(payload: bytes) -> str | None:
-    """The ``value`` of legacy JSON exactly as the runtime's serde reads it."""
+    """``value`` exactly as serde reads legacy ``ContributeJson``, else ``None``."""
     try:
-        obj = json.loads(
-            payload.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=_reject_constant
-        )
-        _check_strings(obj)
-    except (_NotContributeJsonError, UnicodeError, ValueError, RecursionError):
+        text = payload.decode("utf-8")
+        pos = _ws(text, 0)
+        value: str | None = None
+        if text.startswith("[", pos):
+            value, pos = _string(text, _ws(text, pos + 1), decode=True)
+            pos = _expect(text, _ws(text, pos), "]")
+        else:
+            pos = _ws(text, _expect(text, pos, "{"))
+            while not text.startswith("}", pos):
+                key, pos = _string(text, pos, decode=True)
+                pos = _ws(text, _expect(text, _ws(text, pos), ":"))
+                if key != "value":
+                    pos = _ignore_value(text, pos)
+                elif value is not None:
+                    raise _Malformed("duplicate field value")
+                else:
+                    value, pos = _string(text, pos, decode=True)
+                pos = _ws(text, pos)
+                if text.startswith(",", pos):
+                    pos = _ws(text, pos + 1)
+                    if text.startswith("}", pos):
+                        raise _Malformed("trailing comma")
+                elif not text.startswith("}", pos):
+                    raise _Malformed("expected ',' or '}'")
+            pos += 1
+        if _ws(text, pos) != len(text):
+            raise _Malformed("trailing characters")
+    except (_Malformed, UnicodeDecodeError):
         return None
-    if isinstance(obj, dict) and isinstance(obj.get("value"), str):
-        value: str = obj["value"]
-        return value
-    return None
+    return value
 
 
 def _contribute_value(payload: bytes) -> str | None:
-    """The contributed value, or ``None`` when nothing decodes.
+    """The contributed value, or ``None`` when the runtime would refuse the bytes.
 
-    Mirrors the runtime's ``parse_contribute_value`` at ``semantics_rev`` 3:
-    JSON is trusted only when serde would read it as ``{"value": <string>}``
-    (an object, no duplicate keys, no lone surrogate, no NaN) and the bytes
-    are not also the canonical protobuf encoding; otherwise the bytes decode
-    as protobuf. ``None`` (a no-op for the projection) covers an empty
-    payload and bytes that are neither: the proto lets a history reader
-    return "nothing decodable" rather than refuse.
+    Mirrors macp-runtime's ``parse_contribute_value`` at ``semantics_rev`` 3:
+    legacy JSON (serde's reading of ``{"value": <string>}``) wins unless the
+    bytes are also the canonical protobuf encoding of what prost decodes;
+    otherwise prost decides. A non-empty payload can decode to ``""``.
+    ``None`` covers an empty payload and bytes neither decoder accepts:
+    the proto lets a history reader treat them as "nothing decodable".
     """
     if not payload:
         return None
-    try:
-        proto: multi_round_pb2.ContributePayload | None = (
-            multi_round_pb2.ContributePayload.FromString(payload)
-        )
-    except DecodeError:
-        proto = None
+    from_proto = _proto_value(payload)
     from_json = _json_value(payload)
-    if from_json is not None:
-        # Re-encode from the value alone: prost drops unknown fields, and a
-        # payload carrying any is not canonical.
-        canonical = (
-            proto is not None
-            and multi_round_pb2.ContributePayload(value=proto.value).SerializeToString() == payload
-        )
-        if not canonical:
-            return from_json
-    return proto.value if proto is not None else None
+    if from_json is not None and (from_proto is None or _canonical_proto(from_proto) != payload):
+        return from_json
+    return from_proto
 
 
 # ---------------------------------------------------------------------------

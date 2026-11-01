@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -26,9 +27,18 @@ from macp_sdk import (
 )
 from macp_sdk.constants import MODE_MULTI_ROUND
 from macp_sdk.envelope import build_commitment_ref, build_envelope, serialize_message
+from macp_sdk.multi_round import _contribute_value
 from tests.conftest import VALID_SESSION_ID, make_ack
 
 ALICE, BOB, COORD = "agent://alice", "agent://bob", "agent://coordinator"
+
+# Payloads run through macp-runtime's own parse_contribute_value(payload, 3)
+# (the file's "source" names the commit); "value" is null where it refused.
+DECODE_CORPUS = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "multi_round_contribute_decode.json").read_text(
+        encoding="utf-8"
+    )
+)
 _ids = iter(range(10**6))
 
 
@@ -151,37 +161,91 @@ class TestProjection:
         assert projection.contributions == {}
         assert len(projection.transcript) == 2
 
+    # Decoding mirrors macp-runtime's parse_contribute_value at semantics_rev 3
+    # (serde_json for legacy JSON, prost for protobuf). Every expectation below
+    # was checked against that function. Names are shared with
+    # macp-sdk-typescript.
+    def _decoded(self, payload: bytes) -> dict[str, str]:
+        projection = _started()
+        projection.apply_envelope(_env("Contribute", ALICE, payload))
+        return projection.contributions
+
+    def test_contribute_decode_duplicate_value_key_falls_to_proto(self) -> None:
+        payload = b"\x0a\x20" + b'{"value":"a","value":"bbbbbbbb"}' + b"\x20\x20"
+        assert self._decoded(payload) == {ALICE: '{"value":"a","value":"bbbbbbbb"}'}
+
+    def test_contribute_decode_scalar_json_falls_to_proto(self) -> None:
+        payload = b"\x0a\x31" + b"1" * 49 + b"\x20\x20"
+        assert self._decoded(payload) == {ALICE: "1" * 49}
+
+    def test_contribute_decode_array_form_is_legacy_json(self) -> None:
+        assert self._decoded(b' ["A"] ') == {ALICE: "A"}
+
+    def test_contribute_decode_ignored_member_lone_surrogate_is_legacy_json(self) -> None:
+        payload = b'{"value":"A","x":"\\ud800","y":{"\\udc00":[1e999]}}'
+        assert self._decoded(payload) == {ALICE: "A"}
+
+    def test_contribute_decode_key_lone_surrogate_falls_to_proto(self) -> None:
+        # Neither decoder accepts it, so it is a no-op.
+        assert self._decoded(b'{"\\ud800":1,"value":"A"}') == {}
+
+    def test_contribute_decode_invalid_utf8_proto_value_ignored(self) -> None:
+        # prost refuses invalid UTF-8 in any value occurrence, even a superseded one.
+        assert self._decoded(b"\x0a\x01\xff\x0a\x01A") == {}
+        assert self._decoded(b"\x0a\x01B\x0a\x01A") == {ALICE: "A"}  # the last wins
+
     @pytest.mark.parametrize(
         ("payload", "expected"),
         [
-            (b'{"value": "A"}', "A"),
-            # Not ContributeJson to serde, but valid protobuf with an unknown field.
-            (b"\x0a\x31" + b"1" * 49 + b"\x20\x20", "1" * 49),
-            # serde refuses the duplicate field, so the bytes decode as protobuf.
-            (
-                b"\x0a\x20" + b'{"value":"a","value":"bbbbbbbb"}' + b"\x20\x20",
-                '{"value":"a","value":"bbbbbbbb"}',
-            ),
-            # Valid JSON and canonical protobuf at length 13: the tie-break picks protobuf.
+            (b'{"value":"A","x":1,"x":2}', "A"),
+            (b'{"value":"A","x":' + b"[" * 2000 + b"]" * 2000 + b"}", "A"),
             (build_contribute_payload('{"value":"x"}').SerializeToString(), '{"value":"x"}'),
-            (b'{"value": "\\ud800"}', None),
-            (b'{"value": "a", "n": NaN}', None),
-            (b'{"value": "a", "x": ["\\udc00"]}', None),
+            (b"\x13" * 100 + b"\x0a\x01A" + b"\x14" * 100, None),  # prost's recursion limit
+            (b"\x13" * 99 + b"\x14" * 99 + b"\x0a\x01A", "A"),
+            (b"\x08\x01", None),  # field 1 with the wrong wire type
+            (b"\x0b\x0c", None),
+            (b'{"value":"\\ud800"}', None),
+            (b'{"value":"A","x":NaN}', None),
+            (b'{"value":"A",}', None),
+            (b'["A","B"]', None),
+            (b'{"value":"A"}\x0b', None),
         ],
         ids=[
-            "legacy",
-            "json-scalar-proto",
-            "duplicate-key",
+            "duplicate-other-key",
+            "deep-ignored-member",
             "tie-break-13",
-            "surrogate",
+            "group-depth-100",
+            "group-depth-99",
+            "value-varint",
+            "value-group",
+            "value-lone-surrogate",
             "nan",
-            "surrogate-in-ignored-field",
+            "trailing-comma",
+            "array-of-two",
+            "trailing-vertical-tab",
         ],
     )
-    def test_decoding_mirrors_the_runtime(self, payload: bytes, expected: str | None) -> None:
+    def test_contribute_decode_edges(self, payload: bytes, expected: str | None) -> None:
+        assert self._decoded(payload) == ({} if expected is None else {ALICE: expected})
+
+    def test_contribute_decode_matches_the_runtime_corpus(self) -> None:
+        mismatches = [
+            case["hex"]
+            for case in DECODE_CORPUS["cases"]
+            if _contribute_value(bytes.fromhex(case["hex"])) != case["value"]
+        ]
+        assert len(DECODE_CORPUS["cases"]) >= 400
+        assert mismatches == []
+
+    @pytest.mark.parametrize("payload", [b"\x0a\x00", b'{"value":""}', b"\x10\x00"])
+    def test_records_a_non_empty_payload_that_decodes_to_an_empty_value(
+        self, payload: bytes
+    ) -> None:
+        # The runtime refuses only a zero-byte payload; "" is a real contribution.
         projection = _started()
         projection.apply_envelope(_env("Contribute", ALICE, payload))
-        assert projection.contributions == ({} if expected is None else {ALICE: expected})
+        assert projection.contributions == {ALICE: ""}
+        assert projection.round == 1
 
     def test_legacy_json_contribution_decodes(self) -> None:
         projection = _started()
