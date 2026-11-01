@@ -118,7 +118,8 @@ specifies. Everything else is read the way prost reads it. The last `value`
 field wins, invalid UTF-8 in any `value` field is refused, and so is a wrong
 wire type. Bytes that neither reader accepts decode to nothing. A non-empty
 payload that decodes to `""` is a real contribution, as it is in the runtime.
-Only a zero-byte payload is refused, which is why `contribute("")` raises.
+Among payloads whose value is empty, only a zero-byte one is refused, which is
+why `contribute("")` raises.
 
 **A session's own projection needs a sender it can resolve.** It is fed the
 envelopes the session built, and under bearer auth without a `sender_hint` those

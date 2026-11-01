@@ -325,13 +325,19 @@ def _contribute_value(payload: bytes) -> str | None:
     ``None`` covers an empty payload and bytes neither decoder accepts:
     the proto lets a history reader treat them as "nothing decodable".
     """
+    decided = _contribute_decision(payload)
+    return None if decided is None else decided[1]
+
+
+def _contribute_decision(payload: bytes) -> tuple[str, str] | None:
+    """``("json" | "proto", value)`` as the runtime decides it, else ``None``."""
     if not payload:
         return None
     from_proto = _proto_value(payload)
     from_json = _json_value(payload)
     if from_json is not None and (from_proto is None or _canonical_proto(from_proto) != payload):
-        return from_json
-    return from_proto
+        return "json", from_json
+    return None if from_proto is None else ("proto", from_proto)
 
 
 # ---------------------------------------------------------------------------
