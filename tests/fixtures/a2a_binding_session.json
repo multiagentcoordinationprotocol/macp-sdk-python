@@ -1,5 +1,5 @@
 {
-  "$comment": "Informative example for RFC-MACP-0014 (A2A extension binding). make json-validate validates every Envelope inside a Part whose mediaType is application/macp-envelope+json against macp-envelope.schema.json.",
+  "$comment": "Informative example for RFC-MACP-0014 (A2A extension binding). make json-validate validates every Envelope inside a Part whose mediaType is application/macp-envelope+json against macp-envelope.schema.json, and each A2A object (AgentCard extension, Envelope Part, Ack Message, Artifact, sessionState metadata, ErrorInfo) against its $def in macp-a2a-binding.schema.json.",
   "description": "A Decision session between agent://checkout.orchestrator and agent://fraud, carried over A2A 1.0 JSON-RPC.",
   "binding": "macp.transport.a2a.v1",
   "extension_uri": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1",
