@@ -235,16 +235,14 @@ An OpenAI Agents SDK adapter (handoffs mapped to Handoff mode) is next.
 | Task | `TaskSession` | `TaskProjection` | `examples/task_delegation.py` |
 | Handoff | `HandoffSession` | `HandoffProjection` | `examples/handoff_escalation.py` |
 | Quorum | `QuorumSession` | `QuorumProjection` | `examples/quorum_approval.py` |
-| Multi-round (`ext.multi_round.v1`, extension) | — (codec only) | — | — |
+| Multi-round (`ext.multi_round.v1`, extension) | `MultiRoundSession` | `MultiRoundProjection` | [docs/modes/multi-round.md](docs/modes/multi-round.md) |
 
-Each standard-mode helper has an asyncio twin (`AsyncDecisionSession`,
+Each helper has an asyncio twin (`AsyncDecisionSession`,
 `AsyncProposalSession`, `AsyncTaskSession`, `AsyncHandoffSession`,
-`AsyncQuorumSession`) for use with `AsyncMacpClient`.
+`AsyncQuorumSession`, `AsyncMultiRoundSession`) for use with `AsyncMacpClient`.
 
-Multi-round support is codec-only: the `MODE_MULTI_ROUND` constant,
-`build_contribute_payload()`, and `ProtoRegistry` encode/decode of `Contribute`
-(canonical protobuf, with legacy JSON still decoded). There is no session helper or
-projection — build and send its envelopes with the low-level `MacpClient` API.
+Multi-round is a runtime-shipped extension, not a standards-track mode. Its
+helper sends `Contribute` as canonical protobuf and still decodes legacy JSON.
 
 ## Development
 

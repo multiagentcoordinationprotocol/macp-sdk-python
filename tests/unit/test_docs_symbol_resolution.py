@@ -60,6 +60,7 @@ from types import ModuleType
 
 import pytest
 from macp.modes.handoff.v1 import handoff_pb2
+from macp.modes.multi_round.v1 import multi_round_pb2
 from macp.v1 import core_pb2
 
 import macp_sdk
@@ -430,6 +431,7 @@ def _check2_modules() -> list[ModuleType]:
     mods[base_projection_module.__name__] = base_projection_module
     mods[core_pb2.__name__] = core_pb2
     mods[handoff_pb2.__name__] = handoff_pb2
+    mods[multi_round_pb2.__name__] = multi_round_pb2
     return list(mods.values())
 
 

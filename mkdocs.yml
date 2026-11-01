@@ -26,6 +26,7 @@ nav:
       - Task: modes/task.md
       - Handoff: modes/handoff.md
       - Quorum: modes/quorum.md
+      - Multi-round: modes/multi-round.md
   - Guides:
       - Error Handling & Retry: guides/error-handling.md
       - Streaming: guides/streaming.md
