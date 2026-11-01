@@ -13,7 +13,9 @@ Envelope and Ack JSON is the canonical form of :mod:`macp_sdk.canonical_json`.
 Every decode failure raises :class:`~macp_sdk.errors.MacpA2aError`, whose
 ``layer`` and ``code`` say who answers it (RFC-MACP-0014 §11):
 
-- ``a2a``/``INVALID_REQUEST``: two Envelope Parts in one Message (§5.1);
+- ``a2a``/``INVALID_REQUEST``: two Envelope Parts in one Message, or an
+  Envelope Part whose ``mediaType`` carries parameters (§5.1,
+  ``ContentTypeNotSupportedError``);
 - ``macp``/``INVALID_ENVELOPE``: an Envelope Part that does not decode, a data
   or raw arm that does not match its ``mediaType``, or a ``taskId`` naming
   another session (§6.1, §11.2);
@@ -227,9 +229,19 @@ def envelope_from_a2a_part(
     decoded.
     """
     _check_limit(max_payload_bytes)
-    if not _is_envelope_part(part):
+    media = _envelope_media_type(part)
+    if media is None:
         raise MacpA2aError("codec", "NOT_A_MACP_MESSAGE", "not an Envelope Part")
-    if part["mediaType"] == MEDIA_TYPE_ENVELOPE_JSON:
+    media_type, has_parameters = media
+    if has_parameters:
+        # Before any decoding, so never INVALID_ENVELOPE (§5.1).
+        raise MacpA2aError(
+            "a2a",
+            INVALID_REQUEST,
+            "ContentTypeNotSupportedError: an Envelope Part mediaType carries "
+            f"parameters: {part['mediaType']!r} (§5.1)",
+        )
+    if media_type == MEDIA_TYPE_ENVELOPE_JSON:
         data = part.get("data")
         if not isinstance(data, Mapping):
             raise _invalid_envelope("a JSON Envelope Part carries no data object (§5.1)")
@@ -309,7 +321,8 @@ def envelope_from_a2a_message(
 ) -> envelope_pb2.Envelope:
     """Decode the one Envelope Part of a Message.
 
-    Parts with another ``mediaType`` are ignored (§5.1). A session-scoped
+    Parts with another ``mediaType`` are ignored (§5.1); every Envelope Part,
+    with or without parameters, counts toward the one-Envelope rule. A session-scoped
     Envelope must arrive with ``taskId`` equal to its ``session_id`` (§6.1). A
     non-empty ``taskId`` on a SessionStart or Signal is left to the server,
     which answers it from its Task state (§11.3).
@@ -553,11 +566,29 @@ def error_info_from_a2a(error_or_details: Any) -> A2aErrorInfo | None:
 # ── helpers ───────────────────────────────────────────────────────────
 
 
+def _envelope_media_type(part: Any) -> tuple[str, bool] | None:
+    """``(media type, has parameters)`` for an Envelope Part, else ``None`` (§5.1).
+
+    RFC 9110 §8.3.1 comparison: type and subtype ASCII case-insensitive, with
+    spaces and tabs around them ignored. A non-ASCII type or subtype is never
+    an Envelope Part: the guard keeps this true for any future change to
+    Unicode-aware folding (``"j\u017fon".casefold() == "json"``). A ``;`` after the subtype
+    marks parameters even with nothing after it.
+    """
+    if not isinstance(part, Mapping) or not isinstance(part.get("mediaType"), str):
+        return None
+    head, sep, _ = part["mediaType"].partition(";")
+    base = head.strip(" \t")
+    if not base.isascii():
+        return None
+    base = base.lower()
+    if base not in (MEDIA_TYPE_ENVELOPE_JSON, MEDIA_TYPE_ENVELOPE_PROTO):
+        return None
+    return base, bool(sep)
+
+
 def _is_envelope_part(part: Any) -> bool:
-    return isinstance(part, Mapping) and part.get("mediaType") in (
-        MEDIA_TYPE_ENVELOPE_JSON,
-        MEDIA_TYPE_ENVELOPE_PROTO,
-    )
+    return _envelope_media_type(part) is not None
 
 
 def _single_envelope_part(parts: Any) -> Mapping[str, Any]:

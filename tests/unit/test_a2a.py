@@ -100,8 +100,8 @@ REJECT = [pytest.param(v, id=v["id"]) for v in VECTORS if "expected_error" in v]
 
 class TestVectors:
     def test_pack_is_complete(self) -> None:
-        # The pack's README: 101 vectors, 66 positive and 35 reject, over every op.
-        assert (len(VECTORS), len(POSITIVE), len(REJECT)) == (101, 66, 35)
+        # The pack's README: 106 vectors, 68 positive and 38 reject, over every op.
+        assert (len(VECTORS), len(POSITIVE), len(REJECT)) == (106, 68, 38)
         ops = {v["op"] for v in VECTORS}
         assert ops == {
             "envelope_to_a2a_part",
@@ -702,3 +702,90 @@ class TestEncoderGuards:
     def test_agent_extension_arguments(self, kwargs: dict[str, Any]) -> None:
         with pytest.raises(ValueError):
             a2a.macp_agent_extension(**kwargs)
+
+
+class TestMediaTypeComparison:
+    """RFC-MACP-0014 §5.1 media type comparison (spec #248). Test names are
+    shared with macp-sdk-typescript."""
+
+    def _part(self, media_type: str, **arm: Any) -> dict[str, Any]:
+        part = a2a.envelope_to_a2a_part(_env())
+        return {**part, "mediaType": media_type, **arm}
+
+    @pytest.mark.parametrize(
+        "media_type",
+        ["Application/MACP-Envelope+JSON", "APPLICATION/MACP-ENVELOPE+JSON"],
+    )
+    def test_media_type_case_variant_is_envelope_part(self, media_type: str) -> None:
+        assert a2a.envelope_from_a2a_part(self._part(media_type)) == _env()
+
+    @pytest.mark.parametrize(
+        "media_type",
+        [
+            "application/macp-envelope+json; charset=utf-8",
+            "application/macp-envelope+json;",
+            "Application/MACP-Envelope+JSON ;x=1",
+            "application/macp-envelope+proto;v=1",
+        ],
+    )
+    def test_media_type_parameters_rejected_before_decode(self, media_type: str) -> None:
+        # The data arm does not decode, yet the error is the parameter one.
+        with pytest.raises(MacpA2aError) as info:
+            a2a.envelope_from_a2a_part(self._part(media_type, data="not an envelope"))
+        assert _code(info) == ("a2a", "INVALID_REQUEST")
+        assert "ContentTypeNotSupportedError" in str(info.value)
+
+    def test_media_type_parameter_part_counts_toward_single_envelope(self) -> None:
+        msg = a2a.envelope_to_a2a_message(_env())
+        msg["parts"].append(self._part("application/macp-envelope+proto; v=1"))
+        with pytest.raises(MacpA2aError) as info:
+            a2a.envelope_from_a2a_message(msg)
+        assert _code(info) == ("a2a", "INVALID_REQUEST")
+        assert "two or more" in str(info.value)
+
+    @pytest.mark.parametrize(
+        "media_type",
+        [
+            "application/macp-envelope+\u0131son",  # dotless i
+            "applicat\u0130on/macp-envelope+json",  # dotted capital I
+            "application/macp-envelope+json\u00a0",  # no-break space is not stripped
+            "application/macp-envelope+j\u017fon",  # long s: casefolds to "json"
+        ],
+    )
+    def test_media_type_non_ascii_lookalike_ignored(self, media_type: str) -> None:
+        msg = a2a.envelope_to_a2a_message(_env())
+        msg["parts"].append(self._part(media_type))
+        assert a2a.envelope_from_a2a_message(msg) == _env()
+        with pytest.raises(MacpA2aError) as info:
+            a2a.envelope_from_a2a_part(self._part(media_type))
+        assert _code(info) == ("codec", "NOT_A_MACP_MESSAGE")
+
+    @pytest.mark.parametrize(
+        "media_type",
+        [
+            " application/macp-envelope+json",
+            "application/macp-envelope+json\t",
+            "\t application/macp-envelope+json  ",
+        ],
+    )
+    def test_media_type_whitespace_ignored(self, media_type: str) -> None:
+        assert a2a.envelope_from_a2a_part(self._part(media_type)) == _env()
+
+    @pytest.mark.parametrize(
+        "media_type",
+        [
+            "application / macp-envelope+json",
+            "application/macp-envelope+json\r\n",
+            "\u3000application/macp-envelope+json",
+        ],
+    )
+    def test_media_type_other_whitespace_is_not_an_envelope_part(self, media_type: str) -> None:
+        # Only spaces and tabs around the type and subtype are ignored.
+        with pytest.raises(MacpA2aError) as info:
+            a2a.envelope_from_a2a_part(self._part(media_type))
+        assert _code(info) == ("codec", "NOT_A_MACP_MESSAGE")
+
+    def test_encoders_write_the_exact_lowercase_type(self) -> None:
+        assert a2a.envelope_to_a2a_part(_env())["mediaType"] == "application/macp-envelope+json"
+        proto = a2a.envelope_to_a2a_part(_env(), encoding="proto")
+        assert proto["mediaType"] == "application/macp-envelope+proto"
