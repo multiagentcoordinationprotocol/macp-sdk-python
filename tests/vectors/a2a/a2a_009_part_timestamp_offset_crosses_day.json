@@ -1,0 +1,38 @@
+{
+  "id": "a2a_009_part_timestamp_offset_crosses_day",
+  "op": "envelope_to_a2a_part",
+  "description": "G9: a negative offset that moves the instant into the next UTC day; the millisecond 5 is zero-padded to .005.",
+  "input": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-24T23:30:02.005-09:30",
+      "payload": {
+        "proposal_id": "p-1",
+        "vote": "APPROVE",
+        "reason": "Within risk appetite"
+      }
+    }
+  },
+  "expected": {
+    "mediaType": "application/macp-envelope+json",
+    "data": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-25T09:00:02.005Z",
+      "payload": {
+        "proposal_id": "p-1",
+        "vote": "APPROVE",
+        "reason": "Within risk appetite"
+      }
+    }
+  }
+}

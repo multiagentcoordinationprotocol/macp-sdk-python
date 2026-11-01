@@ -1,0 +1,33 @@
+{
+  "id": "a2a_094_error_duplicate_boolean_not_duplicate",
+  "op": "error_info_from_a2a",
+  "description": "metadata.duplicate as the boolean true is NOT the marker: ErrorInfo metadata is a string map and \u00a712 defines only the string \"true\". This is a plain SESSION_NOT_OPEN result. The input deliberately fails the ErrorInfo $def of macp-a2a-binding.schema.json.",
+  "input": {
+    "error_or_details": {
+      "code": -32004,
+      "message": "Task is in a terminal state",
+      "data": [
+        {
+          "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+          "reason": "SESSION_NOT_OPEN",
+          "domain": "multiagentcoordinationprotocol.io",
+          "metadata": {
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "message_id": "01JD2A2A0V0TE0000000000004",
+            "duplicate": true
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "reason": "SESSION_NOT_OPEN",
+    "domain": "multiagentcoordinationprotocol.io",
+    "metadata": {
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "message_id": "01JD2A2A0V0TE0000000000004",
+      "duplicate": true
+    },
+    "duplicate": false
+  }
+}

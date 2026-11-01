@@ -1,0 +1,33 @@
+{
+  "id": "a2a_026_from_part_payload_at_bound",
+  "op": "envelope_from_a2a_part",
+  "description": "A decoded payload exactly at max_payload_bytes (4 bytes) is accepted (\u00a75.4).",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+json",
+      "data": {
+        "macp_version": "1.0",
+        "mode": "ext.multi_round.v1",
+        "message_type": "Contribute",
+        "message_id": "01JD2MR0V0TE00000000000002",
+        "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+        "sender": "agent://alice",
+        "timestamp": "2026-11-01T10:00:01.250Z",
+        "payload_b64": "CgJhYg=="
+      }
+    }
+  },
+  "params": {
+    "max_payload_bytes": 4
+  },
+  "expected": {
+    "macp_version": "1.0",
+    "mode": "ext.multi_round.v1",
+    "message_type": "Contribute",
+    "message_id": "01JD2MR0V0TE00000000000002",
+    "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+    "sender": "agent://alice",
+    "timestamp": "2026-11-01T10:00:01.250Z",
+    "payload_b64": "CgJhYg=="
+  }
+}

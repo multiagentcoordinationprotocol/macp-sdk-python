@@ -1,0 +1,38 @@
+{
+  "id": "a2a_008_part_timestamp_ms_nonzero_offset",
+  "op": "envelope_to_a2a_part",
+  "description": "G9: a non-zero millisecond part is written with exactly three fraction digits and Z. The input's +02:00 offset is applied and digits below the millisecond are truncated, not rounded (\u00a75.3, RFC-MACP-0001 \u00a710.11).",
+  "input": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-25T11:00:02.12089+02:00",
+      "payload": {
+        "proposal_id": "p-1",
+        "vote": "APPROVE",
+        "reason": "Within risk appetite"
+      }
+    }
+  },
+  "expected": {
+    "mediaType": "application/macp-envelope+json",
+    "data": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-25T09:00:02.120Z",
+      "payload": {
+        "proposal_id": "p-1",
+        "vote": "APPROVE",
+        "reason": "Within risk appetite"
+      }
+    }
+  }
+}

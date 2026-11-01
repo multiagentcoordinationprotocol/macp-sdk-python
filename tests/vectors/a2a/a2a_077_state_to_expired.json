@@ -1,0 +1,14 @@
+{
+  "id": "a2a_077_state_to_expired",
+  "op": "session_state_to_a2a",
+  "description": "SESSION_STATE_EXPIRED maps to TASK_STATE_FAILED with EXT/sessionState \"EXPIRED\" (\u00a78).",
+  "input": {
+    "session_state": "SESSION_STATE_EXPIRED"
+  },
+  "expected": {
+    "task_state": "TASK_STATE_FAILED",
+    "metadata": {
+      "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "EXPIRED"
+    }
+  }
+}

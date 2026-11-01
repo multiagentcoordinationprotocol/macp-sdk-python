@@ -1,0 +1,25 @@
+{
+  "id": "a2a_022_reject_raw_arm_with_json_media_type",
+  "op": "envelope_from_a2a_message",
+  "description": "A raw Part labelled application/macp-envelope+json: in band INVALID_ENVELOPE (\u00a75.1, \u00a711.2).",
+  "input": {
+    "message": {
+      "messageId": "01JD2MR0V0TE00000000000002",
+      "role": "ROLE_USER",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/macp-envelope+json",
+          "raw": "CgMxLjASEmV4dC5tdWx0aV9yb3VuZC52MRoKQ29udHJpYnV0ZSIaMDFKRDJNUjBWMFRFMDAwMDAwMDAwMDAwMDIqJDNiOWQ0ZjdlLThhMjEtNGM2Yi1iMGU1LTkxZjJhN2M0ZDgwMzINYWdlbnQ6Ly9hbGljZTji+7S0mTRCCgoId2luZG93LWI="
+        }
+      ],
+      "taskId": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803"
+    }
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "INVALID_ENVELOPE"
+  }
+}

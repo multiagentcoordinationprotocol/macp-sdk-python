@@ -1,0 +1,43 @@
+{
+  "id": "a2a_051_ack_int64_quoted_input",
+  "op": "ack_to_a2a_message",
+  "description": "A quoted accepted_at_unix_ms on input (\"1792918800000\", the stock proto3 JSON form) is the same value and is emitted as a JSON number (RFC-MACP-0001 \u00a710.9).",
+  "input": {
+    "ack": {
+      "ok": true,
+      "duplicate": false,
+      "message_id": "01JD2A2A0V0TE0000000000001",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "accepted_at_unix_ms": "1792918800000",
+      "session_state": "SESSION_STATE_OPEN"
+    }
+  },
+  "params": {
+    "message_id": "ack-01JD2A2A0V0TE0000000000001",
+    "task_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+  },
+  "expected": {
+    "messageId": "ack-01JD2A2A0V0TE0000000000001",
+    "role": "ROLE_AGENT",
+    "extensions": [
+      "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+    ],
+    "parts": [
+      {
+        "mediaType": "application/json",
+        "data": {
+          "ok": true,
+          "duplicate": false,
+          "message_id": "01JD2A2A0V0TE0000000000001",
+          "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+          "accepted_at_unix_ms": 1792918800000,
+          "session_state": "SESSION_STATE_OPEN"
+        },
+        "metadata": {
+          "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+        }
+      }
+    ],
+    "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+  }
+}

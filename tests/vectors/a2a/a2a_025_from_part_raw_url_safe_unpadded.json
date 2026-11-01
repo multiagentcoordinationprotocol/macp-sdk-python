@@ -1,0 +1,21 @@
+{
+  "id": "a2a_025_from_part_raw_url_safe_unpadded",
+  "op": "envelope_from_a2a_part",
+  "description": "A raw Part written in the URL-safe alphabet without padding is accepted (\u00a75.3 Base64) and decodes to the Envelope.",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+proto",
+      "raw": "CgMxLjASEmV4dC5tdWx0aV9yb3VuZC52MRoKQ29udHJpYnV0ZSIaMDFKRDJNUjBWMFRFMDAwMDAwMDAwMDAwMDIqJDNiOWQ0ZjdlLThhMjEtNGM2Yi1iMGU1LTkxZjJhN2M0ZDgwMzINYWdlbnQ6Ly9hbGljZTji-7S0mTRCBwoFfn5-P34"
+    }
+  },
+  "expected": {
+    "macp_version": "1.0",
+    "mode": "ext.multi_round.v1",
+    "message_type": "Contribute",
+    "message_id": "01JD2MR0V0TE00000000000002",
+    "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+    "sender": "agent://alice",
+    "timestamp": "2026-11-01T10:00:01.250Z",
+    "payload_b64": "CgV+fn4/fg=="
+  }
+}

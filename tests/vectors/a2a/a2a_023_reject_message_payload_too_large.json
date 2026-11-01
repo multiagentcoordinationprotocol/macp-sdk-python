@@ -1,0 +1,37 @@
+{
+  "id": "a2a_023_reject_message_payload_too_large",
+  "op": "envelope_from_a2a_message",
+  "description": "The decoded payload (5 bytes) exceeds max_payload_bytes (4): in band PAYLOAD_TOO_LARGE (\u00a75.4, \u00a711.2).",
+  "input": {
+    "message": {
+      "messageId": "01JD2MR0V0TE00000000000002",
+      "role": "ROLE_USER",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/macp-envelope+json",
+          "data": {
+            "macp_version": "1.0",
+            "mode": "ext.multi_round.v1",
+            "message_type": "Contribute",
+            "message_id": "01JD2MR0V0TE00000000000002",
+            "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+            "sender": "agent://alice",
+            "timestamp": "2026-11-01T10:00:01.250Z",
+            "payload_b64": "CgNhYmM="
+          }
+        }
+      ],
+      "taskId": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803"
+    }
+  },
+  "params": {
+    "max_payload_bytes": 4
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "PAYLOAD_TOO_LARGE"
+  }
+}

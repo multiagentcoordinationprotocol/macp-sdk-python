@@ -1,0 +1,14 @@
+{
+  "id": "a2a_076_state_to_resolved",
+  "op": "session_state_to_a2a",
+  "description": "SESSION_STATE_RESOLVED maps to TASK_STATE_COMPLETED with EXT/sessionState \"RESOLVED\" (\u00a78).",
+  "input": {
+    "session_state": "SESSION_STATE_RESOLVED"
+  },
+  "expected": {
+    "task_state": "TASK_STATE_COMPLETED",
+    "metadata": {
+      "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "RESOLVED"
+    }
+  }
+}

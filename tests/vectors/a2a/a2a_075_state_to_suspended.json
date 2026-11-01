@@ -1,0 +1,14 @@
+{
+  "id": "a2a_075_state_to_suspended",
+  "op": "session_state_to_a2a",
+  "description": "SESSION_STATE_SUSPENDED maps to TASK_STATE_WORKING with EXT/sessionState \"SUSPENDED\" (\u00a78).",
+  "input": {
+    "session_state": "SESSION_STATE_SUSPENDED"
+  },
+  "expected": {
+    "task_state": "TASK_STATE_WORKING",
+    "metadata": {
+      "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "SUSPENDED"
+    }
+  }
+}

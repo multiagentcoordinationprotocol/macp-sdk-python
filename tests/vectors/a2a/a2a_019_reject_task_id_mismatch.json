@@ -1,0 +1,38 @@
+{
+  "id": "a2a_019_reject_task_id_mismatch",
+  "op": "envelope_from_a2a_message",
+  "description": "Message.taskId names a different session than Envelope.session_id: rejected in band with INVALID_ENVELOPE, without passing the Envelope to the runtime (\u00a76.1, \u00a711.1).",
+  "input": {
+    "message": {
+      "messageId": "01JD2A2A0V0TE0000000000003",
+      "role": "ROLE_USER",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/macp-envelope+json",
+          "data": {
+            "macp_version": "1.0",
+            "mode": "macp.mode.decision.v1",
+            "message_type": "Vote",
+            "message_id": "01JD2A2A0V0TE0000000000003",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "sender": "agent://fraud",
+            "timestamp": "2026-10-25T09:00:02Z",
+            "payload": {
+              "proposal_id": "p-1",
+              "vote": "APPROVE",
+              "reason": "Within risk appetite"
+            }
+          }
+        }
+      ],
+      "taskId": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803"
+    }
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "INVALID_ENVELOPE"
+  }
+}

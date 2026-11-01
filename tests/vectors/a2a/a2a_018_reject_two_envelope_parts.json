@@ -1,0 +1,55 @@
+{
+  "id": "a2a_018_reject_two_envelope_parts",
+  "op": "envelope_from_a2a_message",
+  "description": "A Message carrying two Envelope Parts is rejected as a whole at the A2A level: JSON-RPC Invalid params (-32602) with ErrorInfo.reason INVALID_REQUEST (\u00a75.1, \u00a711.3).",
+  "input": {
+    "message": {
+      "messageId": "01JD2A2A0V0TE0000000000003",
+      "role": "ROLE_USER",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/macp-envelope+json",
+          "data": {
+            "macp_version": "1.0",
+            "mode": "macp.mode.decision.v1",
+            "message_type": "Vote",
+            "message_id": "01JD2A2A0V0TE0000000000003",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "sender": "agent://fraud",
+            "timestamp": "2026-10-25T09:00:02Z",
+            "payload": {
+              "proposal_id": "p-1",
+              "vote": "APPROVE",
+              "reason": "Within risk appetite"
+            }
+          }
+        },
+        {
+          "mediaType": "application/macp-envelope+json",
+          "data": {
+            "macp_version": "1.0",
+            "mode": "macp.mode.decision.v1",
+            "message_type": "Vote",
+            "message_id": "01JD2A2A0V0TE0000000000003",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "sender": "agent://fraud",
+            "timestamp": "2026-10-25T09:00:02.500Z",
+            "payload": {
+              "proposal_id": "p-1",
+              "vote": "APPROVE",
+              "reason": "Within risk appetite"
+            }
+          }
+        }
+      ],
+      "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+    }
+  },
+  "expected_error": {
+    "layer": "a2a",
+    "code": "INVALID_REQUEST"
+  }
+}

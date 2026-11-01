@@ -1,0 +1,38 @@
+{
+  "id": "a2a_058_ack_from_int64_quoted_large",
+  "op": "ack_from_a2a_message",
+  "description": "A quoted value above 2^53-1 (\"9007199254740993\") decodes exactly and is emitted quoted.",
+  "input": {
+    "message": {
+      "messageId": "ack-01JD2A2A0V0TE0000000000001",
+      "role": "ROLE_AGENT",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/json",
+          "data": {
+            "ok": true,
+            "duplicate": false,
+            "message_id": "01JD2A2A0V0TE0000000000001",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "accepted_at_unix_ms": "9007199254740993",
+            "session_state": "SESSION_STATE_OPEN"
+          },
+          "metadata": {
+            "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "ok": true,
+    "duplicate": false,
+    "message_id": "01JD2A2A0V0TE0000000000001",
+    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+    "accepted_at_unix_ms": "9007199254740993",
+    "session_state": "SESSION_STATE_OPEN"
+  }
+}

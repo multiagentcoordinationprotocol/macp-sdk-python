@@ -1,0 +1,67 @@
+{
+  "id": "a2a_016_from_message_session_start",
+  "op": "envelope_from_a2a_message",
+  "description": "A SessionStart Message with no taskId decodes (\u00a76.1).",
+  "input": {
+    "message": {
+      "messageId": "01JD2A2A0V0TE0000000000001",
+      "role": "ROLE_USER",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/macp-envelope+json",
+          "data": {
+            "macp_version": "1.0",
+            "mode": "macp.mode.decision.v1",
+            "message_type": "SessionStart",
+            "message_id": "01JD2A2A0V0TE0000000000001",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "sender": "agent://checkout.orchestrator",
+            "timestamp": "2026-10-25T09:00:00Z",
+            "payload": {
+              "intent": "Approve high-value transfer TXN-48000",
+              "participants": [
+                "agent://checkout.orchestrator",
+                "agent://fraud"
+              ],
+              "mode_version": "1.0.0",
+              "configuration_version": "runtime-2026.10.25",
+              "policy_version": "",
+              "ttl_ms": 60000,
+              "roots": [],
+              "context_id": "ctx-txn-48000",
+              "extensions": {},
+              "max_suspend_ms": 0
+            }
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "macp_version": "1.0",
+    "mode": "macp.mode.decision.v1",
+    "message_type": "SessionStart",
+    "message_id": "01JD2A2A0V0TE0000000000001",
+    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+    "sender": "agent://checkout.orchestrator",
+    "timestamp": "2026-10-25T09:00:00Z",
+    "payload": {
+      "intent": "Approve high-value transfer TXN-48000",
+      "participants": [
+        "agent://checkout.orchestrator",
+        "agent://fraud"
+      ],
+      "mode_version": "1.0.0",
+      "configuration_version": "runtime-2026.10.25",
+      "policy_version": "",
+      "ttl_ms": 60000,
+      "roots": [],
+      "context_id": "ctx-txn-48000",
+      "extensions": {},
+      "max_suspend_ms": 0
+    }
+  }
+}

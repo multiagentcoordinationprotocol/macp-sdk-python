@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://multiagentcoordinationprotocol.io/schemas/a2a-vector.schema.json",
+  "title": "MACP A2A binding test vector",
+  "description": "One reference vector for the RFC-MACP-0014 A2A binding codec. `op` names the function under test from the SDK A2A module (Python snake_case; TypeScript uses the camelCase form of the same name). `input` holds the function's positional arguments by name and `params` its keyword arguments. MACP objects (Envelopes, Acks) are written in the RFC-MACP-0001 §10 canonical JSON mapping, both in `input` and in `expected`; A2A objects are written as A2A 1.0 JSON. A vector either returns `expected`, compared as parsed JSON, or raises `expected_error`. See schemas/conformance/a2a/README.md for each op's argument names and result shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "op", "description", "input"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Vector identifier; MUST match the file's basename (without .json).",
+      "pattern": "^a2a_[0-9]{3}_[a-z0-9_]+$"
+    },
+    "op": {
+      "enum": [
+        "envelope_to_a2a_part",
+        "envelope_from_a2a_part",
+        "envelope_to_a2a_message",
+        "envelope_from_a2a_message",
+        "ack_to_a2a_message",
+        "ack_from_a2a_message",
+        "envelope_to_a2a_artifact",
+        "envelope_from_a2a_artifact",
+        "session_state_to_a2a",
+        "session_state_from_a2a",
+        "macp_agent_extension",
+        "error_info_from_a2a"
+      ]
+    },
+    "description": { "type": "string", "minLength": 1 },
+    "input": { "type": "object" },
+    "params": { "type": "object" },
+    "expected": {
+      "description": "The function's result. Its shape depends on `op` (see the README). null only for error_info_from_a2a when no MACP ErrorInfo is present."
+    },
+    "expected_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layer", "code"],
+      "properties": {
+        "layer": {
+          "description": "a2a: an A2A-level error (RFC-MACP-0014 §11.3). macp: an in-band MACP rejection a server reports in the Ack (§11.1, §11.2). codec: a codec-only error that no RFC-MACP-0014 server reports, raised by a decoder that meets input it cannot turn into a MACP object.",
+          "enum": ["a2a", "macp", "codec"]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$",
+          "description": "For layers a2a and macp, a code from registries/error-codes.md. For layer codec, one of the codec-only codes the README lists."
+        }
+      }
+    }
+  },
+  "oneOf": [
+    { "required": ["expected"], "not": { "required": ["expected_error"] } },
+    { "required": ["expected_error"], "not": { "required": ["expected"] } }
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "op": { "enum": ["envelope_to_a2a_part"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["envelope"], "additionalProperties": false, "properties": { "envelope": { "type": "object" } } },
+          "params": { "additionalProperties": false, "properties": { "encoding": { "enum": ["json", "proto"] } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["envelope_to_a2a_message"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["envelope"], "additionalProperties": false, "properties": { "envelope": { "type": "object" } } },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "encoding": { "enum": ["json", "proto"] },
+              "message_id": { "type": "string", "minLength": 1 },
+              "context_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["envelope_from_a2a_part"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["part"], "additionalProperties": false, "properties": { "part": { "type": "object" } } },
+          "params": { "additionalProperties": false, "properties": { "max_payload_bytes": { "type": "integer", "minimum": 0 } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["envelope_from_a2a_message"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["message"], "additionalProperties": false, "properties": { "message": { "type": "object" } } },
+          "params": { "additionalProperties": false, "properties": { "max_payload_bytes": { "type": "integer", "minimum": 0 } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["envelope_from_a2a_artifact"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["artifact"], "additionalProperties": false, "properties": { "artifact": { "type": "object" } } },
+          "params": { "additionalProperties": false, "properties": { "max_payload_bytes": { "type": "integer", "minimum": 0 } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["ack_to_a2a_message"] } } },
+      "then": {
+        "required": ["params"],
+        "properties": {
+          "input": { "required": ["ack"], "additionalProperties": false, "properties": { "ack": { "type": "object" } } },
+          "params": {
+            "required": ["message_id"],
+            "additionalProperties": false,
+            "properties": {
+              "message_id": { "type": "string", "minLength": 1, "description": "Always passed: the default is a fresh unique id (RFC-MACP-0014 §5.2), which a vector cannot pin." },
+              "task_id": { "type": "string" },
+              "context_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["ack_from_a2a_message"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["message"], "additionalProperties": false, "properties": { "message": { "type": "object" } } },
+          "params": { "additionalProperties": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["envelope_to_a2a_artifact"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["envelope", "sequence"], "additionalProperties": false, "properties": { "envelope": { "type": "object" }, "sequence": { "type": "integer" } } },
+          "params": { "additionalProperties": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["session_state_to_a2a"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["session_state"], "additionalProperties": false, "properties": { "session_state": { "type": "string", "pattern": "^SESSION_STATE_[A-Z]+$" } } },
+          "params": { "additionalProperties": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["session_state_from_a2a"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["task_or_event"], "additionalProperties": false, "properties": { "task_or_event": { "type": "object" } } },
+          "params": { "additionalProperties": false },
+          "expected": { "type": "string", "pattern": "^SESSION_STATE_[A-Z]+$" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["macp_agent_extension"] } } },
+      "then": {
+        "required": ["params"],
+        "properties": {
+          "input": { "maxProperties": 0 },
+          "params": {
+            "required": ["macp_versions", "modes"],
+            "additionalProperties": false,
+            "properties": {
+              "macp_versions": { "type": "array", "items": { "type": "string" } },
+              "modes": { "type": "array", "items": { "type": "string" } },
+              "required": { "type": "boolean" },
+              "manifest_url": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "op": { "enum": ["error_info_from_a2a"] } } },
+      "then": {
+        "properties": {
+          "input": { "required": ["error_or_details"], "additionalProperties": false, "properties": { "error_or_details": { "type": ["object", "array"] } } },
+          "params": { "additionalProperties": false },
+          "expected": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["reason", "domain", "metadata", "duplicate"],
+                "properties": {
+                  "reason": { "type": "string" },
+                  "domain": { "type": "string" },
+                  "metadata": { "type": "object" },
+                  "duplicate": { "type": "boolean" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

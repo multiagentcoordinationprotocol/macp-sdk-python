@@ -1,0 +1,19 @@
+{
+  "id": "a2a_087_state_from_event_resolved",
+  "op": "session_state_from_a2a",
+  "description": "An unwrapped TaskStatusUpdateEvent in TASK_STATE_COMPLETED with EXT/sessionState \"RESOLVED\" in its metadata is SESSION_STATE_RESOLVED (\u00a78, \u00a79.2).",
+  "input": {
+    "task_or_event": {
+      "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "contextId": "ctx-txn-48000",
+      "status": {
+        "state": "TASK_STATE_COMPLETED",
+        "timestamp": "2026-10-25T09:00:03Z"
+      },
+      "metadata": {
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "RESOLVED"
+      }
+    }
+  },
+  "expected": "SESSION_STATE_RESOLVED"
+}

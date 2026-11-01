@@ -1,0 +1,45 @@
+{
+  "id": "a2a_069_from_artifact_sequence_integral_float",
+  "op": "envelope_from_a2a_artifact",
+  "description": "EXT/sequence travels in a Struct and may arrive as the integral float 2.0, which is the integer 2.",
+  "input": {
+    "artifact": {
+      "artifactId": "macp:01JD2MR0V0TE00000000000002",
+      "name": "Contribute",
+      "parts": [
+        {
+          "mediaType": "application/macp-envelope+json",
+          "data": {
+            "macp_version": "1.0",
+            "mode": "ext.multi_round.v1",
+            "message_type": "Contribute",
+            "message_id": "01JD2MR0V0TE00000000000002",
+            "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+            "sender": "agent://alice",
+            "timestamp": "2026-11-01T10:00:01.250Z",
+            "payload_b64": "Cgh3aW5kb3ctYg=="
+          }
+        }
+      ],
+      "metadata": {
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 2.0
+      },
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ]
+    }
+  },
+  "expected": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "ext.multi_round.v1",
+      "message_type": "Contribute",
+      "message_id": "01JD2MR0V0TE00000000000002",
+      "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+      "sender": "agent://alice",
+      "timestamp": "2026-11-01T10:00:01.250Z",
+      "payload_b64": "Cgh3aW5kb3ctYg=="
+    },
+    "sequence": 2
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "a2a_090_reject_state_from_missing",
+  "op": "session_state_from_a2a",
+  "description": "A Task with no EXT/sessionState is refused; a client never falls back to TaskState (\u00a78), even when it is TASK_STATE_COMPLETED: INVALID_SESSION_STATE.",
+  "input": {
+    "task_or_event": {
+      "id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "status": {
+        "state": "TASK_STATE_COMPLETED"
+      }
+    }
+  },
+  "expected_error": {
+    "layer": "codec",
+    "code": "INVALID_SESSION_STATE"
+  }
+}

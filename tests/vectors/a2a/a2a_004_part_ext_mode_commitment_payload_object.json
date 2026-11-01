@@ -1,0 +1,48 @@
+{
+  "id": "a2a_004_part_ext_mode_commitment_payload_object",
+  "op": "envelope_to_a2a_part",
+  "description": "An ext.multi_round.v1 Commitment selects the Core CommitmentPayload, so it is a JSON `payload` object, not `payload_b64` (\u00a75.3).",
+  "input": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "ext.multi_round.v1",
+      "message_type": "Commitment",
+      "message_id": "01JD2MR0V0TE00000000000005",
+      "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+      "sender": "agent://coordinator",
+      "timestamp": "2026-11-01T10:00:04Z",
+      "payload": {
+        "commitment_id": "cmt-mr-0001",
+        "action": "multi_round.converged",
+        "authority_scope": "release-window",
+        "reason": "Every participant contributed window-b",
+        "mode_version": "1.0.0",
+        "policy_version": "",
+        "configuration_version": "config.default",
+        "outcome_positive": true
+      }
+    }
+  },
+  "expected": {
+    "mediaType": "application/macp-envelope+json",
+    "data": {
+      "macp_version": "1.0",
+      "mode": "ext.multi_round.v1",
+      "message_type": "Commitment",
+      "message_id": "01JD2MR0V0TE00000000000005",
+      "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+      "sender": "agent://coordinator",
+      "timestamp": "2026-11-01T10:00:04Z",
+      "payload": {
+        "commitment_id": "cmt-mr-0001",
+        "action": "multi_round.converged",
+        "authority_scope": "release-window",
+        "reason": "Every participant contributed window-b",
+        "mode_version": "1.0.0",
+        "policy_version": "",
+        "configuration_version": "config.default",
+        "outcome_positive": true
+      }
+    }
+  }
+}

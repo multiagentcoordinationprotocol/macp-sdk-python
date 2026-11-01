@@ -1,0 +1,30 @@
+{
+  "id": "a2a_040_from_part_b64_nonzero_trailing_bits",
+  "op": "envelope_from_a2a_part",
+  "description": "Non-zero trailing bits in the last base64 character are accepted and ignored (agreed by both SDKs in S6.1): Cgh3aW5kb3ctYh== decodes to the same bytes as Cgh3aW5kb3ctYg==.",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+json",
+      "data": {
+        "macp_version": "1.0",
+        "mode": "ext.multi_round.v1",
+        "message_type": "Contribute",
+        "message_id": "01JD2MR0V0TE00000000000002",
+        "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+        "sender": "agent://alice",
+        "timestamp": "2026-11-01T10:00:01.250Z",
+        "payload_b64": "Cgh3aW5kb3ctYh=="
+      }
+    }
+  },
+  "expected": {
+    "macp_version": "1.0",
+    "mode": "ext.multi_round.v1",
+    "message_type": "Contribute",
+    "message_id": "01JD2MR0V0TE00000000000002",
+    "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+    "sender": "agent://alice",
+    "timestamp": "2026-11-01T10:00:01.250Z",
+    "payload_b64": "Cgh3aW5kb3ctYg=="
+  }
+}

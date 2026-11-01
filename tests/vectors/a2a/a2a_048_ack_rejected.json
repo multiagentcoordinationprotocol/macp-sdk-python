@@ -1,0 +1,57 @@
+{
+  "id": "a2a_048_ack_rejected",
+  "op": "ack_to_a2a_message",
+  "description": "A rejected Envelope: ok false and `error` present, with all five MACPError fields (details as base64, here empty). The session exists, so taskId is its Task (\u00a75.2).",
+  "input": {
+    "ack": {
+      "ok": false,
+      "duplicate": false,
+      "message_id": "01JD2A2A0V0TE0000000000007",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "accepted_at_unix_ms": 1792918802500,
+      "session_state": "SESSION_STATE_OPEN",
+      "error": {
+        "code": "FORBIDDEN",
+        "message": "sender is not a declared participant",
+        "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+        "message_id": "01JD2A2A0V0TE0000000000007",
+        "details": ""
+      }
+    }
+  },
+  "params": {
+    "message_id": "ack-01JD2A2A0V0TE0000000000007",
+    "task_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+  },
+  "expected": {
+    "messageId": "ack-01JD2A2A0V0TE0000000000007",
+    "role": "ROLE_AGENT",
+    "extensions": [
+      "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+    ],
+    "parts": [
+      {
+        "mediaType": "application/json",
+        "data": {
+          "ok": false,
+          "duplicate": false,
+          "message_id": "01JD2A2A0V0TE0000000000007",
+          "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+          "accepted_at_unix_ms": 1792918802500,
+          "session_state": "SESSION_STATE_OPEN",
+          "error": {
+            "code": "FORBIDDEN",
+            "message": "sender is not a declared participant",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "message_id": "01JD2A2A0V0TE0000000000007",
+            "details": ""
+          }
+        },
+        "metadata": {
+          "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+        }
+      }
+    ],
+    "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+  }
+}

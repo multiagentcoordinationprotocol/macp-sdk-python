@@ -1,0 +1,24 @@
+{
+  "id": "a2a_037_reject_timestamp_after_year_9999",
+  "op": "envelope_from_a2a_part",
+  "description": "9999-12-31T23:30:00-01:00 is 10000-01-01T00:30:00Z once the offset is applied: INVALID_ENVELOPE.",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+json",
+      "data": {
+        "macp_version": "1.0",
+        "mode": "ext.multi_round.v1",
+        "message_type": "Contribute",
+        "message_id": "01JD2MR0V0TE00000000000002",
+        "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+        "sender": "agent://alice",
+        "timestamp": "9999-12-31T23:30:00-01:00",
+        "payload_b64": "Cgh3aW5kb3ctYg=="
+      }
+    }
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "INVALID_ENVELOPE"
+  }
+}
