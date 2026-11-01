@@ -1,0 +1,928 @@
+{
+  "$comment": "Informative example for RFC-MACP-0014 (A2A extension binding). make json-validate validates every Envelope inside a Part whose mediaType is application/macp-envelope+json against macp-envelope.schema.json.",
+  "description": "A Decision session between agent://checkout.orchestrator and agent://fraud, carried over A2A 1.0 JSON-RPC.",
+  "binding": "macp.transport.a2a.v1",
+  "extension_uri": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1",
+  "a2a_version": "1.0",
+  "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+  "exchange": [
+    {
+      "step": "1. Discover the AgentCard (GET /.well-known/agent-card.json)",
+      "note": "The extension is declared in capabilities.extensions (RFC-MACP-0014 §3).",
+      "response": {
+        "body": {
+          "name": "Checkout coordination runtime",
+          "description": "MACP runtime reachable over A2A for payment decisions.",
+          "supportedInterfaces": [
+            {
+              "url": "https://runtime.example.com/a2a",
+              "protocolBinding": "JSONRPC",
+              "protocolVersion": "1.0"
+            }
+          ],
+          "provider": {
+            "organization": "Example Corp",
+            "url": "https://example.com"
+          },
+          "version": "0.9.0",
+          "capabilities": {
+            "streaming": true,
+            "pushNotifications": false,
+            "extensions": [
+              {
+                "uri": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1",
+                "description": "MACP coordination sessions (Decision and Quorum modes) carried as A2A Parts (RFC-MACP-0014).",
+                "required": true,
+                "params": {
+                  "macpVersions": [
+                    "1.0"
+                  ],
+                  "modes": [
+                    "macp.mode.decision.v1",
+                    "macp.mode.quorum.v1"
+                  ],
+                  "transport": "macp.transport.a2a.v1",
+                  "manifestUrl": "https://runtime.example.com/.well-known/macp.json"
+                }
+              }
+            ]
+          },
+          "securitySchemes": {
+            "oauth": {
+              "oauth2SecurityScheme": {
+                "flows": {
+                  "clientCredentials": {
+                    "tokenUrl": "https://auth.example.com/token",
+                    "scopes": {
+                      "macp.submit": "Submit MACP envelopes"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "securityRequirements": [
+            {
+              "schemes": {
+                "oauth": {
+                  "list": [
+                    "macp.submit"
+                  ]
+                }
+              }
+            }
+          ],
+          "defaultInputModes": [
+            "application/macp-envelope+json"
+          ],
+          "defaultOutputModes": [
+            "application/json",
+            "application/macp-envelope+json"
+          ],
+          "skills": [
+            {
+              "id": "macp-coordination",
+              "name": "MACP coordination",
+              "description": "Runs bounded MACP sessions that end in a binding, replayable commitment.",
+              "tags": [
+                "macp",
+                "coordination",
+                "consensus"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "step": "2. SessionStart, with no taskId because A2A does not let a client name a new Task",
+      "note": "Accepted. The server creates a Task whose id equals session_id, in TASK_STATE_WORKING (§6.1, §8).",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0",
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "SendMessage",
+          "params": {
+            "message": {
+              "messageId": "01JD2A2A0V0TE0000000000001",
+              "role": "ROLE_USER",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "SessionStart",
+                    "message_id": "01JD2A2A0V0TE0000000000001",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://checkout.orchestrator",
+                    "timestamp": "2026-10-25T09:00:00Z",
+                    "payload": {
+                      "intent": "Approve high-value transfer TXN-48000",
+                      "participants": [
+                        "agent://checkout.orchestrator",
+                        "agent://fraud"
+                      ],
+                      "mode_version": "1.0.0",
+                      "configuration_version": "runtime-2026.10.25",
+                      "ttl_ms": 60000,
+                      "context_id": "ctx-txn-48000"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "response": {
+        "headers": {
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": {
+            "message": {
+              "messageId": "ack-01JD2A2A0V0TE0000000000001",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "contextId": "ctx-txn-48000",
+              "role": "ROLE_AGENT",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/json",
+                  "data": {
+                    "ok": true,
+                    "duplicate": false,
+                    "message_id": "01JD2A2A0V0TE0000000000001",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "accepted_at_unix_ms": 1792918800000,
+                    "session_state": "SESSION_STATE_OPEN"
+                  },
+                  "metadata": {
+                    "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "3. Proposal",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0",
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "method": "SendMessage",
+          "params": {
+            "message": {
+              "messageId": "01JD2A2A0V0TE0000000000002",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "role": "ROLE_USER",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Proposal",
+                    "message_id": "01JD2A2A0V0TE0000000000002",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://checkout.orchestrator",
+                    "timestamp": "2026-10-25T09:00:01Z",
+                    "payload": {
+                      "proposal_id": "p-1",
+                      "option": "Release the transfer after step-up verification",
+                      "rationale": "Risk signals are elevated but within appetite"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "response": {
+        "headers": {
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "result": {
+            "message": {
+              "messageId": "ack-01JD2A2A0V0TE0000000000002",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "contextId": "ctx-txn-48000",
+              "role": "ROLE_AGENT",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/json",
+                  "data": {
+                    "ok": true,
+                    "duplicate": false,
+                    "message_id": "01JD2A2A0V0TE0000000000002",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "accepted_at_unix_ms": 1792918801000,
+                    "session_state": "SESSION_STATE_OPEN"
+                  },
+                  "metadata": {
+                    "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "4. Vote, sent by agent://fraud under its own credentials",
+      "note": "The server binds Envelope.sender to the authenticated caller (§13).",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0",
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "method": "SendMessage",
+          "params": {
+            "message": {
+              "messageId": "01JD2A2A0V0TE0000000000003",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "role": "ROLE_USER",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Vote",
+                    "message_id": "01JD2A2A0V0TE0000000000003",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://fraud",
+                    "timestamp": "2026-10-25T09:00:02Z",
+                    "payload": {
+                      "proposal_id": "p-1",
+                      "vote": "APPROVE",
+                      "reason": "Within risk appetite"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "response": {
+        "headers": {
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "result": {
+            "message": {
+              "messageId": "ack-01JD2A2A0V0TE0000000000003",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "contextId": "ctx-txn-48000",
+              "role": "ROLE_AGENT",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/json",
+                  "data": {
+                    "ok": true,
+                    "duplicate": false,
+                    "message_id": "01JD2A2A0V0TE0000000000003",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "accepted_at_unix_ms": 1792918802000,
+                    "session_state": "SESSION_STATE_OPEN"
+                  },
+                  "metadata": {
+                    "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "5. The same Vote retried under a new A2A messageId",
+      "note": "Deduplicated on Envelope.message_id, not Message.messageId (§12). No second Artifact appears.",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0",
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 4,
+          "method": "SendMessage",
+          "params": {
+            "message": {
+              "messageId": "retry-01JD2A2A0V0TE0000000000003",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "role": "ROLE_USER",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Vote",
+                    "message_id": "01JD2A2A0V0TE0000000000003",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://fraud",
+                    "timestamp": "2026-10-25T09:00:02Z",
+                    "payload": {
+                      "proposal_id": "p-1",
+                      "vote": "APPROVE",
+                      "reason": "Within risk appetite"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "response": {
+        "headers": {
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 4,
+          "result": {
+            "message": {
+              "messageId": "ack-01JD2A2A0V0TE0000000000003-dup",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "contextId": "ctx-txn-48000",
+              "role": "ROLE_AGENT",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/json",
+                  "data": {
+                    "ok": true,
+                    "duplicate": true,
+                    "message_id": "01JD2A2A0V0TE0000000000003",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "accepted_at_unix_ms": 1792918802000,
+                    "session_state": "SESSION_STATE_OPEN"
+                  },
+                  "metadata": {
+                    "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "6. Commitment",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0",
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 5,
+          "method": "SendMessage",
+          "params": {
+            "message": {
+              "messageId": "01JD2A2A0V0TE0000000000004",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "role": "ROLE_USER",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Commitment",
+                    "message_id": "01JD2A2A0V0TE0000000000004",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://checkout.orchestrator",
+                    "timestamp": "2026-10-25T09:00:03Z",
+                    "payload": {
+                      "commitment_id": "cmt-01JD2A2A0V0TE0000000000004",
+                      "outcome_positive": true,
+                      "action": "transfer.release_after_step_up",
+                      "authority_scope": "payments",
+                      "reason": "All declared participants approved proposal p-1",
+                      "mode_version": "1.0.0",
+                      "configuration_version": "runtime-2026.10.25"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "response": {
+        "headers": {
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 5,
+          "result": {
+            "message": {
+              "messageId": "ack-01JD2A2A0V0TE0000000000004",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "contextId": "ctx-txn-48000",
+              "role": "ROLE_AGENT",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/json",
+                  "data": {
+                    "ok": true,
+                    "duplicate": false,
+                    "message_id": "01JD2A2A0V0TE0000000000004",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "accepted_at_unix_ms": 1792918803000,
+                    "session_state": "SESSION_STATE_RESOLVED"
+                  },
+                  "metadata": {
+                    "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "7. SubscribeToTask stream, as seen by an observer that subscribed after step 2",
+      "note": "RFC-MACP-0006 §3.2 numbers accepted session-scoped envelopes from 1, and the SessionStart is 1, so this subscriber's first Artifact carries sequence 2. The Commitment Artifact precedes the COMPLETED status (§9.2).",
+      "stream": [
+        {
+          "artifactUpdate": {
+            "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "contextId": "ctx-txn-48000",
+            "artifact": {
+              "artifactId": "macp:01JD2A2A0V0TE0000000000002",
+              "name": "Proposal",
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Proposal",
+                    "message_id": "01JD2A2A0V0TE0000000000002",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://checkout.orchestrator",
+                    "timestamp": "2026-10-25T09:00:01Z",
+                    "payload": {
+                      "proposal_id": "p-1",
+                      "option": "Release the transfer after step-up verification",
+                      "rationale": "Risk signals are elevated but within appetite"
+                    }
+                  }
+                }
+              ],
+              "metadata": {
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 2
+              },
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ]
+            },
+            "append": false,
+            "lastChunk": true
+          }
+        },
+        {
+          "artifactUpdate": {
+            "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "contextId": "ctx-txn-48000",
+            "artifact": {
+              "artifactId": "macp:01JD2A2A0V0TE0000000000003",
+              "name": "Vote",
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Vote",
+                    "message_id": "01JD2A2A0V0TE0000000000003",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://fraud",
+                    "timestamp": "2026-10-25T09:00:02Z",
+                    "payload": {
+                      "proposal_id": "p-1",
+                      "vote": "APPROVE",
+                      "reason": "Within risk appetite"
+                    }
+                  }
+                }
+              ],
+              "metadata": {
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 3
+              },
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ]
+            },
+            "append": false,
+            "lastChunk": true
+          }
+        },
+        {
+          "artifactUpdate": {
+            "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "contextId": "ctx-txn-48000",
+            "artifact": {
+              "artifactId": "macp:01JD2A2A0V0TE0000000000004",
+              "name": "Commitment",
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Commitment",
+                    "message_id": "01JD2A2A0V0TE0000000000004",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://checkout.orchestrator",
+                    "timestamp": "2026-10-25T09:00:03Z",
+                    "payload": {
+                      "commitment_id": "cmt-01JD2A2A0V0TE0000000000004",
+                      "outcome_positive": true,
+                      "action": "transfer.release_after_step_up",
+                      "authority_scope": "payments",
+                      "reason": "All declared participants approved proposal p-1",
+                      "mode_version": "1.0.0",
+                      "configuration_version": "runtime-2026.10.25"
+                    }
+                  }
+                }
+              ],
+              "metadata": {
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 4
+              },
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ]
+            },
+            "append": false,
+            "lastChunk": true
+          }
+        },
+        {
+          "statusUpdate": {
+            "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "contextId": "ctx-txn-48000",
+            "status": {
+              "state": "TASK_STATE_COMPLETED",
+              "timestamp": "2026-10-25T09:00:03Z"
+            },
+            "metadata": {
+              "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "RESOLVED"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "step": "8. GetTask after resolution",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0",
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 6,
+          "method": "GetTask",
+          "params": {
+            "id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+          }
+        }
+      },
+      "response": {
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 6,
+          "result": {
+            "id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "contextId": "ctx-txn-48000",
+            "status": {
+              "state": "TASK_STATE_COMPLETED",
+              "timestamp": "2026-10-25T09:00:03Z"
+            },
+            "artifacts": [
+              {
+                "artifactId": "macp:01JD2A2A0V0TE0000000000001",
+                "name": "SessionStart",
+                "parts": [
+                  {
+                    "mediaType": "application/macp-envelope+json",
+                    "data": {
+                      "macp_version": "1.0",
+                      "mode": "macp.mode.decision.v1",
+                      "message_type": "SessionStart",
+                      "message_id": "01JD2A2A0V0TE0000000000001",
+                      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                      "sender": "agent://checkout.orchestrator",
+                      "timestamp": "2026-10-25T09:00:00Z",
+                      "payload": {
+                        "intent": "Approve high-value transfer TXN-48000",
+                        "participants": [
+                          "agent://checkout.orchestrator",
+                          "agent://fraud"
+                        ],
+                        "mode_version": "1.0.0",
+                        "configuration_version": "runtime-2026.10.25",
+                        "ttl_ms": 60000,
+                        "context_id": "ctx-txn-48000"
+                      }
+                    }
+                  }
+                ],
+                "metadata": {
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 1
+                },
+                "extensions": [
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+                ]
+              },
+              {
+                "artifactId": "macp:01JD2A2A0V0TE0000000000002",
+                "name": "Proposal",
+                "parts": [
+                  {
+                    "mediaType": "application/macp-envelope+json",
+                    "data": {
+                      "macp_version": "1.0",
+                      "mode": "macp.mode.decision.v1",
+                      "message_type": "Proposal",
+                      "message_id": "01JD2A2A0V0TE0000000000002",
+                      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                      "sender": "agent://checkout.orchestrator",
+                      "timestamp": "2026-10-25T09:00:01Z",
+                      "payload": {
+                        "proposal_id": "p-1",
+                        "option": "Release the transfer after step-up verification",
+                        "rationale": "Risk signals are elevated but within appetite"
+                      }
+                    }
+                  }
+                ],
+                "metadata": {
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 2
+                },
+                "extensions": [
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+                ]
+              },
+              {
+                "artifactId": "macp:01JD2A2A0V0TE0000000000003",
+                "name": "Vote",
+                "parts": [
+                  {
+                    "mediaType": "application/macp-envelope+json",
+                    "data": {
+                      "macp_version": "1.0",
+                      "mode": "macp.mode.decision.v1",
+                      "message_type": "Vote",
+                      "message_id": "01JD2A2A0V0TE0000000000003",
+                      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                      "sender": "agent://fraud",
+                      "timestamp": "2026-10-25T09:00:02Z",
+                      "payload": {
+                        "proposal_id": "p-1",
+                        "vote": "APPROVE",
+                        "reason": "Within risk appetite"
+                      }
+                    }
+                  }
+                ],
+                "metadata": {
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 3
+                },
+                "extensions": [
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+                ]
+              },
+              {
+                "artifactId": "macp:01JD2A2A0V0TE0000000000004",
+                "name": "Commitment",
+                "parts": [
+                  {
+                    "mediaType": "application/macp-envelope+json",
+                    "data": {
+                      "macp_version": "1.0",
+                      "mode": "macp.mode.decision.v1",
+                      "message_type": "Commitment",
+                      "message_id": "01JD2A2A0V0TE0000000000004",
+                      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                      "sender": "agent://checkout.orchestrator",
+                      "timestamp": "2026-10-25T09:00:03Z",
+                      "payload": {
+                        "commitment_id": "cmt-01JD2A2A0V0TE0000000000004",
+                        "outcome_positive": true,
+                        "action": "transfer.release_after_step_up",
+                        "authority_scope": "payments",
+                        "reason": "All declared participants approved proposal p-1",
+                        "mode_version": "1.0.0",
+                        "configuration_version": "runtime-2026.10.25"
+                      }
+                    }
+                  }
+                ],
+                "metadata": {
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 4
+                },
+                "extensions": [
+                  "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+                ]
+              }
+            ],
+            "metadata": {
+              "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "RESOLVED"
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "9. A late Vote sent to the terminal Task",
+      "note": "A2A requires UnsupportedOperationError for a message to a terminal Task; the MACP code rides in ErrorInfo (§11.3).",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0",
+          "A2A-Extensions": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 7,
+          "method": "SendMessage",
+          "params": {
+            "message": {
+              "messageId": "01JD2A2A0V0TE0000000000005",
+              "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+              "role": "ROLE_USER",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "macp.mode.decision.v1",
+                    "message_type": "Vote",
+                    "message_id": "01JD2A2A0V0TE0000000000005",
+                    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                    "sender": "agent://fraud",
+                    "timestamp": "2026-10-25T09:00:04Z",
+                    "payload": {
+                      "proposal_id": "p-1",
+                      "vote": "REJECT",
+                      "reason": "Late change of mind"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "response": {
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 7,
+          "error": {
+            "code": -32004,
+            "message": "Task is in a terminal state",
+            "data": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "SESSION_NOT_OPEN",
+                "domain": "multiagentcoordinationprotocol.io",
+                "metadata": {
+                  "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+                  "message_id": "01JD2A2A0V0TE0000000000005"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "10. A Signal sent without activating the extension",
+      "note": "The Envelope is not accepted: ExtensionSupportRequiredError (§4, §11.3). With the header, the Ack would carry an empty taskId (§6.2).",
+      "request": {
+        "headers": {
+          "A2A-Version": "1.0"
+        },
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 8,
+          "method": "SendMessage",
+          "params": {
+            "message": {
+              "messageId": "01JD2A2A0V0TE0000000000006",
+              "role": "ROLE_USER",
+              "extensions": [
+                "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+              ],
+              "parts": [
+                {
+                  "mediaType": "application/macp-envelope+json",
+                  "data": {
+                    "macp_version": "1.0",
+                    "mode": "",
+                    "message_type": "Signal",
+                    "message_id": "01JD2A2A0V0TE0000000000006",
+                    "session_id": "",
+                    "sender": "agent://fraud",
+                    "timestamp": "2026-10-25T09:00:05Z",
+                    "payload": {
+                      "signal_type": "risk.observation",
+                      "data": "eyJzY29yZSI6MC4xMn0=",
+                      "confidence": 0.8
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "response": {
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 8,
+          "error": {
+            "code": -32008,
+            "message": "Extension support required",
+            "data": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "INVALID_REQUEST",
+                "domain": "multiagentcoordinationprotocol.io",
+                "metadata": {
+                  "message_id": "01JD2A2A0V0TE0000000000006"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

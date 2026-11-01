@@ -92,3 +92,8 @@ PR strategy: P1+P2 in one PR (one coherent opt-in feature), released as a minor 
   - Mutation check: 4 deliberate breaks, all caught.
   - Files: `_otel.py`, `client.py`/`async_client.py` `send`, `test_otel.py`, `docs/guides/observability.md` (new), `mkdocs.yml`, `README.md`, `docs/security.md`, local `CLAUDE.md`.
 - 2026-10-26 Finalization: integration test `tests/integration/test_otel.py` passes against the CI-pinned runtime (`make test-integration-docker`: 67 passed, 3 skipped). It covers the runtime accepting `traceparent` on unary, Send and session RPCs, and the spans recording real accepted / duplicate / rejected outcomes.
+- 2026-10-26 PR opened: 200
+- 2026-10-26 merged #200 (rebase). Release #201 merged: macp-sdk-python 0.22.0, langgraph-macp 0.1.3, claude-agent-sdk-macp 0.1.3. Verified with a fresh PyPI install: OTel is not loaded at import and is available after the first call.
+- 2026-10-30 S1 Phase 3 PR A: receipt integration tests built against a local build of runtime main (3/3 pass). The CI skip max is temporarily 6. PR B waits for :0.11.0.
+- 2026-10-30 S1 Phase 3 PR A merged as #204 (eb755ec; #203 closed after its branch was deleted). No release (test commit). S4 is draft #202, held for R4. PR B is BLOCKED-ON macp-runtime :0.11.0.
+- 2026-10-31 S1 Phase 3 PR B merged as #205 (c5a63bd): CI pinned to :0.11.0, signed leg added, MACP_EXPECT_RECEIPTS set; receipt tests 3/3 in CI (70 passed, 3 skipped). Parity contract re-vendored (spec #236, 22 codes). No release. Phase 3 DONE.

@@ -15,6 +15,12 @@ from .base_projection import (
     ProjectionAnomaly,
 )
 from .base_session import BaseSession
+from .canonical_json import (
+    ack_from_canonical_json,
+    ack_to_canonical_json,
+    envelope_from_canonical_json,
+    envelope_to_canonical_json,
+)
 from .client import UNBOUNDED, InlineErrorCallback, MacpClient, MacpStream, macp_error_code
 from .commitment_hash import (
     VerifyOutcome,
@@ -77,6 +83,7 @@ from .errors import (
     UNKNOWN_POLICY_VERSION,
     UNSUPPORTED_PROTOCOL_VERSION,
     AckFailure,
+    CanonicalJsonError,
     ErrorDetails,
     MacpAckError,
     MacpIdentityMismatchError,
@@ -250,6 +257,7 @@ __all__ = [
     "BallotRecord",
     "BaseProjection",
     "BaseSession",
+    "CanonicalJsonError",
     "CommitmentRules",
     "CounterProposalRules",
     "DecisionEvaluationRecord",
@@ -313,6 +321,8 @@ __all__ = [
     "TaskUpdateRecord",
     "VerifyOutcome",
     "VotingRules",
+    "ack_from_canonical_json",
+    "ack_to_canonical_json",
     "build_commitment_payload",
     "build_commitment_ref",
     "build_contribute_payload",
@@ -331,6 +341,8 @@ __all__ = [
     "commitment_hash",
     "configure_logging",
     "effective_quorum_threshold",
+    "envelope_from_canonical_json",
+    "envelope_to_canonical_json",
     "infer_outcome_positive",
     "is_canonical_commitment_hash",
     "macp_error_code",

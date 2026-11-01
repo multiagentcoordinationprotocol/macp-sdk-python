@@ -149,6 +149,16 @@ class MacpSdkError(Exception):
     """Base SDK exception."""
 
 
+class CanonicalJsonError(MacpSdkError, ValueError):
+    """A value is not valid canonical JSON (RFC-MACP-0001 §10).
+
+    Raised by :mod:`macp_sdk.canonical_json`. ``code`` is always
+    ``INVALID_ENVELOPE``, the code a receiver returns for the same input.
+    """
+
+    code = INVALID_ENVELOPE
+
+
 @dataclass(slots=True)
 class AckFailure:
     code: str

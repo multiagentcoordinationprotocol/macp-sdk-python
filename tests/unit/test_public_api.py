@@ -139,6 +139,22 @@ class TestVersionAndTimeHelper:
         assert isinstance(ts, int)
         assert ts > 0
 
+    def test_canonical_json_codec_is_exported(self):
+        # Wave 6 S6.1; the same four functions macp-sdk-typescript exports.
+        import macp_sdk.canonical_json
+
+        names = {
+            "envelope_to_canonical_json",
+            "envelope_from_canonical_json",
+            "ack_to_canonical_json",
+            "ack_from_canonical_json",
+        }
+        assert names <= set(macp_sdk.__all__)
+        assert set(macp_sdk.canonical_json.__all__) == names
+        assert "CanonicalJsonError" in macp_sdk.__all__
+        for name in names:
+            assert getattr(macp_sdk, name) is getattr(macp_sdk.canonical_json, name)
+
 
 class TestDeprecatedAliasSurfaceWholeFeature:
     """Issue #103 finalization: each phase's own tests only exercised its own
