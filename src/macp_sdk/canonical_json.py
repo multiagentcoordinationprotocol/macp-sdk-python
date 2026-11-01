@@ -111,7 +111,7 @@ _INTEGER_RANGES = {
 _FLOAT_TYPES = frozenset({FieldDescriptor.TYPE_DOUBLE, FieldDescriptor.TYPE_FLOAT})
 _DECIMAL = re.compile(r"-?[0-9]+\Z")
 _JSON_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z")
-_ENUM_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_DROP = object()  # a cleaned value to leave out of the parsed message
 _INT32_MIN, _INT32_MAX = -(2**31), 2**31 - 1
 _BASE64 = re.compile(r"[A-Za-z0-9+/\-_]*={0,2}\Z")
 _RFC3339 = re.compile(
@@ -119,6 +119,7 @@ _RFC3339 = re.compile(
     r"(?:[Zz]|([+-])([0-9]{2}):([0-9]{2}))\Z"
 )
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+_MAX_DEPTH = 100  # upb's default nesting limit
 _MIN_MS = calendar.timegm((1, 1, 1, 0, 0, 0, 0, 0, 0)) * 1000
 _MAX_MS = calendar.timegm((9999, 12, 31, 23, 59, 59, 0, 0, 0)) * 1000 + 999
 
@@ -331,33 +332,57 @@ def _message_from_json(obj: Mapping[str, Any], cls: type[Message]) -> Message:
         raise CanonicalJsonError(f"invalid {cls.DESCRIPTOR.full_name}: {exc}") from exc
 
 
-def _clean_message(obj: Mapping[str, Any], desc: Descriptor) -> dict[str, Any]:
+def _clean_message(obj: Mapping[str, Any], desc: Descriptor, depth: int = 0) -> dict[str, Any]:
     """Keep only original field names (§10.8 rule 1), drop nulls (§10.10) and
     check every scalar against its JSON type, since the stock parser accepts
     several forms loosely (bools as numbers, ``"1_0"``, lenient base64)."""
+    if depth > _MAX_DEPTH:
+        raise CanonicalJsonError("payload nesting is too deep")
     out: dict[str, Any] = {}
     for name, value in obj.items():
         field = desc.fields_by_name.get(name)
         if field is None or value is None:
             continue
-        out[name] = _clean_field(value, field)
+        cleaned = _clean_field(value, field, depth)
+        if cleaned is not _DROP:
+            out[name] = cleaned
     return out
 
 
-def _clean_field(value: Any, field: FieldDescriptor) -> Any:
+def _clean_field(value: Any, field: FieldDescriptor, depth: int) -> Any:
     if _is_map(field):
         if not isinstance(value, Mapping):
             raise CanonicalJsonError(f"{field.name} must be a JSON object")
+        key_field = field.message_type.fields_by_name["key"]
         value_field = field.message_type.fields_by_name["value"]
-        return {_check_utf8(k, field.name): _clean_scalar(v, value_field) for k, v in value.items()}
+        entries = {
+            _clean_map_key(k, key_field, field.name): _clean_scalar(v, value_field, depth)
+            for k, v in value.items()
+        }
+        return {k: v for k, v in entries.items() if v is not _DROP}
     if field.is_repeated:
         if not isinstance(value, list):
             raise CanonicalJsonError(f"{field.name} must be a JSON array")
-        return [_clean_scalar(v, field) for v in value]
-    return _clean_scalar(value, field)
+        items = [_clean_scalar(v, field, depth) for v in value]
+        return [v for v in items if v is not _DROP]
+    return _clean_scalar(value, field, depth)
 
 
-def _clean_scalar(value: Any, field: FieldDescriptor) -> Any:
+def _clean_map_key(key: Any, key_field: FieldDescriptor, name: str) -> str:
+    """JSON map keys are strings; integer and bool keys must be canonical."""
+    if not isinstance(key, str):
+        raise CanonicalJsonError(f"{name} keys must be strings")
+    if key_field.type == FieldDescriptor.TYPE_BOOL:
+        if key not in ("true", "false"):
+            raise CanonicalJsonError(f"{name} keys must be true or false")
+    elif key_field.type in _INTEGER_RANGES:
+        if not _DECIMAL.match(key):
+            raise CanonicalJsonError(f"{name} keys must be decimal integers")
+        _clean_integer(key, key_field)
+    return _check_utf8(key, name)
+
+
+def _clean_scalar(value: Any, field: FieldDescriptor, depth: int = 0) -> Any:
     if value is None:
         raise CanonicalJsonError(f"{field.name} holds a null element")
     if field.type == FieldDescriptor.TYPE_MESSAGE:
@@ -365,7 +390,7 @@ def _clean_scalar(value: Any, field: FieldDescriptor) -> Any:
             return value
         if not isinstance(value, Mapping):
             raise CanonicalJsonError(f"{field.name} must be a JSON object")
-        return _clean_message(value, field.message_type)
+        return _clean_message(value, field.message_type, depth + 1)
     if field.type in _INTEGER_RANGES:
         return _clean_integer(value, field)
     if field.type == FieldDescriptor.TYPE_ENUM:
@@ -424,9 +449,11 @@ def _clean_integer(value: Any, field: FieldDescriptor) -> int:
 
 def _clean_enum(value: Any, field: FieldDescriptor) -> Any:
     if isinstance(value, str):
-        if not _ENUM_NAME.match(value):
-            raise CanonicalJsonError(f"{field.name} must be an enum name or integer")
-        return value  # an unknown name is ignored (§10.6)
+        if value in field.enum_type.values_by_name:
+            return value
+        # §10.4: an unknown name (including "2") leaves the field at its
+        # default, or drops the element, as macp-sdk-typescript does.
+        return _DROP
     number = _integral(value)
     if number is None or not _INT32_MIN <= number <= _INT32_MAX:
         raise CanonicalJsonError(f"{field.name} must be an enum name or int32")
@@ -461,6 +488,10 @@ def _decode_base64(text: str, name: str = "payload_b64") -> bytes:
     """Standard or URL-safe alphabet, padded or not (§10.3)."""
     if not _BASE64.match(text):
         raise CanonicalJsonError(f"{name} is not base64")
+    if ("+" in text or "/" in text) and ("-" in text or "_" in text):
+        raise CanonicalJsonError(f"{name} mixes the standard and URL-safe alphabets")
+    if "=" in text and len(text) % 4:
+        raise CanonicalJsonError(f"{name} has padding that does not complete a quartet")
     body = text.rstrip("=").replace("-", "+").replace("_", "/")
     if len(body) % 4 == 1:
         raise CanonicalJsonError(f"{name} is not base64")
@@ -536,8 +567,11 @@ def _wire(msg: Message) -> bytes:
 
 
 def _map_key_order(key: Any) -> Any:
-    # Rule 5: string keys by UTF-8 bytes; integer and bool keys by value.
-    return key.encode("utf-8") if isinstance(key, str) else key
+    # Rule 5: by the UTF-8 bytes of the key as JSON writes it, so integer
+    # keys sort as decimal strings ("-1" < "10" < "2"), as in TypeScript.
+    if isinstance(key, bool):
+        return b"true" if key else b"false"
+    return str(key).encode("utf-8")
 
 
 def _encode(field: FieldDescriptor, value: Any) -> bytes:
@@ -585,12 +619,18 @@ def _varint(number: int) -> bytes:
     return bytes(out)
 
 
-def _check_varints(data: bytes, desc: Descriptor | None) -> None:
+def _check_varints(data: bytes, desc: Descriptor | None, depth: int = 0) -> None:
     """Refuse a varint that overflows 64 bits, as protobuf-go and upb's C
-    parser do; Python's upb binding accepts it. Walks known submessages and
-    packed fields too. Truncation and stray end-groups are left to
-    ``ParseFromString``, which refuses them."""
-    pos, end = 0, len(data)
+    parser do; Python's upb binding accepts it. Walks known submessages,
+    packed fields and unknown groups too. Truncation, stray end-groups and
+    bad wire types are left to ``ParseFromString``, which refuses them."""
+    if depth > _MAX_DEPTH:
+        raise DecodeError("message nesting is too deep")
+    _scan(data, 0, desc, None, depth)
+
+
+def _scan(data: bytes, pos: int, desc: Descriptor | None, group: int | None, depth: int) -> int:
+    end = len(data)
     while pos < end:
         tag, pos = _read_varint(data, pos)
         number, wire_type = tag >> 3, tag & 7
@@ -606,13 +646,24 @@ def _check_varints(data: bytes, desc: Descriptor | None) -> None:
             chunk = data[pos : pos + length]
             pos += length
             if field is not None and field.type == _T.TYPE_MESSAGE:
-                _check_varints(chunk, field.message_type)
-            elif field is not None and (field.type in _VARINT_TYPES or field.type in _ZIGZAG_TYPES):
+                _check_varints(chunk, field.message_type, depth + 1)
+            elif (
+                field is not None
+                and field.is_repeated
+                and (field.type in _VARINT_TYPES or field.type in _ZIGZAG_TYPES)
+            ):
                 at = 0
                 while at < len(chunk):
                     _, at = _read_varint(chunk, at)
+        elif wire_type == 3:
+            if depth >= _MAX_DEPTH:
+                raise DecodeError("group nesting is too deep")
+            pos = _scan(data, pos, None, number, depth + 1)
+        elif wire_type == 4 and group == number:
+            return pos
         else:
-            return  # groups and malformed tags: ParseFromString decides
+            return end  # stray end-group or bad wire type: ParseFromString refuses it
+    return end
 
 
 def _read_varint(data: bytes, pos: int) -> tuple[int, int]:

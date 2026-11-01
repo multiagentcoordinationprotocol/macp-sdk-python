@@ -655,7 +655,15 @@ def test_ack_unknown_session_state_integer_decodes_as_unspecified() -> None:
     assert ack_to_canonical_json(ack)["session_state"] == "SESSION_STATE_UNSPECIFIED"
 
 
-@pytest.mark.parametrize("value", [2**40 + 3, 2**31, 2.5, True, "2", " 2", "1_0", [], {}])
+@pytest.mark.parametrize("value", ["2", " 2", "1_0", "SESSION_STATE_FUTURE"])
+def test_ack_unknown_enum_name_is_dropped(value: str) -> None:
+    # §10.4: any string that is not a declared name leaves the default (TS agrees).
+    ack = ack_from_canonical_json({"session_state": value, "message_id": "m"})
+    assert ack.session_state == envelope_pb2.SESSION_STATE_UNSPECIFIED
+    assert ack.message_id == "m"
+
+
+@pytest.mark.parametrize("value", [2**40 + 3, 2**31, 2.5, True, [], {}])
 def test_ack_bad_enum_value_is_rejected(value: Any) -> None:
     with pytest.raises(CanonicalJsonError):
         ack_from_canonical_json({"session_state": value})
@@ -783,7 +791,9 @@ def _signal_with(**payload: Any) -> dict[str, Any]:
     return obj
 
 
-@pytest.mark.parametrize("value", ["!!!!", "\u00ff\u00ff", "AQ==AQ==", " AQ==", "AQ==\n", 5])
+@pytest.mark.parametrize(
+    "value", ["!!!!", "\u00ff\u00ff", "AQ==AQ==", " AQ==", "AQ==\n", 5, "+-AA", "AB=", "AAAA=="]
+)
 def test_bytes_field_with_invalid_base64_is_refused(value: Any) -> None:
     with pytest.raises(CanonicalJsonError):
         envelope_from_canonical_json(_signal_with(data=value))
@@ -933,3 +943,75 @@ def test_wire_encoder_matches_protobuf_for_every_scalar_type() -> None:
     full.child.CopyFrom(cls(s64=-7, s="nested", r_s32=[-1, 1]))
     for message in (full, cls(), cls(child=cls())):
         assert _wire(message) == message.SerializeToString(deterministic=True)
+
+
+def test_unknown_group_does_not_hide_a_varint_overflow() -> None:
+    overflow = b"\x08" + b"\xff" * 9 + b"\x02"
+    group_start, group_end = b"\x9b\x06", b"\x9c\x06"  # field 99
+    for payload in (group_start + group_end + overflow, group_start + overflow + group_end):
+        with pytest.raises(CanonicalJsonError):
+            envelope_to_canonical_json(_envelope("Signal", payload))
+
+
+def test_singular_varint_field_sent_as_bytes_is_left_to_the_parser() -> None:
+    # A mismatched wire type is an unknown field to protobuf, not a packed run.
+    signal = core_pb2.SignalPayload(signal_type="s").SerializeToString()
+    # SessionStartPayload.ttl_ms (field 6, int64) arriving with wire type LEN.
+    odd = b"\x32\x0a" + b"\xff" * 9 + b"\x02"
+    encoded = envelope_to_canonical_json(_envelope("SessionStart", odd))
+    assert encoded["payload"]["ttl_ms"] == 0
+    assert envelope_to_canonical_json(_envelope("Signal", signal))["payload"]["signal_type"] == "s"
+
+
+def test_deeply_nested_groups_raise_canonical_json_error() -> None:
+    group = b"\x9b\x06" * 3000
+    with pytest.raises(CanonicalJsonError):
+        envelope_to_canonical_json(_envelope("Signal", group))
+
+
+def _int_map_message() -> Any:
+    from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
+
+    T = descriptor_pb2.FieldDescriptorProto
+    file = descriptor_pb2.FileDescriptorProto(
+        name="canonical_json_int_map.proto", package="cjmap", syntax="proto3"
+    )
+    msg = file.message_type.add(name="M")
+    entry = msg.nested_type.add(name="NEntry")
+    entry.options.map_entry = True
+    entry.field.add(name="key", number=1, type=T.TYPE_SINT32, label=T.LABEL_OPTIONAL)
+    entry.field.add(name="value", number=2, type=T.TYPE_STRING, label=T.LABEL_OPTIONAL)
+    msg.field.add(
+        name="n", number=1, type=T.TYPE_MESSAGE, type_name=".cjmap.M.NEntry",
+        label=T.LABEL_REPEATED,
+    )  # fmt: skip
+    msg.field.add(name="self", number=2, type=T.TYPE_MESSAGE, type_name=".cjmap.M")
+    pool = descriptor_pool.DescriptorPool()
+    pool.Add(file)
+    return message_factory.GetMessageClass(pool.FindMessageTypeByName("cjmap.M"))
+
+
+def test_integer_map_keys_are_strict_and_sort_as_decimal_strings() -> None:
+    from macp_sdk.canonical_json import _message_from_json, _wire
+
+    cls = _int_map_message()
+    msg = _message_from_json({"n": {"10": "a", "-1": "b", "2": "c"}}, cls)
+    raw = _wire(msg)
+    keys = [raw.index(v.encode()) for v in ("b", "a", "c")]  # "-1" < "10" < "2"
+    assert keys == sorted(keys)
+    for bad in ("1_0", "+5", " 5", "2147483648", "x"):
+        with pytest.raises(CanonicalJsonError):
+            _message_from_json({"n": {bad: "v"}}, cls)
+    with pytest.raises(CanonicalJsonError):
+        _message_from_json({"n": {1: "v"}}, cls)
+
+
+def test_deep_json_nesting_raises_canonical_json_error() -> None:
+    from macp_sdk.canonical_json import _message_from_json
+
+    cls = _int_map_message()
+    nested: dict[str, Any] = {}
+    for _ in range(3000):
+        nested = {"self": nested}
+    with pytest.raises(CanonicalJsonError, match="too deep"):
+        _message_from_json(nested, cls)
