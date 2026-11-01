@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.23.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.23.0...v0.23.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **client:** streams no longer inherit default_timeout (behaviour change) ([#221](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/221)) ([cfe667d](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/cfe667d1a88c19971bf9024b378eeeed561ed9c9))
+
+
+### Documentation
+
+* **readme:** point org members at the macp-kb MCP server ([#219](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/219)) ([4dabf79](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/4dabf799c93d42fb3c02abf4e648eec3251876d7))
+
 ## [0.23.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.22.0...v0.23.0) (2026-11-01)
 
 
