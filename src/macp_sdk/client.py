@@ -1331,15 +1331,18 @@ class MacpClient(_ClientCore):
     ) -> Generator[policy_pb2.WatchPoliciesResponse, None, None]:
         """Server-streaming RPC: yields governance policy change events.
 
-        Auth is forwarded when available (``auth`` arg or ``client.auth``) but
-        not required. A lagging consumer is terminated with
-        ``RESOURCE_EXHAUSTED`` (``macp_code="STREAM_LAGGED"`` on runtime
-        ≥ 0.9.0); reconnect to resume.
+        Requires auth (``auth`` arg or ``client.auth``), like
+        ``list_policies``: runtime ≥ 0.12.0 rejects an unauthenticated
+        ``WatchPolicies`` with ``UNAUTHENTICATED`` before the stream opens, so
+        the SDK raises ``MacpSdkError`` locally instead. A lagging consumer is
+        terminated with ``RESOURCE_EXHAUSTED`` (``macp_code="STREAM_LAGGED"``
+        on runtime ≥ 0.9.0); reconnect to resume.
         """
         logger.debug("watch_policies starting")
+        auth_cfg = self._require_auth(auth)
         call = self.stub.WatchPolicies(
             policy_pb2.WatchPoliciesRequest(),
-            metadata=self._metadata(auth),
+            metadata=self._metadata(auth_cfg),
             timeout=self._resolve_timeout(timeout),
         )
         try:

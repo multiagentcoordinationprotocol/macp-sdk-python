@@ -9,11 +9,14 @@ import pytest
 from macp.v1 import policy_pb2
 
 from macp_sdk.auth import AuthConfig
+from macp_sdk.client import MacpClient
+from macp_sdk.errors import MacpSdkError
 from macp_sdk.policy import (
     CommitmentRules,
     VotingRules,
     build_decision_policy,
 )
+from macp_sdk.watchers import PolicyWatcher
 
 
 @pytest.fixture
@@ -212,6 +215,41 @@ class TestWatchPolicies:
         assert events[0].descriptors[0].policy_id == "pol-new"
         assert events[0].observed_at_unix_ms == 1000
         assert events[1].descriptors[0].policy_id == "pol-updated"
+
+
+class TestWatchPoliciesAuth:
+    """WatchPolicies authenticates like ListPolicies from runtime 0.12.0 (#206)."""
+
+    def test_requires_auth(self):
+        client = MacpClient(target="localhost:0", allow_insecure=True)
+        client.stub = MagicMock()
+        with pytest.raises(MacpSdkError, match="requires auth"):
+            list(client.watch_policies())
+        client.stub.WatchPolicies.assert_not_called()
+
+    def test_forwards_client_auth(self):
+        client = MacpClient(
+            target="localhost:0", allow_insecure=True, auth=AuthConfig.for_bearer("tok")
+        )
+        client.stub = MagicMock()
+        client.stub.WatchPolicies.return_value = iter([policy_pb2.WatchPoliciesResponse()])
+        assert len(list(client.watch_policies())) == 1
+        metadata = list(client.stub.WatchPolicies.call_args.kwargs["metadata"])
+        assert ("authorization", "Bearer tok") in metadata
+
+    def test_per_call_auth_overrides_client_auth(self):
+        client = MacpClient(target="localhost:0", allow_insecure=True)
+        client.stub = MagicMock()
+        client.stub.WatchPolicies.return_value = iter([])
+        list(client.watch_policies(auth=AuthConfig.for_dev_agent("alice")))
+        metadata = list(client.stub.WatchPolicies.call_args.kwargs["metadata"])
+        assert ("authorization", "Bearer alice") in metadata
+
+    def test_policy_watcher_without_auth_raises(self):
+        client = MacpClient(target="localhost:0", allow_insecure=True)
+        client.stub = MagicMock()
+        with pytest.raises(MacpSdkError):
+            list(PolicyWatcher(client).changes())
 
 
 class TestPolicyRoundTrip:
