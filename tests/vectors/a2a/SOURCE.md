@@ -7,8 +7,8 @@ copies of the spec repo's
 multiagentcoordinationprotocol/schemas/conformance/a2a/
 ```
 
-taken at spec commit `2e7d3ab` on 2026-11-01 (the pack was added in SPEC #245,
-Wave 6 P6.3). Refresh them with `make sync-fixtures`; `make verify-fixtures`
+taken at spec commit `88e01e8` on 2026-11-01 (the pack was added in SPEC #245,
+Wave 6 P6.3; vectors 102 to 106, the §5.1 media type comparison, in SPEC #248). Refresh them with `make sync-fixtures`; `make verify-fixtures`
 checks this directory for drift in both directions (it is the
 `a2a:tests/vectors/a2a` entry of `FIXTURE_DIR_PAIRS`), the same way as
 `tests/vectors/receipt/`. This file is exempt because both globs are `*.json`.
