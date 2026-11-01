@@ -59,6 +59,16 @@ except MacpA2aError as exc:
 The decoder takes the one Envelope Part and ignores Parts with any other
 `mediaType` (§5.1). `envelope_from_a2a_part` decodes a bare Part.
 
+`mediaType` is compared the way RFC 9110 compares media types: type and subtype
+ASCII case-insensitively, with surrounding spaces and tabs ignored, so
+`Application/MACP-Envelope+JSON` is an Envelope Part. A non-ASCII lookalike is
+not. An Envelope Part whose `mediaType` carries parameters (`; charset=utf-8`)
+is refused before it is decoded, as `ContentTypeNotSupportedError`, and it still
+counts toward the one-Envelope-per-Message rule. The codec does not check
+extension activation (§4): a server checks it first and answers
+`ExtensionSupportRequiredError` before this one. The encoders always write the
+exact lowercase type with no parameters.
+
 `max_payload_bytes` (default 1 MiB, the runtime's `MACP_MAX_PAYLOAD_BYTES`
 default) bounds the **decoded payload**: the base64-decoded `payload_b64`,
 the Protobuf bytes a JSON `payload` converts to, or the payload of a `raw`
@@ -69,7 +79,7 @@ Every decode failure raises `MacpA2aError`. Its `layer` says who answers it (§1
 
 | `layer` | `code` | When |
 |---|---|---|
-| `a2a` | `INVALID_REQUEST` | Two or more Envelope Parts in one Message: JSON-RPC -32602 |
+| `a2a` | `INVALID_REQUEST` | Two or more Envelope Parts in one Message (JSON-RPC -32602), or an Envelope Part whose `mediaType` carries parameters (`ContentTypeNotSupportedError`) |
 | `macp` | `INVALID_ENVELOPE` | The Part does not decode, its `data`/`raw` arm does not match its `mediaType`, or `taskId` names another session: an in-band Ack error |
 | `macp` | `PAYLOAD_TOO_LARGE` | The decoded payload is over `max_payload_bytes`: an in-band Ack error |
 | `codec` | `NOT_A_MACP_MESSAGE` | No Envelope Part, or no Ack Part |
@@ -164,6 +174,6 @@ of this repo only.
 
 ## Conformance
 
-`tests/unit/test_a2a.py` runs the spec's 101 A2A vectors
+`tests/unit/test_a2a.py` runs the spec's 106 A2A vectors
 (`schemas/conformance/a2a/`, vendored under `tests/vectors/a2a/`) and replays the
 example transcript end to end. macp-sdk-typescript runs the same vectors.
