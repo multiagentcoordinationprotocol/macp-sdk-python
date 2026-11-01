@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.23.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.22.0...v0.23.0) (2026-11-01)
+
+
+### Features
+
+* **a2a:** RFC-MACP-0014 A2A binding codec (Wave 6 S6.2) ([#213](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/213)) ([d949a93](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/d949a932e3592730e2a09ee48f52977577a26f45))
+* **canonical-json:** RFC-MACP-0001 §10 canonical JSON codec (Wave 6 S6.1) ([#208](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/208)) ([8dcada7](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/8dcada7f8b62d166ee09aa85d6e3bfc9c0619088))
+* **multi_round:** ext.multi_round.v1 session helper and projection (Wave 6 S6.3) ([#214](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/214)) ([c3c2d74](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/c3c2d742ebced8f08bfa786db18384e2c0ad2b98))
+
+
+### Bug Fixes
+
+* **a2a:** compare Envelope Part mediaType per RFC-MACP-0014 §5.1 (1.1.2-draft) ([#215](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/215)) ([953a322](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/953a3224753c54438cd34d5c67eb05c3af34d0a4))
+* **client:** require auth for WatchPolicies, as runtime 0.12.0 does ([#209](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/209)) ([b7bf535](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/b7bf5351aa551a2de36d37dafca96361a2a80bd9))
+* **multi_round:** decode Contribute byte-for-byte as the runtime does ([#216](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/216)) ([d59ed5a](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/d59ed5a30aa94ea5698c8d9c023a4078028981da))
+
+
+### Documentation
+
+* **readme:** point HTTP/JSON users at RFC-MACP-0006 §4 (Wave 5 S4) ([#202](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/202)) ([b599aee](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/b599aee104783171b8086240807595b905827267))
+* **stream:** a compacted resume ends the stream with HISTORY_UNAVAILABLE on runtime 0.12 ([#212](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/212)) ([1d33345](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/1d33345844b951be088d78da81d3446e8bf2a691))
+
 ## [0.22.0](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.21.0...v0.22.0) (2026-10-26)
 
 
