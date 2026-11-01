@@ -340,7 +340,9 @@ def _clean_message(obj: Mapping[str, Any], desc: Descriptor, depth: int = 0) -> 
         raise CanonicalJsonError("payload nesting is too deep")
     out: dict[str, Any] = {}
     for name, value in obj.items():
-        field = desc.fields_by_name.get(name)
+        if not isinstance(name, str):
+            raise CanonicalJsonError("object keys must be strings")
+        field = desc.fields_by_name.get(_check_utf8(name, "object key"))
         if field is None or value is None:
             continue
         cleaned = _clean_field(value, field, depth)
@@ -359,7 +361,9 @@ def _clean_field(value: Any, field: FieldDescriptor, depth: int) -> Any:
             _clean_map_key(k, key_field, field.name): _clean_scalar(v, value_field, depth)
             for k, v in value.items()
         }
-        return {k: v for k, v in entries.items() if v is not _DROP}
+        # An unknown enum name in a map value keeps the entry at the
+        # default (0), as macp-sdk-typescript does; §10.4 is silent on maps.
+        return {k: 0 if v is _DROP else v for k, v in entries.items()}
     if field.is_repeated:
         if not isinstance(value, list):
             raise CanonicalJsonError(f"{field.name} must be a JSON array")
@@ -449,7 +453,7 @@ def _clean_integer(value: Any, field: FieldDescriptor) -> int:
 
 def _clean_enum(value: Any, field: FieldDescriptor) -> Any:
     if isinstance(value, str):
-        if value in field.enum_type.values_by_name:
+        if _check_utf8(value, field.name) in field.enum_type.values_by_name:
             return value
         # §10.4: an unknown name (including "2") leaves the field at its
         # default, or drops the element, as macp-sdk-typescript does.

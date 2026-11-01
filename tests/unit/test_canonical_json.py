@@ -1015,3 +1015,18 @@ def test_deep_json_nesting_raises_canonical_json_error() -> None:
         nested = {"self": nested}
     with pytest.raises(CanonicalJsonError, match="too deep"):
         _message_from_json(nested, cls)
+
+
+@pytest.mark.parametrize(
+    "obj", [{"session_state": "\ud800"}, {"\ud800": 1}, {"error": {"\udc00": "x"}}, {1: True}]
+)
+def test_lone_surrogate_or_non_string_key_in_an_ack_is_canonical_json_error(obj: Any) -> None:
+    with pytest.raises(CanonicalJsonError):
+        ack_from_canonical_json(obj)
+
+
+def test_lone_surrogate_object_key_inside_payload_is_refused() -> None:
+    obj = _signal_with()
+    obj["payload"]["\ud800"] = 1
+    with pytest.raises(CanonicalJsonError, match="surrogate"):
+        envelope_from_canonical_json(obj)
