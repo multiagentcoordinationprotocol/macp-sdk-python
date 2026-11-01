@@ -14,6 +14,10 @@ Python SDK for the [MACP](https://github.com/multiagentcoordinationprotocol/mult
 This SDK **calls** the Rust runtime. The runtime does not call into this Python package.
 If you need runtime-driven business logic, run a Python agent/orchestrator as a separate process and let it communicate with the runtime over MACP transport.
 
+## HTTP/JSON
+
+This SDK talks to the runtime over gRPC only; it has no HTTP client. To reach a runtime's HTTP/JSON listener instead, see RFC-MACP-0006 §4 and the curl section of the spec quickstart.
+
 ## Install
 
 ```bash
