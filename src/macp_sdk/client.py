@@ -292,13 +292,13 @@ class MacpStream:
         contiguous and stable across log compaction and runtime restart. To
         resume, track how many envelopes you have consumed and pass that count
         as ``after_sequence`` on reconnect. Resuming below a compacted range
-        is refused: runtime ≥ 0.9.0 sends an inline ``INVALID_ENVELOPE``
-        error frame (delivered to :meth:`on_inline_error` callbacks; the
-        stream stays open), while older runtimes fail the stream with gRPC
-        ``FAILED_PRECONDITION`` (surfaced as
-        ``MacpTransportError(code="FAILED_PRECONDITION")`` from :meth:`read`).
-        Either way the message names the compacted base — resubscribe at or
-        above it, or re-read state via ``GetSession``.
+        is refused: runtime ≥ 0.12.0 ends the stream with gRPC
+        ``FAILED_PRECONDITION`` / ``HISTORY_UNAVAILABLE``, which :meth:`read`
+        raises as ``MacpTransportError(macp_code="HISTORY_UNAVAILABLE")``
+        (details: ``{"lowest_available_sequence": N}``); runtime 0.9 to 0.11
+        sent an inline ``INVALID_ENVELOPE`` frame to :meth:`on_inline_error`
+        callbacks instead. Resubscribe on a new stream at or above the lowest
+        available sequence, or re-read state via ``GetSession``.
         """
         if self._closed:
             raise MacpSdkError("stream is already closed")

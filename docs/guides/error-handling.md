@@ -108,7 +108,10 @@ doesn't host). Treat an unrecognised `macp_code` by its gRPC status.
 
 `HISTORY_UNAVAILABLE` (`FAILED_PRECONDITION`, spec #227) comes from
 `what_if_replay` when the session's history has been compacted. It is
-permanent, so retrying won't help. `what_if_replay` raises `MacpSdkError` without
+permanent, so retrying won't help. Since runtime 0.12.0 it also ends a
+`StreamSession` whose subscribe `after_sequence` is below the compacted base
+(see [Streaming](streaming.md)); resubscribe at or above the lowest available
+sequence. `what_if_replay` raises `MacpSdkError` without
 sending the RPC when the runtime doesn't advertise
 `policy_registry.what_if_replay` (RFC-MACP-0012 §8.1).
 
