@@ -137,10 +137,9 @@ class TestGrpcTransportAdapter:
         mock_stream.close.assert_called_once()
 
     def test_unbounded_timeout_passed_through_to_open_stream(self):
-        """#97 follow-up to issue #93 item 6: a long-lived subscribe stream
-        is the natural caller of client.UNBOUNDED -- the adapter's
-        ``timeout`` param must be TimeoutValue, not a plain float | None,
-        so this is expressible (and type-correct under mypy strict).
+        """#97: the adapter's ``timeout`` param is TimeoutValue, so
+        client.UNBOUNDED passes through to open_stream() type-correctly.
+        (Streams never inherit default_timeout, so None is unbounded too.)
         """
         mock_client = MagicMock()
         mock_stream = MagicMock()

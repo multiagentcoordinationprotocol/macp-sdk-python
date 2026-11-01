@@ -6,10 +6,15 @@ Before this fix, every RPC call site merged a per-call ``timeout`` against
 both ``None`` and ``0`` are falsy, once ``default_timeout`` was set to a
 non-None value, no per-call argument could express "no deadline for this
 one call". ``UNBOUNDED`` is the explicit value that now does.
+
+Streams (``open_stream``, ``watch_*``) are different: they never inherit
+``default_timeout``, so ``None`` and ``UNBOUNDED`` both mean no deadline and
+only an explicit number bounds them (TestStreamTimeoutIsExplicitOnly).
 """
 
 from __future__ import annotations
 
+import pytest
 from macp.v1 import core_pb2
 
 from macp_sdk.client import UNBOUNDED, MacpClient
@@ -92,3 +97,56 @@ def test_unbounded_is_exported_from_package_root():
 
     assert UNBOUNDED_FROM_ROOT is UNBOUNDED
     assert isinstance(MacpClient, type)  # sanity: import path is real
+
+
+SYNC_STREAMS = [
+    ("watch_sessions", "WatchSessions"),
+    ("watch_policies", "WatchPolicies"),
+    ("watch_mode_registry", "WatchModeRegistry"),
+    ("watch_roots", "WatchRoots"),
+    ("watch_signals", "WatchSignals"),
+]
+
+
+class TestStreamTimeoutIsExplicitOnly:
+    """Streams never inherit default_timeout: a long-lived watch must not die
+    after the unary default. Only an explicit timeout bounds a stream, as in
+    macp-sdk-typescript."""
+
+    def test_resolve_stream_timeout(self):
+        assert MacpClient._resolve_stream_timeout(None) is None
+        assert MacpClient._resolve_stream_timeout(UNBOUNDED) is None
+        assert MacpClient._resolve_stream_timeout(2.5) == 2.5
+        assert MacpClient._resolve_stream_timeout(0) == 0
+
+    @pytest.mark.parametrize(("method", "rpc"), SYNC_STREAMS)
+    @pytest.mark.parametrize(("timeout", "expected"), [(None, None), (UNBOUNDED, None), (3.0, 3.0)])
+    def test_watch_ignores_default_timeout(self, method, rpc, timeout, expected):
+        client, stub = client_with_stub()
+        client.default_timeout = 5.0
+        getattr(stub, rpc).return_value = iter([])
+        assert list(getattr(client, method)(timeout=timeout)) == []
+        assert getattr(stub, rpc).call_args.kwargs["timeout"] == expected
+
+    @pytest.mark.parametrize(("timeout", "expected"), [(None, None), (UNBOUNDED, None), (3.0, 3.0)])
+    def test_open_stream_ignores_default_timeout(self, timeout, expected):
+        client, stub = client_with_stub()
+        client.default_timeout = 5.0
+        client.open_stream(timeout=timeout)
+        assert stub.StreamSession.call_args.kwargs["timeout"] == expected
+
+    def test_unary_calls_keep_default_timeout(self):
+        client, stub = client_with_stub()
+        client.default_timeout = 5.0
+        stub.ListModes.return_value = core_pb2.ListModesResponse()
+        client.list_modes()
+        assert stub.ListModes.call_args.kwargs["timeout"] == 5.0
+
+    def test_watcher_stream_is_unbounded_with_default_set(self):
+        from macp_sdk.watchers import ModeRegistryWatcher
+
+        client, stub = client_with_stub()
+        client.default_timeout = 5.0
+        stub.WatchModeRegistry.return_value = iter([])
+        assert list(ModeRegistryWatcher(client).changes()) == []
+        assert stub.WatchModeRegistry.call_args.kwargs["timeout"] is None

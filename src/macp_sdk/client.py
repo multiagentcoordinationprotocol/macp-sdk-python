@@ -170,10 +170,12 @@ class _UnboundedTimeout:
 
 UNBOUNDED = _UnboundedTimeout()
 
-# ``timeout=None`` (the default) means "use ``self.default_timeout``"; both
-# ``None`` and ``0`` are falsy, so once ``default_timeout`` is set to a
-# non-None value, neither could express "no deadline for this one call" (#93
-# item 6). Pass ``UNBOUNDED`` for that. Not a plain ``float | None`` because
+# On a unary call, ``timeout=None`` (the default) means "use
+# ``self.default_timeout``"; both ``None`` and ``0`` are falsy, so once
+# ``default_timeout`` is set to a non-None value, neither could express "no
+# deadline for this one call" (#93 item 6). Pass ``UNBOUNDED`` for that.
+# Streams never inherit ``default_timeout``: ``None`` and ``UNBOUNDED`` both
+# mean no deadline there (``_resolve_stream_timeout``). Not a plain ``float | None`` because
 # an ``Any``-typed default would defeat mypy strict's whole point of catching
 # a mistyped timeout argument at every one of this client's ~20 call sites.
 TimeoutValue = float | None | _UnboundedTimeout
@@ -430,6 +432,20 @@ class _ClientCore:
             return None
         if timeout is None:
             return self.default_timeout
+        return timeout
+
+    @staticmethod
+    def _resolve_stream_timeout(timeout: TimeoutValue) -> float | None:
+        """Resolve a streaming RPC's ``timeout``: explicit only.
+
+        Streams (``open_stream`` and every ``watch_*``) are long-lived, so
+        they never inherit ``default_timeout``: ``None`` and :data:`UNBOUNDED`
+        both mean no deadline, and a number bounds the whole stream. This
+        matches macp-sdk-typescript, whose streams apply a deadline only
+        when one is passed.
+        """
+        if timeout is None or isinstance(timeout, _UnboundedTimeout):
+            return None
         return timeout
 
     @staticmethod
@@ -1042,7 +1058,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchSessions(
             core_pb2.WatchSessionsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1343,7 +1359,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchPolicies(
             policy_pb2.WatchPoliciesRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1359,7 +1375,7 @@ class MacpClient(_ClientCore):
         return MacpStream(
             self.stub,
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
 
     def watch_mode_registry(
@@ -1373,7 +1389,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchModeRegistry(
             core_pb2.WatchModeRegistryRequest(),
             metadata=self._metadata(auth),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1395,7 +1411,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchRoots(
             core_pb2.WatchRootsRequest(),
             metadata=self._metadata(auth),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1420,7 +1436,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchSignals(
             core_pb2.WatchSignalsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
