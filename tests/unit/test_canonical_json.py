@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from google.protobuf import symbol_database
 from google.protobuf.descriptor import FieldDescriptor
+from google.protobuf.message import DecodeError
 from macp.modes.decision.v1 import decision_pb2
 from macp.modes.multi_round.v1 import multi_round_pb2
 from macp.modes.quorum.v1 import quorum_pb2
@@ -999,7 +1000,7 @@ def test_integer_map_keys_are_strict_and_sort_as_decimal_strings() -> None:
     raw = _wire(msg)
     keys = [raw.index(v.encode()) for v in ("b", "a", "c")]  # "-1" < "10" < "2"
     assert keys == sorted(keys)
-    for bad in ("1_0", "+5", " 5", "2147483648", "x"):
+    for bad in ("1_0", "+5", " 5", "2147483648", "x", "007", "-0", "+1"):
         with pytest.raises(CanonicalJsonError):
             _message_from_json({"n": {bad: "v"}}, cls)
     with pytest.raises(CanonicalJsonError):
@@ -1030,3 +1031,38 @@ def test_lone_surrogate_object_key_inside_payload_is_refused() -> None:
     obj["payload"]["\ud800"] = 1
     with pytest.raises(CanonicalJsonError, match="surrogate"):
         envelope_from_canonical_json(obj)
+
+
+def _varint_bytes(number: int) -> bytes:
+    out = bytearray()
+    while number > 0x7F:
+        out.append(number & 0x7F | 0x80)
+        number >>= 7
+    out.append(number)
+    return bytes(out)
+
+
+@pytest.mark.parametrize(("levels", "accepted"), [(100, True), (101, False)])
+def test_nesting_limit_counts_the_payload_as_level_one(levels: int, accepted: bool) -> None:
+    # Agreed with macp-sdk-typescript: 100 levels pass, 101 are refused, in
+    # JSON and on the wire; 99 nested groups pass and 100 are refused.
+    from macp_sdk.canonical_json import _check_varints, _message_from_json
+
+    cls = _int_map_message()
+    obj: dict[str, Any] = {}
+    wire = b""
+    for _ in range(levels - 1):
+        obj = {"self": obj}
+        wire = b"\x12" + _varint_bytes(len(wire)) + wire
+    groups = levels - 1
+    group_bytes = b"\x9b\x06" * groups + b"\x9c\x06" * groups
+    for check in (
+        lambda: _message_from_json(obj, cls),
+        lambda: _check_varints(wire, cls.DESCRIPTOR),
+        lambda: _check_varints(group_bytes, cls.DESCRIPTOR),
+    ):
+        if accepted:
+            check()
+        else:
+            with pytest.raises((CanonicalJsonError, DecodeError)):
+                check()

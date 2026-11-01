@@ -110,6 +110,7 @@ _INTEGER_RANGES = {
 }
 _FLOAT_TYPES = frozenset({FieldDescriptor.TYPE_DOUBLE, FieldDescriptor.TYPE_FLOAT})
 _DECIMAL = re.compile(r"-?[0-9]+\Z")
+_CANONICAL_DECIMAL = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 _JSON_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z")
 _DROP = object()  # a cleaned value to leave out of the parsed message
 _INT32_MIN, _INT32_MAX = -(2**31), 2**31 - 1
@@ -119,7 +120,7 @@ _RFC3339 = re.compile(
     r"(?:[Zz]|([+-])([0-9]{2}):([0-9]{2}))\Z"
 )
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-_MAX_DEPTH = 100  # upb's default nesting limit
+_MAX_DEPTH = 100  # levels, payload included; agreed with macp-sdk-typescript
 _MIN_MS = calendar.timegm((1, 1, 1, 0, 0, 0, 0, 0, 0)) * 1000
 _MAX_MS = calendar.timegm((9999, 12, 31, 23, 59, 59, 0, 0, 0)) * 1000 + 999
 
@@ -380,8 +381,8 @@ def _clean_map_key(key: Any, key_field: FieldDescriptor, name: str) -> str:
         if key not in ("true", "false"):
             raise CanonicalJsonError(f"{name} keys must be true or false")
     elif key_field.type in _INTEGER_RANGES:
-        if not _DECIMAL.match(key):
-            raise CanonicalJsonError(f"{name} keys must be decimal integers")
+        if not _CANONICAL_DECIMAL.match(key):
+            raise CanonicalJsonError(f"{name} keys must be canonical decimal integers")
         _clean_integer(key, key_field)
     return _check_utf8(key, name)
 
@@ -628,7 +629,7 @@ def _check_varints(data: bytes, desc: Descriptor | None, depth: int = 0) -> None
     parser do; Python's upb binding accepts it. Walks known submessages,
     packed fields and unknown groups too. Truncation, stray end-groups and
     bad wire types are left to ``ParseFromString``, which refuses them."""
-    if depth > _MAX_DEPTH:
+    if depth >= _MAX_DEPTH:  # the payload itself is level 1, at depth 0
         raise DecodeError("message nesting is too deep")
     _scan(data, 0, desc, None, depth)
 
@@ -660,7 +661,7 @@ def _scan(data: bytes, pos: int, desc: Descriptor | None, group: int | None, dep
                 while at < len(chunk):
                     _, at = _read_varint(chunk, at)
         elif wire_type == 3:
-            if depth >= _MAX_DEPTH:
+            if depth + 1 >= _MAX_DEPTH:  # a group is one level below its parent
                 raise DecodeError("group nesting is too deep")
             pos = _scan(data, pos, None, number, depth + 1)
         elif wire_type == 4 and group == number:
