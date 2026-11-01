@@ -580,6 +580,28 @@ class TestWatches:
 
         run(go)
 
+    def test_watch_policies_requires_auth(self) -> None:
+        # Runtime 0.12.0 rejects an unauthenticated WatchPolicies (#206).
+        async def go() -> None:
+            async with AsyncMacpClient(target="localhost:0", allow_insecure=True) as client:
+                client.stub = MagicMock()
+                with pytest.raises(MacpSdkError, match="requires auth"):
+                    async for _ in client.watch_policies():
+                        pass
+                client.stub.WatchPolicies.assert_not_called()
+
+        run(go)
+
+    def test_watch_policies_forwards_auth(self) -> None:
+        async def go() -> None:
+            client, stub = await _client()
+            stub.WatchPolicies.return_value = FakeStreamCall([])
+            assert [x async for x in client.watch_policies()] == []
+            metadata = list(stub.WatchPolicies.call_args.kwargs["metadata"])
+            assert ("authorization", "Bearer tok") in metadata
+
+        run(go)
+
     def test_breaking_out_early_cancels_call(self) -> None:
         async def go() -> None:
             client, stub = await _client()

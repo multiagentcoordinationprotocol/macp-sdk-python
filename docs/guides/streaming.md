@@ -205,7 +205,11 @@ populate roots yet.
 
 ### `PolicyWatcher`
 
-Observe governance policy registrations (`list_policies` + live diffs):
+Observe governance policy registrations: the full registry when the stream
+opens, then the full list again on every change. Like `list_policies`, it
+needs auth (`client.auth` or `PolicyWatcher(client, auth=...)`). Runtime
+0.12.0 rejects an unauthenticated `WatchPolicies`, and the SDK raises
+`MacpSdkError` before sending one:
 
 ```python
 from macp_sdk import PolicyWatcher

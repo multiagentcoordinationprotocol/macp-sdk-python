@@ -697,11 +697,12 @@ class AsyncMacpClient(_ClientCore):
     async def watch_policies(
         self, *, auth: AuthConfig | None = None, timeout: TimeoutValue = None
     ) -> AsyncIterator[policy_pb2.WatchPoliciesResponse]:
-        """Server-streaming RPC: async-iterate governance policy change events."""
+        """Server-streaming RPC: async-iterate governance policy change events (auth required)."""
         logger.debug("watch_policies starting")
+        auth_cfg = self._require_auth(auth)
         call = self.stub.WatchPolicies(
             policy_pb2.WatchPoliciesRequest(),
-            metadata=self._metadata(auth),
+            metadata=self._metadata(auth_cfg),
             timeout=self._resolve_timeout(timeout),
         )
         async with contextlib.aclosing(self._stream(call)) as items:
