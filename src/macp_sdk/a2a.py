@@ -204,6 +204,10 @@ def envelope_to_a2a_part(
             raise _invalid_envelope(str(exc)) from exc
         return {"mediaType": MEDIA_TYPE_ENVELOPE_JSON, "data": data}
     if encoding == "proto":
+        if not _MIN_MS <= env.timestamp_unix_ms <= _MAX_MS:
+            raise _invalid_envelope(
+                f"timestamp_unix_ms {env.timestamp_unix_ms} is outside years 0001 to 9999"
+            )
         raw = base64.b64encode(_wire(env)).decode("ascii")
         return {"mediaType": MEDIA_TYPE_ENVELOPE_PROTO, "raw": raw}
     raise ValueError(f"encoding must be 'json' or 'proto', not {encoding!r}")
@@ -278,12 +282,13 @@ def envelope_to_a2a_message(
 ) -> A2aMessage:
     """Encode *env* as a ``ROLE_USER`` Message with one Envelope Part (§5.1, §6).
 
-    ``messageId`` defaults to ``env.message_id``. ``taskId`` is the session id,
+    ``messageId`` defaults to ``env.message_id``, or a new UUID when that is
+    empty. ``taskId`` is the session id,
     except for a SessionStart or a Signal, which carry none (§6.1, §6.2).
     ``contextId`` is set only when *context_id* is non-empty.
     """
     msg: A2aMessage = {
-        "messageId": message_id or env.message_id,
+        "messageId": message_id or env.message_id or str(uuid.uuid4()),
         "role": "ROLE_USER",
         "parts": [envelope_to_a2a_part(env, encoding=encoding, registry=registry)],
         "extensions": [MACP_A2A_EXTENSION_URI],
@@ -333,8 +338,15 @@ def ack_to_a2a_message(
 
     ``messageId`` is a new UUID when *message_id* is not given. Raises
     ``codec``/``INVALID_ACK`` unless ``error`` is set exactly when ``ok`` is false.
+    A ``session_state`` with no name is written as ``SESSION_STATE_UNSPECIFIED``,
+    as the decoder reads it.
     """
     _check_ack(ack)
+    if envelope_pb2.SessionState.DESCRIPTOR.values_by_number.get(ack.session_state) is None:
+        named = envelope_pb2.Ack()
+        named.CopyFrom(ack)
+        named.session_state = envelope_pb2.SESSION_STATE_UNSPECIFIED
+        ack = named
     msg: A2aMessage = {
         "messageId": message_id or str(uuid.uuid4()),
         "role": "ROLE_AGENT",
@@ -487,7 +499,15 @@ def macp_agent_extension(
     required: bool = False,
     manifest_url: str | None = None,
 ) -> A2aAgentExtension:
-    """The ``AgentExtension`` an A2A MACP server declares in its AgentCard (§3)."""
+    """The ``AgentExtension`` an A2A MACP server declares in its AgentCard (§3).
+
+    Raises ``ValueError`` for a bare string where a list is expected, or a
+    non-bool *required*.
+    """
+    if isinstance(macp_versions, str) or isinstance(modes, str):
+        raise ValueError("macp_versions and modes are lists of strings, not a string")
+    if not isinstance(required, bool):
+        raise ValueError(f"required must be a bool, not {required!r}")
     params: dict[str, Any] = {
         "macpVersions": list(macp_versions),
         "modes": list(modes),

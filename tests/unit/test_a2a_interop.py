@@ -13,13 +13,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import a2a.types as a2a_types  # type: ignore[import-not-found]  # dev extra; a hard import, never a skip
 import pytest
 from google.protobuf import json_format  # type: ignore[import-untyped]
 
 from macp_sdk import a2a
 from macp_sdk.canonical_json import ack_from_canonical_json, envelope_from_canonical_json
-
-a2a_types = pytest.importorskip("a2a.types")
 
 VECTOR_DIR = Path(__file__).parents[1] / "vectors" / "a2a"
 VECTORS = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(VECTOR_DIR.glob("a2a_*.json"))]
@@ -87,6 +86,7 @@ def test_agent_extension(vector: dict[str, Any]) -> None:
     ext = a2a.macp_agent_extension(**vector["params"])
     back = _official(ext, "AgentExtension")
     assert back["uri"] == a2a.MACP_A2A_EXTENSION_URI
+    assert back.get("required", False) == ext["required"]
     assert back["params"] == ext["params"]
 
 

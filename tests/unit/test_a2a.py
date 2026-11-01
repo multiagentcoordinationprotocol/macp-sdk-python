@@ -667,3 +667,38 @@ class TestSurface:
         assert "MacpA2aError" in macp_sdk.__all__
         for name in a2a.__all__:
             assert getattr(macp_sdk, name) is getattr(a2a, name)
+
+
+class TestEncoderGuards:
+    """Encoder-side checks that keep the codec from writing what it refuses."""
+
+    @pytest.mark.parametrize("unix_ms", [-62_135_596_800_001, 253_402_300_800_000])
+    @pytest.mark.parametrize("encoding", ["json", "proto"])
+    def test_timestamp_outside_years_1_to_9999(self, encoding: str, unix_ms: int) -> None:
+        with pytest.raises(MacpA2aError) as info:
+            a2a.envelope_to_a2a_part(_env(timestamp_unix_ms=unix_ms), encoding=encoding)  # type: ignore[arg-type]
+        assert _code(info) == ("macp", "INVALID_ENVELOPE")
+
+    def test_empty_message_id_falls_back_to_a_uuid(self) -> None:
+        msg = a2a.envelope_to_a2a_message(_env(message_id=""))
+        assert uuid.UUID(msg["messageId"])
+
+    def test_unnamed_ack_state_is_written_as_unspecified(self) -> None:
+        ack = _ack(ok=True, session_state=99)
+        msg = a2a.ack_to_a2a_message(ack, message_id="a")
+        assert msg["parts"][0]["data"]["session_state"] == "SESSION_STATE_UNSPECIFIED"
+        assert ack.session_state == 99  # the caller's Ack is left alone
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"macp_versions": "1.0", "modes": ["m"]},
+            {"macp_versions": ["1.0"], "modes": "m"},
+            {"macp_versions": ["1.0"], "modes": ["m"], "required": "no"},
+            {"macp_versions": ["1.0"], "modes": ["m"], "required": 1},
+        ],
+        ids=["versions-str", "modes-str", "required-str", "required-int"],
+    )
+    def test_agent_extension_arguments(self, kwargs: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            a2a.macp_agent_extension(**kwargs)

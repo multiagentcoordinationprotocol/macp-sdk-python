@@ -65,7 +65,7 @@ the Protobuf bytes a JSON `payload` converts to, or the payload of a `raw`
 Envelope (§5.4). A `payload_b64` is measured before it is decoded, so an
 oversized one costs no decoding.
 
-Every failure raises `MacpA2aError`. Its `layer` says who answers it (§11):
+Every decode failure raises `MacpA2aError`. Its `layer` says who answers it (§11):
 
 | `layer` | `code` | When |
 |---|---|---|
@@ -79,6 +79,13 @@ Every failure raises `MacpA2aError`. Its `layer` says who answers it (§11):
 
 The `codec` codes are local; RFC-MACP-0014 gives these cases no wire code.
 `MacpA2aError` is a `MacpSdkError` and a `ValueError`.
+
+The encoders raise it too, so the codec never writes what it would refuse:
+`macp`/`INVALID_ENVELOPE` for an Envelope whose payload does not parse as its
+standard schema or whose timestamp is outside the years 0001 to 9999,
+`codec`/`INVALID_ACK` for an inconsistent Ack, and `codec`/`INVALID_SEQUENCE`
+for a bad sequence. A bad argument (an unknown `encoding`, a negative
+`max_payload_bytes`, a bare string for `modes`) is a plain `ValueError`.
 
 ## Observing a session
 
