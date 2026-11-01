@@ -34,11 +34,13 @@ from macp_sdk.base_projection import BaseProjection
 from macp_sdk.constants import (
     MODE_DECISION,
     MODE_HANDOFF,
+    MODE_MULTI_ROUND,
     MODE_PROPOSAL,
     MODE_QUORUM,
     MODE_TASK,
 )
 from macp_sdk.handoff import HandoffProjection
+from macp_sdk.multi_round import MultiRoundProjection
 from macp_sdk.projections import DecisionProjection
 from macp_sdk.proposal import ProposalProjection
 from macp_sdk.quorum import QuorumProjection
@@ -80,6 +82,15 @@ BRANCHES = [
     (ProposalProjection, MODE_PROPOSAL, "Accept"),
     (ProposalProjection, MODE_PROPOSAL, "Reject"),
     (ProposalProjection, MODE_PROPOSAL, "Withdraw"),
+    (MultiRoundProjection, MODE_MULTI_ROUND, "SessionStart"),
+]
+
+# Branches that deliberately treat an undecodable payload as a no-op instead of
+# raising: the multi_round proto lets a history reader return "nothing
+# decodable" for a Contribute (agreed with macp-sdk-typescript). The envelope
+# stays in the transcript; no derived state may change.
+NO_OP_BRANCHES = [
+    (MultiRoundProjection, MODE_MULTI_ROUND, "Contribute"),
 ]
 
 
@@ -121,6 +132,25 @@ def test_malformed_payload_leaves_no_state_behind(factory, mode, message_type):
     # The dedup set specifically must have released the id, or the retry
     # below would be swallowed as a redelivery rather than applied.
     assert env.message_id not in proj._seen_message_ids
+
+
+@pytest.mark.parametrize(
+    ("factory", "mode", "message_type"),
+    NO_OP_BRANCHES,
+    ids=[f"{m.rsplit('.', 2)[-2]}-{t}" for _, m, t in NO_OP_BRANCHES],
+)
+def test_malformed_payload_is_a_no_op_on_no_op_branches(factory, mode, message_type):
+    # Seed a roster so "ignored" is distinguishable from "recorded, not evaluated".
+    proj = factory(participants=["alice"])
+    before = _state(proj)
+    env = _malformed(mode, message_type)
+    proj.apply_envelope(env)
+    after = _state(proj)
+    assert after.pop("transcript") == [env]
+    for state in (before, after):
+        state.pop("_seen_message_ids")
+    before.pop("transcript")
+    assert after == before
 
 
 def test_decision_retains_seeded_state_across_a_failed_vote():
@@ -230,8 +260,9 @@ def test_branch_table_covers_every_projection_and_dispatch_arm():
     import inspect
 
     factories = _sdk_projections()
-    assert {f for f, _, _ in BRANCHES} == set(factories), (
-        f"BRANCHES covers {sorted({f.__name__ for f, _, _ in BRANCHES})} but macp_sdk "
+    rows = BRANCHES + NO_OP_BRANCHES
+    assert {f for f, _, _ in rows} == set(factories), (
+        f"BRANCHES covers {sorted({f.__name__ for f, _, _ in rows})} but macp_sdk "
         f"ships {sorted(c.__name__ for c in factories)}. A projection with no rows "
         f"is an unpinned opportunity to break the invariant."
     )
@@ -244,7 +275,7 @@ def test_branch_table_covers_every_projection_and_dispatch_arm():
             for line in source.splitlines()
             if '== "' in line and ("message_type ==" in line or "mt ==" in line)
         }
-        covered = {t for f, _, t in BRANCHES if f is factory}
+        covered = {t for f, _, t in rows if f is factory}
         assert arms == covered, (
             f"{factory.__name__} dispatch arms {sorted(arms)} != BRANCHES rows "
             f"{sorted(covered)}. Add the missing row(s) so the invariant stays pinned."

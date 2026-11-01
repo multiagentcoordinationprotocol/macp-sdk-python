@@ -20,36 +20,16 @@ from google.protobuf.descriptor import FieldDescriptor
 from macp.v1 import envelope_pb2
 
 from macp_sdk import errors
-from macp_sdk.base_projection import BaseProjection
 from macp_sdk.constants import MODE_MULTI_ROUND
 from macp_sdk.envelope import new_message_id, now_unix_ms, serialize_message
 from macp_sdk.handoff import HandoffProjection
+from macp_sdk.multi_round import MultiRoundProjection
 from macp_sdk.policy import effective_quorum_threshold
 from macp_sdk.projections import DecisionProjection
 from macp_sdk.proposal import ProposalProjection
 from macp_sdk.proto_registry import CORE_MAP, MODE_MAP, ProtoRegistry
 from macp_sdk.quorum import QuorumProjection
 from macp_sdk.task import TaskProjection
-
-
-class MultiRoundReplayProjection(BaseProjection):
-    """Replay projection for the ``ext.multi_round.v1`` extension mode.
-
-    The mode has no first-class SDK projection; the multi_round fixtures
-    assert only transcript length, commitment presence, and resolution
-    scalars -- all handled generically by ``BaseProjection`` -- so a
-    transcript-only subclass gives them real conformance assertions instead
-    of a skip. Mirrors macp-sdk-typescript's ``MultiRoundReplayProjection``
-    (tests/conformance/conformance.test.ts).
-    """
-
-    MODE = MODE_MULTI_ROUND
-
-    def _apply_mode_message(self, envelope: envelope_pb2.Envelope) -> None:
-        # Transcript-only: the fixtures carry no expected_mode_state for
-        # multi_round, so there is no per-message state to track.
-        pass
-
 
 FIXTURES_DIR = Path(__file__).parent
 
@@ -91,7 +71,7 @@ MODE_PROJECTIONS: dict[str, type] = {
     "macp.mode.task.v1": TaskProjection,
     "macp.mode.handoff.v1": HandoffProjection,
     "macp.mode.quorum.v1": QuorumProjection,
-    MODE_MULTI_ROUND: MultiRoundReplayProjection,
+    MODE_MULTI_ROUND: MultiRoundProjection,
 }
 
 
@@ -166,7 +146,15 @@ def test_projection_replay(name: str, fixture: dict, caplog: pytest.LogCaptureFi
     if projection_cls is None:
         pytest.skip(f"No projection registered for mode {mode}")
 
-    projection = projection_cls()
+    if projection_cls is MultiRoundProjection:
+        # The fixtures carry no SessionStart message, so seed the roster the
+        # way a participant joining mid-session would; convergence is then
+        # exercised for real.
+        projection = MultiRoundProjection(
+            participants=fixture["participants"], initiator=fixture["initiator"]
+        )
+    else:
+        projection = projection_cls()
     session_id = "conformance-session"
 
     # Replay only accepted messages (rejection is runtime-side). Reject-path
@@ -240,6 +228,17 @@ def test_projection_replay(name: str, fixture: dict, caplog: pytest.LogCaptureFi
     expected_mode_state = fixture.get("expected_mode_state") or {}
     if "phase" in expected_mode_state:
         assert projection.phase == expected_mode_state["phase"], f"{name}: phase"
+    if projection_cls is MultiRoundProjection:
+        # Both multi_round fixtures reach all_equal on their accepted prefix.
+        assert projection.converged, f"{name}: converged"
+        assert projection.converged_value == "option_a", f"{name}: converged_value"
+        # Every accepted Contribute in these fixtures changes a value.
+        contributes = [
+            m
+            for m in fixture["messages"]
+            if m.get("expect") == "accept" and m["message_type"] == "Contribute"
+        ]
+        assert projection.round == len(contributes), f"{name}: round"
     if "votes" in expected_mode_state:
         for proposal_id, by_sender in expected_mode_state["votes"].items():
             for sender, record in by_sender.items():
