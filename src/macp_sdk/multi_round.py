@@ -11,10 +11,12 @@ convergence is advisory, and nothing here evaluates governance policy.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from google.protobuf.message import DecodeError  # type: ignore[import-untyped]
+from macp.modes.multi_round.v1 import multi_round_pb2
 from macp.v1 import core_pb2, envelope_pb2
 
 from .async_session import AsyncBaseSession
@@ -24,7 +26,6 @@ from .base_session import BaseSession, _SessionCore
 from .constants import MODE_MULTI_ROUND
 from .envelope import build_commitment_payload, build_contribute_payload
 from .errors import MacpSessionError
-from .proto_registry import ProtoRegistry
 from .validation import validate_required_field
 
 __all__ = [
@@ -46,31 +47,80 @@ MULTI_ROUND_CONVERGED_ACTION = "multi_round.converged"
 _NEGATIVE_SUFFIXES = ("rejected", "failed", "declined")
 _POSITIVE_SUFFIXES = ("selected", "accepted", "completed", "approved")
 
-_registry: ProtoRegistry | None = None
+
+class _NotContributeJsonError(Exception):
+    """The bytes are not JSON that serde reads as ``ContributeJson``."""
+
+
+def _reject_constant(name: str) -> Any:
+    raise _NotContributeJsonError(name)  # NaN / Infinity are not JSON to serde
+
+
+def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise _NotContributeJsonError("duplicate key")  # serde refuses a duplicate field
+    return dict(pairs)
+
+
+def _check_strings(obj: Any) -> None:
+    # serde_json refuses a lone-surrogate escape anywhere in the document.
+    if isinstance(obj, str):
+        obj.encode("utf-8")
+    elif isinstance(obj, dict):
+        for key, value in obj.items():
+            key.encode("utf-8")
+            _check_strings(value)
+    elif isinstance(obj, list):
+        for item in obj:
+            _check_strings(item)
+
+
+def _json_value(payload: bytes) -> str | None:
+    """The ``value`` of legacy JSON exactly as the runtime's serde reads it."""
+    try:
+        obj = json.loads(
+            payload.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=_reject_constant
+        )
+        _check_strings(obj)
+    except (_NotContributeJsonError, UnicodeError, ValueError, RecursionError):
+        return None
+    if isinstance(obj, dict) and isinstance(obj.get("value"), str):
+        value: str = obj["value"]
+        return value
+    return None
 
 
 def _contribute_value(payload: bytes) -> str | None:
     """The contributed value, or ``None`` when nothing decodes.
 
-    Uses the registry's JSON-first decoder with its canonical-proto
-    tie-break. ``None`` covers an empty payload, undecodable bytes and a
-    legacy JSON ``value`` that is not a string: the proto lets a history
-    reader return "nothing decodable" rather than refuse.
+    Mirrors the runtime's ``parse_contribute_value`` at ``semantics_rev`` 3:
+    JSON is trusted only when serde would read it as ``{"value": <string>}``
+    (an object, no duplicate keys, no lone surrogate, no NaN) and the bytes
+    are not also the canonical protobuf encoding; otherwise the bytes decode
+    as protobuf. ``None`` (a no-op for the projection) covers an empty
+    payload and bytes that are neither: the proto lets a history reader
+    return "nothing decodable" rather than refuse.
     """
-    global _registry
     if not payload:
         return None
-    if _registry is None:
-        _registry = ProtoRegistry()
     try:
-        decoded = _registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", payload)
-    except (DecodeError, ValueError):
-        return None
-    if decoded is not None and decoded.get("encoding") == "json":
-        # Legacy JSON comes back wrapped as {"encoding": "json", "json": ...}.
-        decoded = decoded["json"]
-    value = decoded.get("value") if isinstance(decoded, dict) else None
-    return value if isinstance(value, str) else None
+        proto: multi_round_pb2.ContributePayload | None = (
+            multi_round_pb2.ContributePayload.FromString(payload)
+        )
+    except DecodeError:
+        proto = None
+    from_json = _json_value(payload)
+    if from_json is not None:
+        # Re-encode from the value alone: prost drops unknown fields, and a
+        # payload carrying any is not canonical.
+        canonical = (
+            proto is not None
+            and multi_round_pb2.ContributePayload(value=proto.value).SerializeToString() == payload
+        )
+        if not canonical:
+            return from_json
+    return proto.value if proto is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +145,13 @@ class MultiRoundProjection(BaseProjection):
 
     Phases: ``"Pending"`` → ``"Contributing"`` (SessionStart) →
     ``"Converged"`` → ``"Committed"``.
+
+    A session's own projection is fed the envelopes the session built, so it
+    attributes them only when the sender resolves locally: pass ``sender=`` or
+    give a bearer ``AuthConfig`` a ``sender_hint``. With neither, the runtime
+    still accepts the messages (it stamps the authenticated sender), but this
+    projection drops the unattributed Contributes as non-participant ones.
+    Subscribing to the session stream does not have this limit.
 
     Limitation: the projection cannot see a session's ``semantics_rev``, so a
     session the runtime recorded below revision 3 that carried a canonical
@@ -126,7 +183,11 @@ class MultiRoundProjection(BaseProjection):
             p = core_pb2.SessionStartPayload()
             p.ParseFromString(envelope.payload)
             self.participants = list(p.participants)
-            self.initiator = envelope.sender
+            # A locally built envelope under bearer auth without a sender hint
+            # has an empty sender; the runtime stamps the real one only on its
+            # copy, so keep what is known.
+            if envelope.sender:
+                self.initiator = envelope.sender
             self._set_phase("Contributing")
             return
 
@@ -308,7 +369,7 @@ class MultiRoundSession(BaseSession, _MultiRoundActions):
             self._contribute_envelope(value, sender=sender, auth=auth), auth=auth
         )
 
-    def commit(  # type: ignore[override]
+    def commit(
         self,
         *,
         authority_scope: str,
@@ -360,7 +421,7 @@ class AsyncMultiRoundSession(AsyncBaseSession, _MultiRoundActions):
             self._contribute_envelope(value, sender=sender, auth=auth), auth=auth
         )
 
-    async def commit(  # type: ignore[override]
+    async def commit(
         self,
         *,
         authority_scope: str,

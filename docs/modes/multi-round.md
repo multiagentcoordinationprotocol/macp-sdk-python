@@ -91,7 +91,7 @@ session.commit(authority_scope="rollout", reason="All participants agree")
 | Attribute | Meaning |
 |---|---|
 | `participants` | The declared participants, from SessionStart |
-| `initiator` | The SessionStart sender, `None` until seen |
+| `initiator` | The SessionStart sender, `None` until seen (a SessionStart with an empty sender keeps it) |
 | `contributions` | The latest value per participant |
 | `round` | The number of value changes so far |
 | `converged` | Whether all participants agree (sticky) |
@@ -105,11 +105,20 @@ can be seeded: `MultiRoundProjection(participants=[...], initiator="...")`. A la
 SessionStart overwrites both. Without participants, convergence is never
 evaluated.
 
-A `Contribute` that decodes to nothing (empty, undecodable, or a legacy JSON
-`value` that is not a string), one from a non-participant, and one after
-convergence are no-ops. Accepted history contains none of them.
+A `Contribute` from a non-participant, one after convergence, and one that
+decodes to nothing are no-ops. The first two never appear in accepted history.
 
-The value is decoded JSON first, with the canonical-protobuf tie-break the proto
-specifies. The projection cannot see a session's `semantics_rev`, so for a session
+The value is decoded the way the runtime decodes it. Legacy JSON counts only
+when it is an object with a string `value`, no duplicate keys, no lone-surrogate
+escape and no `NaN`, and the bytes are not also the canonical protobuf encoding
+(the tie-break the proto specifies). Anything else decodes as protobuf, and bytes
+that are neither decode to nothing.
+
+**A session's own projection needs a sender it can resolve.** It is fed the
+envelopes the session built, and under bearer auth without a `sender_hint` those
+carry an empty sender: the runtime stamps the authenticated sender only on its
+own copy. Such Contributes are accepted by the runtime but dropped by the local
+projection. Pass `sender=`, use `AuthConfig.for_bearer(token, sender_hint=...)`,
+or follow the session stream instead. The projection cannot see a session's `semantics_rev`, so for a session
 recorded below revision 3, a protobuf value of byte length 13, 32 or 123 decodes
 here under the tie-break, not the JSON-first reading the runtime used then.

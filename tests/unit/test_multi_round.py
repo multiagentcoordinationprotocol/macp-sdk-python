@@ -5,9 +5,10 @@ Test names are shared with macp-sdk-typescript's ``multi-round`` tests.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from macp.v1 import core_pb2, envelope_pb2
@@ -15,6 +16,7 @@ from macp.v1 import core_pb2, envelope_pb2
 from macp_sdk import (
     MULTI_ROUND_CONVERGED_ACTION,
     MULTI_ROUND_MODE_VERSION,
+    AsyncMultiRoundSession,
     AuthConfig,
     MacpSessionError,
     MultiRoundProjection,
@@ -149,6 +151,38 @@ class TestProjection:
         assert projection.contributions == {}
         assert len(projection.transcript) == 2
 
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            (b'{"value": "A"}', "A"),
+            # Not ContributeJson to serde, but valid protobuf with an unknown field.
+            (b"\x0a\x31" + b"1" * 49 + b"\x20\x20", "1" * 49),
+            # serde refuses the duplicate field, so the bytes decode as protobuf.
+            (
+                b"\x0a\x20" + b'{"value":"a","value":"bbbbbbbb"}' + b"\x20\x20",
+                '{"value":"a","value":"bbbbbbbb"}',
+            ),
+            # Valid JSON and canonical protobuf at length 13: the tie-break picks protobuf.
+            (build_contribute_payload('{"value":"x"}').SerializeToString(), '{"value":"x"}'),
+            (b'{"value": "\\ud800"}', None),
+            (b'{"value": "a", "n": NaN}', None),
+            (b'{"value": "a", "x": ["\\udc00"]}', None),
+        ],
+        ids=[
+            "legacy",
+            "json-scalar-proto",
+            "duplicate-key",
+            "tie-break-13",
+            "surrogate",
+            "nan",
+            "surrogate-in-ignored-field",
+        ],
+    )
+    def test_decoding_mirrors_the_runtime(self, payload: bytes, expected: str | None) -> None:
+        projection = _started()
+        projection.apply_envelope(_env("Contribute", ALICE, payload))
+        assert projection.contributions == ({} if expected is None else {ALICE: expected})
+
     def test_legacy_json_contribution_decodes(self) -> None:
         projection = _started()
         projection.apply_envelope(_env("Contribute", ALICE, b'{"value": "A"}'))
@@ -171,6 +205,12 @@ class TestProjection:
         projection.apply_envelope(_env("Commitment", COORD, serialize_message(commitment)))
         assert projection.is_committed
         assert projection.phase == "Committed"
+
+    def test_other_message_types_are_ignored(self) -> None:
+        projection = _started()
+        projection.apply_envelope(_env("Signal", ALICE, b"x"))
+        assert projection.round == 0
+        assert projection.phase == "Contributing"
 
     def test_redelivery_is_a_no_op(self) -> None:
         projection = _started()
@@ -359,6 +399,28 @@ class TestSession:
         commitment = core_pb2.CommitmentPayload.FromString(_sent(client).payload)
         assert commitment.supersedes == ref
 
+    def test_bearer_without_sender_hint_keeps_known_initiator(self) -> None:
+        client = MagicMock()
+        client.auth = AuthConfig.for_bearer("tok")
+        client.send.side_effect = _ok
+        session = MultiRoundSession(client, session_id=VALID_SESSION_ID)
+        session.multi_round_projection.initiator = COORD
+        session.start(intent="i", participants=[ALICE, BOB], ttl_ms=1)
+        session.contribute("A")
+        projection = session.multi_round_projection
+        assert projection.initiator == COORD
+        # Unattributed locally: the runtime stamps the sender on its own copy.
+        assert projection.contributions == {}
+
+    def test_bearer_with_sender_hint_tracks(self) -> None:
+        client = MagicMock()
+        client.auth = AuthConfig.for_bearer("tok", sender_hint=ALICE)
+        client.send.side_effect = _ok
+        session = MultiRoundSession(client, session_id=VALID_SESSION_ID)
+        session.multi_round_projection.participants = [ALICE, BOB]
+        session.contribute("A")
+        assert session.multi_round_projection.contributions == {ALICE: "A"}
+
     def test_nack_leaves_projection_untouched(self) -> None:
         session, client = _session()
         session.start(intent="i", participants=[ALICE, BOB], ttl_ms=1)
@@ -366,3 +428,34 @@ class TestSession:
         client.send.return_value = make_ack(ok=False, session_id=VALID_SESSION_ID)
         session.contribute("A", **_auth(ALICE))
         assert session.multi_round_projection.round == 0
+
+
+class TestAsyncSession:
+    def test_start_refuses_other_mode_version(self) -> None:
+        async def go() -> None:
+            client = MagicMock()
+            client.auth = AuthConfig.for_dev_agent(COORD)
+            client.send = AsyncMock(side_effect=_ok)
+            session = AsyncMultiRoundSession(
+                client, session_id=VALID_SESSION_ID, mode_version="2.0.0"
+            )
+            with pytest.raises(MacpSessionError, match="mode_version"):
+                await session.start(intent="i", participants=[ALICE], ttl_ms=1)
+            client.send.assert_not_awaited()
+
+        asyncio.run(go())
+
+    def test_contribute_and_commit_refusals(self) -> None:
+        async def go() -> None:
+            client = MagicMock()
+            client.auth = AuthConfig.for_dev_agent(COORD)
+            client.send = AsyncMock(side_effect=_ok)
+            session = AsyncMultiRoundSession(client, session_id=VALID_SESSION_ID)
+            await session.start(intent="i", participants=[ALICE, BOB], ttl_ms=1)
+            with pytest.raises(MacpSessionError, match="participant"):
+                await session.contribute("A")
+            with pytest.raises(MacpSessionError, match="initiator"):
+                await session.commit(authority_scope="s", reason="r", **_auth(ALICE))
+            assert client.send.await_count == 1
+
+        asyncio.run(go())

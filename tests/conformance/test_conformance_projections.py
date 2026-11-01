@@ -232,6 +232,13 @@ def test_projection_replay(name: str, fixture: dict, caplog: pytest.LogCaptureFi
         # Both multi_round fixtures reach all_equal on their accepted prefix.
         assert projection.converged, f"{name}: converged"
         assert projection.converged_value == "option_a", f"{name}: converged_value"
+        # Every accepted Contribute in these fixtures changes a value.
+        contributes = [
+            m
+            for m in fixture["messages"]
+            if m.get("expect") == "accept" and m["message_type"] == "Contribute"
+        ]
+        assert projection.round == len(contributes), f"{name}: round"
     if "votes" in expected_mode_state:
         for proposal_id, by_sender in expected_mode_state["votes"].items():
             for sender, record in by_sender.items():

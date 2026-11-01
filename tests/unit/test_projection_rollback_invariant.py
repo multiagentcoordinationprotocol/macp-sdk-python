@@ -140,7 +140,8 @@ def test_malformed_payload_leaves_no_state_behind(factory, mode, message_type):
     ids=[f"{m.rsplit('.', 2)[-2]}-{t}" for _, m, t in NO_OP_BRANCHES],
 )
 def test_malformed_payload_is_a_no_op_on_no_op_branches(factory, mode, message_type):
-    proj = factory()
+    # Seed a roster so "ignored" is distinguishable from "recorded, not evaluated".
+    proj = factory(participants=["alice"])
     before = _state(proj)
     env = _malformed(mode, message_type)
     proj.apply_envelope(env)
