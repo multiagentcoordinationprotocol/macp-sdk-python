@@ -269,6 +269,10 @@ make dev-link-protos    # link local proto package for development
 `make test-integration-docker` starts the same pinned runtime image as the quick start,
 runs `tests/integration/`, and cleans up.
 
+### For MACP org members
+
+Agents working in this repo can query the MACP knowledge base through the `macp-kb` MCP server. Setup instructions are in the private `macp-docs` repo (README, "MCP server"). Answers cite the source repo and commit, so check freshness with `kb_status` before relying on one. Outside contributors can ignore this section; the server is limited to org members.
+
 ## Documentation
 
 Full docs available in `docs/` — build with `mkdocs serve` after `make setup`.
