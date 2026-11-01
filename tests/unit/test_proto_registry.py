@@ -461,3 +461,35 @@ class TestTryDecodeUtf8:
         # Random high-bit bytes aren't valid UTF-8 and aren't text.
         with pytest.raises(UnicodeDecodeError):
             ProtoRegistry._try_decode_utf8(b"\xff\xfe\xfd")
+
+
+class TestContributeViewMatchesTheRuntime:
+    """Bytes the runtime accepts decode to the value it stored (a handler's view)."""
+
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            # Valid protobuf whose bytes json.loads reads as {"value": "bbbbbbbb"}.
+            (
+                b"\x0a\x20" + b'{"value":"a","value":"bbbbbbbb"}' + b"\x20\x20",
+                {"value": '{"value":"a","value":"bbbbbbbb"}'},
+            ),
+            (b"\x0a\x31" + b"1" * 49 + b"\x20\x20", {"value": "1" * 49}),
+            (b"\x0a\x00", {}),
+            (b'["A"]', {"encoding": "json", "json": ["A"]}),
+        ],
+        ids=["dup-value-proto", "scalar-json-proto", "empty-value", "array-form"],
+    )
+    def test_accepted_bytes_decode_as_the_runtime_does(
+        self, registry: ProtoRegistry, payload: bytes, expected: dict[str, object]
+    ) -> None:
+        assert registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", payload) == expected
+
+    def test_json_too_deep_for_python_keeps_the_runtime_value(
+        self, registry: ProtoRegistry
+    ) -> None:
+        payload = b'{"value":"A","x":' + b"[" * 200_000 + b"]" * 200_000 + b"}"
+        decoded = registry.decode_known_payload(MODE_MULTI_ROUND, "Contribute", payload)
+        assert decoded is not None
+        assert decoded["encoding"] == "json"
+        assert decoded["json"]["value"] == "A"

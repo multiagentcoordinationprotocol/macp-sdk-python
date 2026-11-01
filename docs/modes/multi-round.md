@@ -108,11 +108,18 @@ evaluated.
 A `Contribute` from a non-participant, one after convergence, and one that
 decodes to nothing are no-ops. The first two never appear in accepted history.
 
-The value is decoded the way the runtime decodes it. Legacy JSON counts only
-when it is an object with a string `value`, no duplicate keys, no lone-surrogate
-escape and no `NaN`, and the bytes are not also the canonical protobuf encoding
-(the tie-break the proto specifies). Anything else decodes as protobuf, and bytes
-that are neither decode to nothing.
+The value is decoded exactly as the runtime's `parse_contribute_value` decodes
+it. Legacy JSON is read the way serde reads `{"value": <string>}`: an object with
+one `value` string, or a one-element array holding it. Only the top-level keys
+and the value itself must be free of lone surrogates, and other members are
+syntax-checked but otherwise ignored. That JSON wins unless the bytes are also
+the canonical protobuf encoding of the same message, the tie-break the proto
+specifies. Everything else is read the way prost reads it. The last `value`
+field wins, invalid UTF-8 in any `value` field is refused, and so is a wrong
+wire type. Bytes that neither reader accepts decode to nothing. A non-empty
+payload that decodes to `""` is a real contribution, as it is in the runtime.
+Among payloads whose value is empty, only a zero-byte one is refused, which is
+why `contribute("")` raises.
 
 **A session's own projection needs a sender it can resolve.** It is fed the
 envelopes the session built, and under bearer auth without a `sender_hint` those

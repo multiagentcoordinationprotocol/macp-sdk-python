@@ -225,13 +225,12 @@ class ProtoRegistry:
         forward-direction case above (mechanisms 1 and 2, including length
         123 -- see
         ``test_canonical_proto_length_123_collision_is_resolved_toward_proto``),
-        leaving zero corrupting lengths in 1-127. ``macp-runtime`` has no
-        equivalent tie-break and mis-decodes canonical proto at value
-        lengths 13, 32 and 123 today (mechanism 2 on its own
-        ``parse_contribute_value``,
-        ``macp-runtime/crates/macp-modes/src/mode/multi_round.rs:70-77``);
-        its docstring's claim "a proto payload never parses as a JSON
-        object" (``:55-56``) is therefore false, not merely imprecise.
+        leaving zero corrupting lengths in 1-127. ``macp-runtime`` adopted
+        the same tie-break at ``semantics_rev`` 3 (issue #192). Bytes the
+        runtime accepts are now decoded by
+        :func:`macp_sdk.multi_round._contribute_decision`, a byte-exact
+        mirror of its ``parse_contribute_value``; the lenient path below
+        applies only to bytes the runtime refuses.
 
         The tie-break also has a cost on the *reverse* direction -- legacy
         JSON misread as proto -- that it introduces rather than merely fails
@@ -257,6 +256,22 @@ class ProtoRegistry:
         """
         if not payload:
             return None
+        from .multi_round import _contribute_decision
+
+        decided = _contribute_decision(payload)
+        if decided is not None:
+            # Bytes the runtime accepts get the runtime's reading, so a
+            # handler never sees a different value from the one it stored.
+            branch, value = decided
+            if branch == "proto":
+                return {"value": value} if value else {}
+            try:
+                parsed: Any = json.loads(payload.decode("utf-8"))
+            except (ValueError, RecursionError):
+                parsed = {"value": value}
+            return {"encoding": "json", "json": parsed}
+        # Bytes the runtime refuses never reach accepted history; decode them
+        # leniently, as before.
         try:
             parsed = json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
