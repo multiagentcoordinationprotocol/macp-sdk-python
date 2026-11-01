@@ -100,8 +100,8 @@ REJECT = [pytest.param(v, id=v["id"]) for v in VECTORS if "expected_error" in v]
 
 class TestVectors:
     def test_pack_is_complete(self) -> None:
-        # The pack's README: 106 vectors, 68 positive and 38 reject, over every op.
-        assert (len(VECTORS), len(POSITIVE), len(REJECT)) == (106, 68, 38)
+        # The pack's README: 107 vectors, 69 positive and 38 reject, over every op.
+        assert (len(VECTORS), len(POSITIVE), len(REJECT)) == (107, 69, 38)
         ops = {v["op"] for v in VECTORS}
         assert ops == {
             "envelope_to_a2a_part",

@@ -174,6 +174,6 @@ of this repo only.
 
 ## Conformance
 
-`tests/unit/test_a2a.py` runs the spec's 106 A2A vectors
+`tests/unit/test_a2a.py` runs the spec's 107 A2A vectors
 (`schemas/conformance/a2a/`, vendored under `tests/vectors/a2a/`) and replays the
 example transcript end to end. macp-sdk-typescript runs the same vectors.
