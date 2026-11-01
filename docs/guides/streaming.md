@@ -76,14 +76,17 @@ semantics:
   `N+1` onward, so envelope `N` is **never re-delivered**.
 - Ordinals are contiguous and **stable across log compaction and runtime
   restart** — they count accepted envelopes, not raw internal log entries.
-- Resuming **below a compacted range** is refused. Since runtime 0.9.0 the
-  refusal is an **inline** `INVALID_ENVELOPE` error frame — delivered to
-  `stream.on_inline_error(...)` callbacks, with the stream left open. Older
-  runtimes instead fail the stream with gRPC `FAILED_PRECONDITION`, surfaced
-  as `MacpTransportError(code="FAILED_PRECONDITION")` from `read()`. Either
-  way the message names the compacted base: resubscribe with
-  `after_sequence` at or above it (not `0`), or re-read state via
-  `GetSession`.
+- Resuming **below a compacted range** is refused. Since runtime 0.12.0 the
+  refusal **ends the stream** with gRPC `FAILED_PRECONDITION` and
+  `macp-error-code: HISTORY_UNAVAILABLE` (RFC-MACP-0006 §3.2). `read()`
+  raises `MacpTransportError(code="FAILED_PRECONDITION",
+  macp_code="HISTORY_UNAVAILABLE")`, and the `macp-error-details-bin`
+  trailer carries `{"lowest_available_sequence": N}`. Runtime 0.9–0.11 sent
+  an inline `INVALID_ENVELOPE` frame instead (to `on_inline_error`
+  callbacks, stream left open), and older runtimes a plain
+  `FAILED_PRECONDITION`. In every case, open a new stream and resubscribe
+  with `after_sequence` at or above the lowest available sequence (not `0`),
+  or re-read state via `GetSession`.
 
 To resume after a disconnect, track how many envelopes you have consumed and
 pass that count as `after_sequence` on reconnect.
