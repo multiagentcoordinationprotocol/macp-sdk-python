@@ -60,6 +60,8 @@ MAKEFILE = REPO_ROOT / "Makefile"
 KEYS = '{"keys": []}'
 #: Content of the other FIXTURE_FILE_PAIRS file (macp-semconv.json) on both sides.
 SEMCONV = '{"groups": []}'
+#: Content of the third FIXTURE_FILE_PAIRS file (a2a_binding_session.json) on both sides.
+A2A = '{"exchange": []}'
 
 # Doesn't distinguish GNU make from BSD make -- the recipes rely on GNU-only
 # shell-in-recipe semantics (e.g. `$$` escaping applied consistently across
@@ -95,6 +97,7 @@ def _make_canon(
     if example is not None:
         _write_files(tmp_path / "examples" / "discovery", {"receipt_keys.json": example})
     _write_files(tmp_path / "schemas" / "otel", {"macp-semconv.json": SEMCONV})
+    _write_files(tmp_path / "examples", {"a2a-binding-session.json": A2A})
     return canon
 
 
@@ -117,6 +120,7 @@ def _make_repo(
     if example is not None:
         _write_files(repo / "tests" / "fixtures", {"receipt_keys.json": example})
     _write_files(repo / "tests" / "otel", {"macp-semconv.json": SEMCONV})
+    _write_files(repo / "tests" / "fixtures", {"a2a_binding_session.json": A2A})
     return repo
 
 
@@ -430,6 +434,7 @@ def test_spec_root_defaults_relative_to_conformance_dir(tmp_path: Path) -> None:
     _write_files(canon / "receipt", None)
     _write_files(spec / "examples" / "discovery", {"receipt_keys.json": KEYS})
     _write_files(spec / "schemas" / "otel", {"macp-semconv.json": SEMCONV})
+    _write_files(spec / "examples", {"a2a-binding-session.json": A2A})
     repo = _make_repo(tmp_path, conformance={"a.json": "A"}, cmt_hash={})
     env = {k: v for k, v in os.environ.items() if k not in {"MAKEFLAGS", "MAKELEVEL", "MFLAGS"}}
 

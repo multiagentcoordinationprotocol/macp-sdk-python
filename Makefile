@@ -10,7 +10,7 @@ FIXTURE_DIR_PAIRS := .:tests/conformance cmt-hash:tests/vectors/cmt-hash receipt
 # <spec-path> relative to SPEC_ROOT. SPEC_ROOT derives from SPEC_CONFORMANCE_DIR,
 # so overriding that (as CI does) moves both.
 SPEC_ROOT ?= $(SPEC_CONFORMANCE_DIR)/../..
-FIXTURE_FILE_PAIRS := examples/discovery/receipt_keys.json:tests/fixtures/receipt_keys.json schemas/otel/macp-semconv.json:tests/otel/macp-semconv.json
+FIXTURE_FILE_PAIRS := examples/discovery/receipt_keys.json:tests/fixtures/receipt_keys.json examples/a2a-binding-session.json:tests/fixtures/a2a_binding_session.json schemas/otel/macp-semconv.json:tests/otel/macp-semconv.json
 
 help:  ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target>\n\nTargets:\n"} /^[a-zA-Z_-]+:.*##/ {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
