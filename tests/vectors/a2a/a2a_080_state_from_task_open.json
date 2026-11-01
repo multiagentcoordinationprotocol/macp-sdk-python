@@ -1,0 +1,19 @@
+{
+  "id": "a2a_080_state_from_task_open",
+  "op": "session_state_from_a2a",
+  "description": "A Task in TASK_STATE_WORKING with EXT/sessionState \"OPEN\" in Task.metadata is SESSION_STATE_OPEN (\u00a78).",
+  "input": {
+    "task_or_event": {
+      "id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "contextId": "ctx-txn-48000",
+      "status": {
+        "state": "TASK_STATE_WORKING",
+        "timestamp": "2026-10-25T09:00:03Z"
+      },
+      "metadata": {
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "OPEN"
+      }
+    }
+  },
+  "expected": "SESSION_STATE_OPEN"
+}

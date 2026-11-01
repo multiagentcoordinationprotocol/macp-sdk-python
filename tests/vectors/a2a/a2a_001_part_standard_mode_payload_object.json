@@ -1,0 +1,38 @@
+{
+  "id": "a2a_001_part_standard_mode_payload_object",
+  "op": "envelope_to_a2a_part",
+  "description": "A standard-mode Envelope (Decision Vote) encodes as a data Part whose Envelope carries the mode-defined payload as a JSON `payload` object (RFC-MACP-0014 \u00a75.1, \u00a75.3 SHOULD).",
+  "input": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-25T09:00:02Z",
+      "payload": {
+        "proposal_id": "p-1",
+        "vote": "APPROVE",
+        "reason": "Within risk appetite"
+      }
+    }
+  },
+  "expected": {
+    "mediaType": "application/macp-envelope+json",
+    "data": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-25T09:00:02Z",
+      "payload": {
+        "proposal_id": "p-1",
+        "vote": "APPROVE",
+        "reason": "Within risk appetite"
+      }
+    }
+  }
+}

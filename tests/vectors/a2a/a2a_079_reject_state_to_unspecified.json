@@ -1,0 +1,12 @@
+{
+  "id": "a2a_079_reject_state_to_unspecified",
+  "op": "session_state_to_a2a",
+  "description": "SESSION_STATE_UNSPECIFIED is no session state and has no TaskState: codec-only INVALID_SESSION_STATE.",
+  "input": {
+    "session_state": "SESSION_STATE_UNSPECIFIED"
+  },
+  "expected_error": {
+    "layer": "codec",
+    "code": "INVALID_SESSION_STATE"
+  }
+}

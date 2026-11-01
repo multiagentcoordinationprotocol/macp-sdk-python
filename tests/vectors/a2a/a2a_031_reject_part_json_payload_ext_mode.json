@@ -1,0 +1,26 @@
+{
+  "id": "a2a_031_reject_part_json_payload_ext_mode",
+  "op": "envelope_from_a2a_part",
+  "description": "A JSON `payload` object for a mode-defined payload of an ext.* mode has no payload schema at the receiver: INVALID_ENVELOPE (\u00a75.3, RFC-MACP-0001 \u00a710.12).",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+json",
+      "data": {
+        "macp_version": "1.0",
+        "mode": "ext.multi_round.v1",
+        "message_type": "Contribute",
+        "message_id": "01JD2MR0V0TE00000000000002",
+        "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+        "sender": "agent://alice",
+        "timestamp": "2026-11-01T10:00:01.250Z",
+        "payload": {
+          "value": "window-b"
+        }
+      }
+    }
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "INVALID_ENVELOPE"
+  }
+}

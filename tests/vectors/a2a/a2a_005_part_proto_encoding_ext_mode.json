@@ -1,0 +1,24 @@
+{
+  "id": "a2a_005_part_proto_encoding_ext_mode",
+  "op": "envelope_to_a2a_part",
+  "description": "encoding=\"proto\" yields a raw Part: the Protobuf-encoded macp.v1.Envelope (fields in number order, defaults omitted) as standard padded base64 (\u00a75.1, \u00a75.3). The input carries `payload_b64`, so the payload bytes are exact.",
+  "input": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "ext.multi_round.v1",
+      "message_type": "Contribute",
+      "message_id": "01JD2MR0V0TE00000000000002",
+      "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+      "sender": "agent://alice",
+      "timestamp": "2026-11-01T10:00:01.250Z",
+      "payload_b64": "Cgh3aW5kb3ctYg=="
+    }
+  },
+  "params": {
+    "encoding": "proto"
+  },
+  "expected": {
+    "mediaType": "application/macp-envelope+proto",
+    "raw": "CgMxLjASEmV4dC5tdWx0aV9yb3VuZC52MRoKQ29udHJpYnV0ZSIaMDFKRDJNUjBWMFRFMDAwMDAwMDAwMDAwMDIqJDNiOWQ0ZjdlLThhMjEtNGM2Yi1iMGU1LTkxZjJhN2M0ZDgwMzINYWdlbnQ6Ly9hbGljZTji+7S0mTRCCgoId2luZG93LWI="
+  }
+}

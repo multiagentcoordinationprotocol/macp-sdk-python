@@ -1,0 +1,24 @@
+{
+  "id": "a2a_041_reject_b64_mixed_alphabets",
+  "op": "envelope_from_a2a_part",
+  "description": "A `payload_b64` that mixes the standard (+) and URL-safe (_) alphabets is refused: INVALID_ENVELOPE.",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+json",
+      "data": {
+        "macp_version": "1.0",
+        "mode": "ext.multi_round.v1",
+        "message_type": "Contribute",
+        "message_id": "01JD2MR0V0TE00000000000002",
+        "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+        "sender": "agent://alice",
+        "timestamp": "2026-11-01T10:00:01.250Z",
+        "payload_b64": "CgV+fn4_fg=="
+      }
+    }
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "INVALID_ENVELOPE"
+  }
+}

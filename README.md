@@ -18,6 +18,10 @@ If you need runtime-driven business logic, run a Python agent/orchestrator as a 
 
 This SDK talks to the runtime over gRPC only; it has no HTTP client. To reach a runtime's HTTP/JSON listener instead, see RFC-MACP-0006 §4 and the curl section of the spec quickstart.
 
+## A2A
+
+`macp_sdk.a2a` is a codec for the A2A extension binding (RFC-MACP-0014): it turns Envelopes, Acks and session states into A2A 1.0 Messages, Artifacts and Task metadata (plain dicts) and back, with no A2A SDK dependency. See [docs/guides/a2a-binding.md](docs/guides/a2a-binding.md).
+
 ## Install
 
 ```bash

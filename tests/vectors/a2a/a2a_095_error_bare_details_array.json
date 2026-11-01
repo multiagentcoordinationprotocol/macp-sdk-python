@@ -1,0 +1,27 @@
+{
+  "id": "a2a_095_error_bare_details_array",
+  "op": "error_info_from_a2a",
+  "description": "On HTTP+JSON and gRPC the details arrive as a bare array, not a JSON-RPC error object; the same selection applies.",
+  "input": {
+    "error_or_details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "SESSION_NOT_OPEN",
+        "domain": "multiagentcoordinationprotocol.io",
+        "metadata": {
+          "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+          "message_id": "01JD2A2A0V0TE0000000000005"
+        }
+      }
+    ]
+  },
+  "expected": {
+    "reason": "SESSION_NOT_OPEN",
+    "domain": "multiagentcoordinationprotocol.io",
+    "metadata": {
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "message_id": "01JD2A2A0V0TE0000000000005"
+    },
+    "duplicate": false
+  }
+}

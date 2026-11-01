@@ -97,3 +97,4 @@ PR strategy: P1+P2 in one PR (one coherent opt-in feature), released as a minor 
 - 2026-10-30 S1 Phase 3 PR A: receipt integration tests built against a local build of runtime main (3/3 pass). The CI skip max is temporarily 6. PR B waits for :0.11.0.
 - 2026-10-30 S1 Phase 3 PR A merged as #204 (eb755ec; #203 closed after its branch was deleted). No release (test commit). S4 is draft #202, held for R4. PR B is BLOCKED-ON macp-runtime :0.11.0.
 - 2026-10-31 S1 Phase 3 PR B merged as #205 (c5a63bd): CI pinned to :0.11.0, signed leg added, MACP_EXPECT_RECEIPTS set; receipt tests 3/3 in CI (70 passed, 3 skipped). Parity contract re-vendored (spec #236, 22 codes). No release. Phase 3 DONE.
+- 2026-11-01 Wave 6 S6.2: `macp_sdk/a2a.py` (RFC-MACP-0014 codec), the 101 vectors vendored as `tests/vectors/a2a/` (spec 2e7d3ab), transcript replay, and an `a2a-sdk` interop test (dev-only). API agreed with macp-sdk-typescript-c7.

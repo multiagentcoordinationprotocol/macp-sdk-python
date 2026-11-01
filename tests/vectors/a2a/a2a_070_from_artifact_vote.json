@@ -1,0 +1,53 @@
+{
+  "id": "a2a_070_from_artifact_vote",
+  "op": "envelope_from_a2a_artifact",
+  "description": "An Artifact decodes to its Envelope and ordinal.",
+  "input": {
+    "artifact": {
+      "artifactId": "macp:01JD2A2A0V0TE0000000000003",
+      "name": "Vote",
+      "parts": [
+        {
+          "mediaType": "application/macp-envelope+json",
+          "data": {
+            "macp_version": "1.0",
+            "mode": "macp.mode.decision.v1",
+            "message_type": "Vote",
+            "message_id": "01JD2A2A0V0TE0000000000003",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "sender": "agent://fraud",
+            "timestamp": "2026-10-25T09:00:02Z",
+            "payload": {
+              "proposal_id": "p-1",
+              "vote": "APPROVE",
+              "reason": "Within risk appetite"
+            }
+          }
+        }
+      ],
+      "metadata": {
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sequence": 3
+      },
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ]
+    }
+  },
+  "expected": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-25T09:00:02Z",
+      "payload": {
+        "proposal_id": "p-1",
+        "vote": "APPROVE",
+        "reason": "Within risk appetite"
+      }
+    },
+    "sequence": 3
+  }
+}

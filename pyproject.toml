@@ -74,6 +74,7 @@ dev = [
   "cryptography>=42",  # the receipts extra, so the receipt tests run in CI
   "opentelemetry-api>=1.27,<2",  # the otel extra, so the tracing tests run in CI
   "opentelemetry-sdk>=1.27,<2",  # in-memory span exporter for those tests
+  "a2a-sdk>=1.3,<2",  # official A2A 1.0 types for the A2A codec interop test (never a runtime dep)
 ]
 # Ed25519 for decision receipts (macp_sdk.receipt); imported lazily.
 receipts = [

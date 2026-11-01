@@ -1,0 +1,14 @@
+{
+  "id": "a2a_078_state_to_cancelled",
+  "op": "session_state_to_a2a",
+  "description": "SESSION_STATE_CANCELLED maps to TASK_STATE_CANCELED with EXT/sessionState \"CANCELLED\" (\u00a78).",
+  "input": {
+    "session_state": "SESSION_STATE_CANCELLED"
+  },
+  "expected": {
+    "task_state": "TASK_STATE_CANCELED",
+    "metadata": {
+      "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "CANCELLED"
+    }
+  }
+}

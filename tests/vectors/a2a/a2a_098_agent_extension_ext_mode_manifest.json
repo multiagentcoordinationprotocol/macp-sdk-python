@@ -1,0 +1,32 @@
+{
+  "id": "a2a_098_agent_extension_ext_mode_manifest",
+  "op": "macp_agent_extension",
+  "description": "G1: an ext.* mode identifier may be advertised in params.modes (\u00a73); required true and manifest_url set params.manifestUrl.",
+  "input": {},
+  "params": {
+    "macp_versions": [
+      "1.0"
+    ],
+    "modes": [
+      "macp.mode.decision.v1",
+      "ext.multi_round.v1"
+    ],
+    "required": true,
+    "manifest_url": "https://runtime.example.com/.well-known/macp.json"
+  },
+  "expected": {
+    "uri": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1",
+    "required": true,
+    "params": {
+      "macpVersions": [
+        "1.0"
+      ],
+      "modes": [
+        "macp.mode.decision.v1",
+        "ext.multi_round.v1"
+      ],
+      "transport": "macp.transport.a2a.v1",
+      "manifestUrl": "https://runtime.example.com/.well-known/macp.json"
+    }
+  }
+}

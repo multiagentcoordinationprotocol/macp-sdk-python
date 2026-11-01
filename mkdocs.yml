@@ -35,6 +35,7 @@ nav:
       - Building Orchestrators: guides/building-orchestrators.md
       - Direct Agent Auth: guides/direct-agent-auth.md
       - Observability (OpenTelemetry): guides/observability.md
+      - A2A Binding: guides/a2a-binding.md
   - Auth: auth.md
   - API Reference: api/index.md
 

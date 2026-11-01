@@ -1,0 +1,31 @@
+{
+  "id": "a2a_065_reject_ack_message_without_ack_part",
+  "op": "ack_from_a2a_message",
+  "description": "A Message with no Part marked EXT/kind \"ack\" carries no Ack: codec-only NOT_A_MACP_MESSAGE.",
+  "input": {
+    "message": {
+      "messageId": "m-1",
+      "role": "ROLE_AGENT",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/json",
+          "data": {
+            "ok": true,
+            "duplicate": false,
+            "message_id": "01JD2A2A0V0TE0000000000001",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "accepted_at_unix_ms": 1792918800000,
+            "session_state": "SESSION_STATE_OPEN"
+          }
+        }
+      ]
+    }
+  },
+  "expected_error": {
+    "layer": "codec",
+    "code": "NOT_A_MACP_MESSAGE"
+  }
+}

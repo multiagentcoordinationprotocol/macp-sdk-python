@@ -491,19 +491,27 @@ def _is_map(field: FieldDescriptor) -> bool:
 
 def _decode_base64(text: str, name: str = "payload_b64") -> bytes:
     """Standard or URL-safe alphabet, padded or not (§10.3)."""
+    _base64_length(text, name)
+    body = text.rstrip("=").replace("-", "+").replace("_", "/")
+    try:
+        return base64.b64decode(body + "=" * (-len(body) % 4), validate=True)
+    except ValueError as exc:  # pragma: no cover - _base64_length catches these
+        raise CanonicalJsonError(f"{name} is not base64") from exc
+
+
+def _base64_length(text: str, name: str = "payload_b64") -> int:
+    """Check *text* as :func:`_decode_base64` does and return its decoded
+    length, without decoding it."""
     if not _BASE64.match(text):
         raise CanonicalJsonError(f"{name} is not base64")
     if ("+" in text or "/" in text) and ("-" in text or "_" in text):
         raise CanonicalJsonError(f"{name} mixes the standard and URL-safe alphabets")
     if "=" in text and len(text) % 4:
         raise CanonicalJsonError(f"{name} has padding that does not complete a quartet")
-    body = text.rstrip("=").replace("-", "+").replace("_", "/")
+    body = text.rstrip("=")
     if len(body) % 4 == 1:
         raise CanonicalJsonError(f"{name} is not base64")
-    try:
-        return base64.b64decode(body + "=" * (-len(body) % 4), validate=True)
-    except ValueError as exc:  # pragma: no cover - the regex and length check catch these
-        raise CanonicalJsonError(f"{name} is not base64") from exc
+    return len(body) * 3 // 4
 
 
 def _parse_timestamp(text: str) -> int:

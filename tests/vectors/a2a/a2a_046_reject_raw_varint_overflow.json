@@ -1,0 +1,15 @@
+{
+  "id": "a2a_046_reject_raw_varint_overflow",
+  "op": "envelope_from_a2a_part",
+  "description": "A raw Envelope whose timestamp_unix_ms varint has a tenth byte above 0x01 overflows 64 bits and is refused, as protobuf-go and upb's C parser refuse it (some bindings truncate silently): INVALID_ENVELOPE.",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+proto",
+      "raw": "CgMxLjA4////////////Ag=="
+    }
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "INVALID_ENVELOPE"
+  }
+}

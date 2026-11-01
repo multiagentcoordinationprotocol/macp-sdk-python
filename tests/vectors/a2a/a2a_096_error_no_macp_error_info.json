@@ -1,0 +1,22 @@
+{
+  "id": "a2a_096_error_no_macp_error_info",
+  "op": "error_info_from_a2a",
+  "description": "VersionNotSupportedError carries no MACP reason (\u00a711.3); with only A2A's own ErrorInfo present the result is null.",
+  "input": {
+    "error_or_details": {
+      "code": -32009,
+      "message": "Version not supported",
+      "data": [
+        {
+          "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+          "reason": "VERSION_NOT_SUPPORTED",
+          "domain": "a2a-protocol.org",
+          "metadata": {
+            "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+          }
+        }
+      ]
+    }
+  },
+  "expected": null
+}

@@ -1,0 +1,20 @@
+{
+  "id": "a2a_091_reject_state_from_ack_spelling",
+  "op": "session_state_from_a2a",
+  "description": "EXT/sessionState uses the bare name; the Ack's SESSION_STATE_RESOLVED spelling in its place is refused (\u00a78: neither spelling in the other's place): INVALID_SESSION_STATE.",
+  "input": {
+    "task_or_event": {
+      "id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "status": {
+        "state": "TASK_STATE_COMPLETED"
+      },
+      "metadata": {
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/sessionState": "SESSION_STATE_RESOLVED"
+      }
+    }
+  },
+  "expected_error": {
+    "layer": "codec",
+    "code": "INVALID_SESSION_STATE"
+  }
+}

@@ -158,6 +158,23 @@ class CanonicalJsonError(MacpSdkError, ValueError):
     code = INVALID_ENVELOPE
 
 
+class MacpA2aError(MacpSdkError, ValueError):
+    """An A2A object does not decode as RFC-MACP-0014 requires.
+
+    Raised by :mod:`macp_sdk.a2a`. ``layer`` says who answers it:
+
+    - ``"a2a"``: the A2A request as a whole (``INVALID_REQUEST``, JSON-RPC -32602);
+    - ``"macp"``: an in-band Ack error (``INVALID_ENVELOPE``, ``PAYLOAD_TOO_LARGE``);
+    - ``"codec"``: a local codec error with no wire code (``NOT_A_MACP_MESSAGE``,
+      ``INVALID_ACK``, ``INVALID_SEQUENCE``, ``INVALID_SESSION_STATE``).
+    """
+
+    def __init__(self, layer: str, code: str, message: str) -> None:
+        self.layer = layer
+        self.code = code
+        super().__init__(f"{layer}/{code}: {message}")
+
+
 @dataclass(slots=True)
 class AckFailure:
     code: str

@@ -1,0 +1,28 @@
+{
+  "id": "a2a_101_reject_part_json_payload_unknown_type",
+  "op": "envelope_from_a2a_part",
+  "description": "A standard mode does not give every message_type a payload schema: Decision Mode declares no `Accept` (Proposal Mode does), so a JSON `payload` for (macp.mode.decision.v1, Accept) has none and is rejected in band with INVALID_ENVELOPE (RFC-MACP-0001 \u00a710.12: selected by the pair, never by message_type alone).",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+json",
+      "data": {
+        "macp_version": "1.0",
+        "mode": "macp.mode.decision.v1",
+        "message_type": "Accept",
+        "message_id": "01JD2A2A0V0TE0000000000008",
+        "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+        "sender": "agent://fraud",
+        "timestamp": "2026-10-25T09:00:02Z",
+        "payload": {
+          "proposal_id": "p-1",
+          "accepted_by": "agent://fraud",
+          "reason": ""
+        }
+      }
+    }
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "INVALID_ENVELOPE"
+  }
+}

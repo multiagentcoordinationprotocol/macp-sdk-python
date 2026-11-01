@@ -91,8 +91,9 @@ def _make_canon(
     _write_files(canon, flat)
     if include_cmt_hash_dir:
         _write_files(canon / "cmt-hash", cmt_hash)
-    # The receipt pair (tests/vectors/receipt) is left empty on both sides.
+    # The receipt and a2a pairs (tests/vectors/{receipt,a2a}) are left empty on both sides.
     _write_files(canon / "receipt", None)
+    _write_files(canon / "a2a", None)
     # The FIXTURE_FILE_PAIRS files, under the SPEC_ROOT _run_make passes.
     if example is not None:
         _write_files(tmp_path / "examples" / "discovery", {"receipt_keys.json": example})
@@ -117,6 +118,7 @@ def _make_repo(
     if create_cmt_hash_dir:
         _write_files(repo / "tests" / "vectors" / "cmt-hash", cmt_hash)
     _write_files(repo / "tests" / "vectors" / "receipt", None)
+    _write_files(repo / "tests" / "vectors" / "a2a", None)
     if example is not None:
         _write_files(repo / "tests" / "fixtures", {"receipt_keys.json": example})
     _write_files(repo / "tests" / "otel", {"macp-semconv.json": SEMCONV})
@@ -432,6 +434,7 @@ def test_spec_root_defaults_relative_to_conformance_dir(tmp_path: Path) -> None:
     _write_files(canon, {"a.json": "A"})
     _write_files(canon / "cmt-hash", None)
     _write_files(canon / "receipt", None)
+    _write_files(canon / "a2a", None)
     _write_files(spec / "examples" / "discovery", {"receipt_keys.json": KEYS})
     _write_files(spec / "schemas" / "otel", {"macp-semconv.json": SEMCONV})
     _write_files(spec / "examples", {"a2a-binding-session.json": A2A})

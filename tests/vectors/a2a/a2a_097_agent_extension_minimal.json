@@ -1,0 +1,29 @@
+{
+  "id": "a2a_097_agent_extension_minimal",
+  "op": "macp_agent_extension",
+  "description": "The AgentExtension of \u00a73 with only the required params: uri EXT, required false (always emitted), params.transport \"macp.transport.a2a.v1\", no manifestUrl.",
+  "input": {},
+  "params": {
+    "macp_versions": [
+      "1.0"
+    ],
+    "modes": [
+      "macp.mode.decision.v1",
+      "macp.mode.quorum.v1"
+    ]
+  },
+  "expected": {
+    "uri": "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1",
+    "required": false,
+    "params": {
+      "macpVersions": [
+        "1.0"
+      ],
+      "modes": [
+        "macp.mode.decision.v1",
+        "macp.mode.quorum.v1"
+      ],
+      "transport": "macp.transport.a2a.v1"
+    }
+  }
+}

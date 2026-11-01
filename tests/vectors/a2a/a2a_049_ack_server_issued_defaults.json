@@ -1,0 +1,55 @@
+{
+  "id": "a2a_049_ack_server_issued_defaults",
+  "op": "ack_to_a2a_message",
+  "description": "An Ack the server issues itself for an undecodable Part: message_id and session_id \"\", accepted_at_unix_ms 0 and SESSION_STATE_UNSPECIFIED, all still emitted (\u00a75.2, \u00a711.1); no taskId. messageId is still fresh.",
+  "input": {
+    "ack": {
+      "ok": false,
+      "duplicate": false,
+      "message_id": "",
+      "session_id": "",
+      "accepted_at_unix_ms": 0,
+      "session_state": "SESSION_STATE_UNSPECIFIED",
+      "error": {
+        "code": "INVALID_ENVELOPE",
+        "message": "Envelope Part does not decode",
+        "session_id": "",
+        "message_id": "",
+        "details": ""
+      }
+    }
+  },
+  "params": {
+    "message_id": "ack-undecodable-0001"
+  },
+  "expected": {
+    "messageId": "ack-undecodable-0001",
+    "role": "ROLE_AGENT",
+    "extensions": [
+      "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+    ],
+    "parts": [
+      {
+        "mediaType": "application/json",
+        "data": {
+          "ok": false,
+          "duplicate": false,
+          "message_id": "",
+          "session_id": "",
+          "accepted_at_unix_ms": 0,
+          "session_state": "SESSION_STATE_UNSPECIFIED",
+          "error": {
+            "code": "INVALID_ENVELOPE",
+            "message": "Envelope Part does not decode",
+            "session_id": "",
+            "message_id": "",
+            "details": ""
+          }
+        },
+        "metadata": {
+          "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+        }
+      }
+    ]
+  }
+}

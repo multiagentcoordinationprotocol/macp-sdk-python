@@ -1,0 +1,39 @@
+{
+  "id": "a2a_064_ack_integer_state",
+  "op": "ack_from_a2a_message",
+  "description": "Decoders also accept an enum's integer value (RFC-MACP-0001 \u00a710.4): 2 is SESSION_STATE_RESOLVED.",
+  "input": {
+    "message": {
+      "messageId": "ack-01JD2A2A0V0TE0000000000001",
+      "role": "ROLE_AGENT",
+      "extensions": [
+        "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1"
+      ],
+      "parts": [
+        {
+          "mediaType": "application/json",
+          "data": {
+            "ok": true,
+            "duplicate": false,
+            "message_id": "01JD2A2A0V0TE0000000000001",
+            "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+            "accepted_at_unix_ms": 1792918800000,
+            "session_state": 2
+          },
+          "metadata": {
+            "https://multiagentcoordinationprotocol.io/a2a/extensions/macp/v1/kind": "ack"
+          }
+        }
+      ],
+      "taskId": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10"
+    }
+  },
+  "expected": {
+    "ok": true,
+    "duplicate": false,
+    "message_id": "01JD2A2A0V0TE0000000000001",
+    "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+    "accepted_at_unix_ms": 1792918800000,
+    "session_state": "SESSION_STATE_RESOLVED"
+  }
+}

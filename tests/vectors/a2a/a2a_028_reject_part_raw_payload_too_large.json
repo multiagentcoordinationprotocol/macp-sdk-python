@@ -1,0 +1,18 @@
+{
+  "id": "a2a_028_reject_part_raw_payload_too_large",
+  "op": "envelope_from_a2a_part",
+  "description": "A raw Part whose decoded Envelope.payload is 5 bytes, over max_payload_bytes 4: PAYLOAD_TOO_LARGE (\u00a75.4). The measure is the payload field, not the whole Envelope.",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+proto",
+      "raw": "CgMxLjASEmV4dC5tdWx0aV9yb3VuZC52MRoKQ29udHJpYnV0ZSIaMDFKRDJNUjBWMFRFMDAwMDAwMDAwMDAwMDIqJDNiOWQ0ZjdlLThhMjEtNGM2Yi1iMGU1LTkxZjJhN2M0ZDgwMzINYWdlbnQ6Ly9hbGljZTji+7S0mTRCBQoDYWJj"
+    }
+  },
+  "params": {
+    "max_payload_bytes": 4
+  },
+  "expected_error": {
+    "layer": "macp",
+    "code": "PAYLOAD_TOO_LARGE"
+  }
+}

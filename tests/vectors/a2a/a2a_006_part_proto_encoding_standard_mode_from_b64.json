@@ -1,0 +1,24 @@
+{
+  "id": "a2a_006_part_proto_encoding_standard_mode_from_b64",
+  "op": "envelope_to_a2a_part",
+  "description": "A standard-mode Envelope given with `payload_b64` (always permitted, RFC-MACP-0001 \u00a710.12) encodes its exact payload bytes into a raw Part.",
+  "input": {
+    "envelope": {
+      "macp_version": "1.0",
+      "mode": "macp.mode.decision.v1",
+      "message_type": "Vote",
+      "message_id": "01JD2A2A0V0TE0000000000003",
+      "session_id": "6f1c2a9e-4b7d-4c1e-9a53-2d8f0b7e5a10",
+      "sender": "agent://fraud",
+      "timestamp": "2026-10-25T09:00:02Z",
+      "payload_b64": "CgNwLTESB0FQUFJPVkUaFFdpdGhpbiByaXNrIGFwcGV0aXRl"
+    }
+  },
+  "params": {
+    "encoding": "proto"
+  },
+  "expected": {
+    "mediaType": "application/macp-envelope+proto",
+    "raw": "CgMxLjASFW1hY3AubW9kZS5kZWNpc2lvbi52MRoEVm90ZSIaMDFKRDJBMkEwVjBURTAwMDAwMDAwMDAwMDMqJDZmMWMyYTllLTRiN2QtNGMxZS05YTUzLTJkOGYwYjdlNWExMDINYWdlbnQ6Ly9mcmF1ZDjQnKeSlzRCJAoDcC0xEgdBUFBST1ZFGhRXaXRoaW4gcmlzayBhcHBldGl0ZQ=="
+  }
+}

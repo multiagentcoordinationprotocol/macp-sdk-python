@@ -5,7 +5,7 @@ SPEC_PARITY_DIR := ../multiagentcoordinationprotocol/schemas/parity
 
 # <canonical-subpath>:<local-dir> pairs checked by sync-fixtures/verify-fixtures.
 # "." = the flat top level of SPEC_CONFORMANCE_DIR.
-FIXTURE_DIR_PAIRS := .:tests/conformance cmt-hash:tests/vectors/cmt-hash receipt:tests/vectors/receipt
+FIXTURE_DIR_PAIRS := .:tests/conformance cmt-hash:tests/vectors/cmt-hash receipt:tests/vectors/receipt a2a:tests/vectors/a2a
 # Single spec files vendored byte-identical: <spec-path>:<local-path> pairs, with
 # <spec-path> relative to SPEC_ROOT. SPEC_ROOT derives from SPEC_CONFORMANCE_DIR,
 # so overriding that (as CI does) moves both.

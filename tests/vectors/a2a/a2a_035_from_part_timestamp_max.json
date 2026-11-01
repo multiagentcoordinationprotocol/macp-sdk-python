@@ -1,0 +1,30 @@
+{
+  "id": "a2a_035_from_part_timestamp_max",
+  "op": "envelope_from_a2a_part",
+  "description": "9999-12-31T23:59:59.999Z, the latest instant in range, is accepted.",
+  "input": {
+    "part": {
+      "mediaType": "application/macp-envelope+json",
+      "data": {
+        "macp_version": "1.0",
+        "mode": "ext.multi_round.v1",
+        "message_type": "Contribute",
+        "message_id": "01JD2MR0V0TE00000000000002",
+        "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+        "sender": "agent://alice",
+        "timestamp": "9999-12-31T23:59:59.999Z",
+        "payload_b64": "Cgh3aW5kb3ctYg=="
+      }
+    }
+  },
+  "expected": {
+    "macp_version": "1.0",
+    "mode": "ext.multi_round.v1",
+    "message_type": "Contribute",
+    "message_id": "01JD2MR0V0TE00000000000002",
+    "session_id": "3b9d4f7e-8a21-4c6b-b0e5-91f2a7c4d803",
+    "sender": "agent://alice",
+    "timestamp": "9999-12-31T23:59:59.999Z",
+    "payload_b64": "Cgh3aW5kb3ctYg=="
+  }
+}
