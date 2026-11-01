@@ -433,6 +433,20 @@ class _ClientCore:
         return timeout
 
     @staticmethod
+    def _resolve_stream_timeout(timeout: TimeoutValue) -> float | None:
+        """Resolve a streaming RPC's ``timeout``: explicit only.
+
+        Streams (``open_stream`` and every ``watch_*``) are long-lived, so
+        they never inherit ``default_timeout``: ``None`` and :data:`UNBOUNDED`
+        both mean no deadline, and a number bounds the whole stream. This
+        matches macp-sdk-typescript, whose streams apply a deadline only
+        when one is passed.
+        """
+        if timeout is None or isinstance(timeout, _UnboundedTimeout):
+            return None
+        return timeout
+
+    @staticmethod
     def _transport_error_from_rpc(rpc_err: grpc.RpcError) -> MacpTransportError:
         """Build a :class:`MacpTransportError` preserving the gRPC status code.
 
@@ -1042,7 +1056,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchSessions(
             core_pb2.WatchSessionsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1343,7 +1357,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchPolicies(
             policy_pb2.WatchPoliciesRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1359,7 +1373,7 @@ class MacpClient(_ClientCore):
         return MacpStream(
             self.stub,
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
 
     def watch_mode_registry(
@@ -1373,7 +1387,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchModeRegistry(
             core_pb2.WatchModeRegistryRequest(),
             metadata=self._metadata(auth),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1395,7 +1409,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchRoots(
             core_pb2.WatchRootsRequest(),
             metadata=self._metadata(auth),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call
@@ -1420,7 +1434,7 @@ class MacpClient(_ClientCore):
         call = self.stub.WatchSignals(
             core_pb2.WatchSignalsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         try:
             yield from call

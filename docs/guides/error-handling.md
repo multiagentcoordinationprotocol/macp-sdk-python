@@ -234,6 +234,21 @@ client = MacpClient(target="...", default_timeout=10.0, ...)
 response = client.get_session(session_id, timeout=5.0)
 ```
 
+`default_timeout` applies to unary calls only. Streams (`open_stream()`, every
+`watch_*()` method and the watcher helpers) are long-lived, so they never inherit
+it: a stream has a deadline only when you pass `timeout=` to that call. Passing
+`timeout=None` or `UNBOUNDED` means no deadline.
+
+```python
+# Unbounded, even with default_timeout=10.0
+for event in client.watch_sessions():
+    ...
+
+# Bounded: this stream ends after 60 seconds
+for event in client.watch_sessions(timeout=60.0):
+    ...
+```
+
 When a timeout occurs, gRPC raises an error that the SDK translates to `MacpTransportError`.
 
 ## Graceful degradation patterns

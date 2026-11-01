@@ -580,6 +580,20 @@ class TestWatches:
 
         run(go)
 
+    @pytest.mark.parametrize(("method", "rpc", "item"), WATCHES)
+    @pytest.mark.parametrize(("timeout", "expected"), [(None, None), (UNBOUNDED, None), (3.0, 3.0)])
+    def test_watch_ignores_default_timeout(
+        self, method: str, rpc: str, item: Any, timeout: Any, expected: float | None
+    ) -> None:
+        # Streams never inherit default_timeout; only an explicit one bounds them.
+        async def go() -> None:
+            client, stub = await _client(default_timeout=7.0)
+            getattr(stub, rpc).return_value = FakeStreamCall([item])
+            assert [x async for x in getattr(client, method)(timeout=timeout)] == [item]
+            assert getattr(stub, rpc).call_args.kwargs["timeout"] == expected
+
+        run(go)
+
     def test_watch_policies_requires_auth(self) -> None:
         # Runtime 0.12.0 rejects an unauthenticated WatchPolicies (#206).
         async def go() -> None:
@@ -638,6 +652,18 @@ async def _open(**kwargs: Any) -> tuple[AsyncMacpStream, FakeBidiCall, MagicMock
 
 
 class TestAsyncMacpStream:
+    @pytest.mark.parametrize(("timeout", "expected"), [(None, None), (UNBOUNDED, None), (3.0, 3.0)])
+    def test_open_stream_ignores_default_timeout(
+        self, timeout: Any, expected: float | None
+    ) -> None:
+        async def go() -> None:
+            client, stub = await _client(default_timeout=7.0)
+            stub.StreamSession.return_value = FakeBidiCall()
+            client.open_stream(timeout=timeout)
+            assert stub.StreamSession.call_args.kwargs["timeout"] == expected
+
+        run(go)
+
     def test_open_passes_metadata_and_timeout(self) -> None:
         async def go() -> None:
             stream, call, stub = await _open()

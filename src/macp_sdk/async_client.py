@@ -486,7 +486,7 @@ class AsyncMacpClient(_ClientCore):
         call = self.stub.WatchSessions(
             core_pb2.WatchSessionsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         async with contextlib.aclosing(self._stream(call)) as items:
             async for item in items:
@@ -703,7 +703,7 @@ class AsyncMacpClient(_ClientCore):
         call = self.stub.WatchPolicies(
             policy_pb2.WatchPoliciesRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         async with contextlib.aclosing(self._stream(call)) as items:
             async for item in items:
@@ -717,7 +717,7 @@ class AsyncMacpClient(_ClientCore):
         return AsyncMacpStream(
             self.stub,
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
 
     async def watch_mode_registry(
@@ -728,7 +728,7 @@ class AsyncMacpClient(_ClientCore):
         call = self.stub.WatchModeRegistry(
             core_pb2.WatchModeRegistryRequest(),
             metadata=self._metadata(auth),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         async with contextlib.aclosing(self._stream(call)) as items:
             async for item in items:
@@ -742,7 +742,7 @@ class AsyncMacpClient(_ClientCore):
         call = self.stub.WatchRoots(
             core_pb2.WatchRootsRequest(),
             metadata=self._metadata(auth),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         async with contextlib.aclosing(self._stream(call)) as items:
             async for item in items:
@@ -757,7 +757,7 @@ class AsyncMacpClient(_ClientCore):
         call = self.stub.WatchSignals(
             core_pb2.WatchSignalsRequest(),
             metadata=self._metadata(auth_cfg),
-            timeout=self._resolve_timeout(timeout),
+            timeout=self._resolve_stream_timeout(timeout),
         )
         async with contextlib.aclosing(self._stream(call)) as items:
             async for item in items:
