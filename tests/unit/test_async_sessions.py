@@ -30,6 +30,7 @@ from macp_sdk import (
     AsyncBaseSession,
     AsyncDecisionSession,
     AsyncHandoffSession,
+    AsyncMultiRoundSession,
     AsyncProposalSession,
     AsyncQuorumSession,
     AsyncTaskSession,
@@ -39,6 +40,7 @@ from macp_sdk import (
     HandoffSession,
     MacpIdentityMismatchError,
     MacpSessionError,
+    MultiRoundSession,
     ProposalSession,
     QuorumSession,
     TaskSession,
@@ -51,6 +53,7 @@ PAIRS: list[tuple[type[BaseSession], type[AsyncBaseSession]]] = [
     (TaskSession, AsyncTaskSession),
     (HandoffSession, AsyncHandoffSession),
     (QuorumSession, AsyncQuorumSession),
+    (MultiRoundSession, AsyncMultiRoundSession),
 ]
 
 SYNC_ONLY_DEPRECATED = {"request", "update", "complete", "fail"}
@@ -226,6 +229,13 @@ FLOWS: dict[type[BaseSession], list[Step]] = {
             },
         ),
     ],
+    MultiRoundSession: [
+        ("start", (), {"intent": "m", "participants": ["alice", "bob"], "ttl_ms": 1}),
+        ("contribute", ("A",), {"sender": "alice", "auth": _auth("alice")}),
+        ("contribute", ("B",), {"sender": "bob", "auth": _auth("bob")}),
+        ("contribute", ("A",), {"sender": "bob", "auth": _auth("bob")}),
+        ("commit", (), {"authority_scope": "s", "reason": "r", "commitment_id": "c3"}),
+    ],
 }
 
 
@@ -273,6 +283,8 @@ INVALID_CALLS: list[tuple[type[AsyncBaseSession], Callable[[Any], Any]]] = [
     (AsyncTaskSession, lambda s: s.request_task("", "title")),
     (AsyncHandoffSession, lambda s: s.offer("", "dave")),
     (AsyncQuorumSession, lambda s: s.approve("")),
+    (AsyncMultiRoundSession, lambda s: s.contribute("")),
+    (AsyncMultiRoundSession, lambda s: s.commit(authority_scope="", reason="r")),
     (AsyncDecisionSession, lambda s: s.start(intent="i", participants=["a", "a"], ttl_ms=1)),
 ]
 

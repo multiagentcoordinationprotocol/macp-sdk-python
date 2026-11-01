@@ -121,6 +121,13 @@ from .errors import (
     parse_error_details,
 )
 from .handoff import AsyncHandoffSession, HandoffProjection, HandoffRecord, HandoffSession
+from .multi_round import (
+    MULTI_ROUND_CONVERGED_ACTION,
+    MULTI_ROUND_MODE_VERSION,
+    AsyncMultiRoundSession,
+    MultiRoundProjection,
+    MultiRoundSession,
+)
 from .policy import (
     ABSTENTION_INTERPRETATIONS,
     COMMITMENT_AUTHORITIES,
@@ -254,6 +261,8 @@ __all__ = [
     "MODE_PROPOSAL",
     "MODE_QUORUM",
     "MODE_TASK",
+    "MULTI_ROUND_CONVERGED_ACTION",
+    "MULTI_ROUND_MODE_VERSION",
     "PAYLOAD_TOO_LARGE",
     "POLICY_DENIED",
     "PROPOSAL_ACCEPTANCE_CRITERIA",
@@ -285,6 +294,7 @@ __all__ = [
     "AsyncHandoffSession",
     "AsyncMacpClient",
     "AsyncMacpStream",
+    "AsyncMultiRoundSession",
     "AsyncProposalSession",
     "AsyncQuorumSession",
     "AsyncTaskSession",
@@ -321,6 +331,8 @@ __all__ = [
     "MacpTimeoutError",
     "MacpTransportError",
     "ModeRegistryWatcher",
+    "MultiRoundProjection",
+    "MultiRoundSession",
     "ObjectionHandlingRules",
     "PolicyChange",
     "PolicyDenial",
