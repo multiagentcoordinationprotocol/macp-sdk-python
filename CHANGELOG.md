@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.2](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.23.1...v0.23.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* decode runtime lifecycle annotations; vendor RFC-promotion fixtures ([#224](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/issues/224)) ([3e6d323](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/commit/3e6d323d78552ec4c9dc17627d2e0e4439f2a10d))
+
 ## [0.23.1](https://github.com/multiagentcoordinationprotocol/macp-sdk-python/compare/v0.23.0...v0.23.1) (2026-11-01)
 
 
