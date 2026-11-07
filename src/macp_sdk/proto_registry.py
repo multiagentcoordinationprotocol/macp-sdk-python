@@ -29,6 +29,12 @@ CORE_MAP: dict[str, str] = {
     "Commitment": "macp.v1.CommitmentPayload",
     "Signal": "macp.v1.SignalPayload",
     "Progress": "macp.v1.ProgressPayload",
+    # Runtime-emitted lifecycle annotations (RFC-MACP-0001 §7.3, §7.5). Agents
+    # never send these (the runtime rejects them, FORBIDDEN), but they arrive
+    # in streams and history, so decode must know their payload schema.
+    "SessionCancel": "macp.v1.SessionCancelPayload",
+    "SessionSuspend": "macp.v1.SessionSuspendPayload",
+    "SessionResume": "macp.v1.SessionResumePayload",
 }
 
 MODE_MAP: dict[str, dict[str, str]] = {

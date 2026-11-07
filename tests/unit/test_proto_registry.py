@@ -20,6 +20,7 @@ import base64
 import json
 
 import pytest
+from macp.v1 import core_pb2
 
 from macp_sdk.constants import (
     MODE_DECISION,
@@ -70,6 +71,23 @@ class TestKnownTypeLookup:
     def test_unknown_mode_falls_back_to_core_map(self, registry: ProtoRegistry):
         # Unknown mode + known core message → core map wins.
         assert registry.get_known_type_name("bogus", "SessionStart") == CORE_MAP["SessionStart"]
+
+    @pytest.mark.parametrize("message_type", ["SessionCancel", "SessionSuspend", "SessionResume"])
+    def test_runtime_annotations_map_to_core_payloads(
+        self, registry: ProtoRegistry, message_type: str
+    ):
+        # RFC-MACP-0001 §7.3/§7.5: runtime-emitted annotations reach agents via
+        # streams, so their payloads must decode in any mode.
+        expected = f"macp.v1.{message_type}Payload"
+        assert registry.get_known_type_name(MODE_DECISION, message_type) == expected
+        assert registry.get_known_type_name("bogus", message_type) == expected
+
+    def test_session_cancel_payload_decodes(self, registry: ProtoRegistry):
+        payload = core_pb2.SessionCancelPayload(reason="ttl", cancelled_by="agent://a")
+        decoded = registry.decode_known_payload(
+            MODE_DECISION, "SessionCancel", payload.SerializeToString()
+        )
+        assert decoded == {"reason": "ttl", "cancelled_by": "agent://a"}
 
     def test_unknown_message_returns_none(self, registry: ProtoRegistry):
         assert registry.get_known_type_name(MODE_DECISION, "Bogus") is None
