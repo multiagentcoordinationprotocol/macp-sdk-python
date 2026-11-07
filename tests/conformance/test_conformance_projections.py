@@ -98,14 +98,17 @@ def _build_payload(payload_type: str, payload_data: dict) -> bytes:
 
 
 def _build_envelope(mode: str, msg: dict, session_id: str) -> envelope_pb2.Envelope:
+    # A message's optional ``envelope`` object overrides the derived fields
+    # (canonical schema.json), e.g. an ambient Signal's empty session_id/mode.
+    overrides = msg.get("envelope") or {}
     return envelope_pb2.Envelope(
-        macp_version="1.0",
-        mode=mode,
+        macp_version=overrides.get("macp_version", "1.0"),
+        mode=overrides.get("mode", mode),
         message_type=msg["message_type"],
         message_id=new_message_id(),
-        session_id=session_id,
+        session_id=overrides.get("session_id", session_id),
         sender=msg["sender"],
-        timestamp_unix_ms=now_unix_ms(),
+        timestamp_unix_ms=overrides.get("timestamp_unix_ms", now_unix_ms()),
         payload=_build_payload(msg["payload_type"], msg["payload"]),
     )
 
@@ -167,7 +170,12 @@ def test_projection_replay(name: str, fixture: dict, caplog: pytest.LogCaptureFi
                 continue
             envelope = _build_envelope(mode, msg, session_id)
             projection.apply_envelope(envelope)
-            accepted_count += 1
+            # An ambient step (envelope mode overridden to '', i.e. a Signal,
+            # RFC-MACP-0001 §5.1) MUST NOT affect session state, so the
+            # projection's mode guard drops it and it is not counted. Mirrors
+            # the TypeScript harness.
+            if envelope.mode == mode:
+                accepted_count += 1
 
     # Zero-anomaly gate (issue #43 Phase 4): the corpus was verified to
     # contain no accepted-path same-sender duplicate Vote/ballot. This
