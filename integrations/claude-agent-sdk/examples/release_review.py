@@ -12,7 +12,7 @@ test runs it). Set ``ANTHROPIC_API_KEY`` and pass ``--live`` to have
 ``claude-opus-5-5`` do the reviewing. Run it against a local runtime::
 
     docker run -d -p 50051:50051 -e MACP_ALLOW_INSECURE=1 \\
-        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
+        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.1
     python examples/release_review.py           # MACP_RUNTIME_TARGET to override
     ANTHROPIC_API_KEY=... python examples/release_review.py --live
 """

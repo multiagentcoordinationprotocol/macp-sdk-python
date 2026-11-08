@@ -61,7 +61,7 @@ A local runtime for development:
 
 ```bash
 docker run -d -p 50051:50051 -e MACP_ALLOW_INSECURE=1 \
-  ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
+  ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.1
 ```
 
 ## How a vote runs

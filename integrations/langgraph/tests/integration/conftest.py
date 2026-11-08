@@ -4,7 +4,7 @@ Default ``127.0.0.1:50051``; override with ``MACP_RUNTIME_TARGET``. Start one
 with::
 
     docker run -p 50051:50051 -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 \\
-        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
+        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.1
 
 When none is reachable the directory is skipped, so a bare ``pytest`` stays
 green. CI asserts the suite actually ran (see ci.yml).
