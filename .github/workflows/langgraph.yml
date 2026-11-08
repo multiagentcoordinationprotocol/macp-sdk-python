@@ -69,7 +69,7 @@ jobs:
       packages: read
     services:
       runtime:
-        image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+        image: ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
         env:
           MACP_ALLOW_INSECURE: "1"
           MACP_MEMORY_ONLY: "1"

@@ -34,7 +34,7 @@ test:  ## Run unit tests with the coverage gate (fail_under from pyproject).
 test-integration:  ## Run integration tests (requires a running MACP runtime).
 	pytest tests/integration/ -v -m integration
 
-RUNTIME_IMAGE := ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.12.0
+RUNTIME_IMAGE := ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
 
 test-integration-docker:  ## Run integration tests against the CI-pinned runtime image (needs docker, openssl).
 	docker rm -f macp-sdk-it macp-sdk-it-ro macp-sdk-it-signed >/dev/null 2>&1 || true
