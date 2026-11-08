@@ -9,7 +9,7 @@ which reports it. ``on_result`` keeps a copy for the receipt.
 Needs ``ANTHROPIC_API_KEY`` and a local runtime::
 
     docker run -d -p 50051:50051 -e MACP_ALLOW_INSECURE=1 \\
-        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.9.0
+        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
     ANTHROPIC_API_KEY=... python examples/lead_agent_review.py
 """
 

@@ -36,7 +36,7 @@ suite on Python 3.11, 3.12 and 3.13.
 ### 1. Start a local runtime
 
 ```bash
-docker run -p 50051:50051 -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.12.0
+docker run -p 50051:50051 -e MACP_ALLOW_INSECURE=1 -e MACP_MEMORY_ONLY=1 ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
 ```
 
 This is the runtime image CI pins. `MACP_ALLOW_INSECURE=1` permits plaintext and
@@ -185,7 +185,7 @@ receipt = build_receipt(
     mode="macp.mode.decision.v1",
     issuer="runtime:example",
     issued_at="2026-10-24T12:00:00Z",
-    semantics_rev={"implementation": "macp-runtime", "rev": 4},
+    semantics_rev={"implementation": "macp-runtime", "rev": 5},
     signer=ReceiptSigner("example-1", private_key=seed),  # 32-byte seed, or sign=callback
 )
 
@@ -283,7 +283,7 @@ Full docs available in `docs/` — build with `mkdocs serve` after `make setup`.
 
 | SDK | Runtime | macp-proto |
 |---|---|---|
-| 0.17.x | 0.9.x (`semantics_rev` 4) | 0.1.11 |
+| 0.23.x | 0.14.x (`semantics_rev` 5) | 0.1.13 |
 
 CI runs `tests/integration/` against the pinned runtime image on every PR
 (`make test-integration-docker` runs the same suite locally). Runtimes older than 0.9.0 are
