@@ -12,7 +12,7 @@ run (``real_llm_review.py`` uses a real model). Run it against a local
 runtime::
 
     docker run -d -p 50051:50051 -e MACP_ALLOW_INSECURE=1 \\
-        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.0
+        ghcr.io/multiagentcoordinationprotocol/macp-runtime:0.14.1
     python examples/fraud_review_graph.py            # MACP_RUNTIME_TARGET to override
 """
 
